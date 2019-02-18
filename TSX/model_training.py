@@ -78,14 +78,15 @@ if __name__=='__main__':
     # enc = EncoderRNN(feature_size=1, hidden_size=5)
     # dec = DecoderRNN(hidden_size=5, output_size=1)
     # enc = Encoder(50,5)
-    dec = Decoder(48,64)
+    encoding_size = 64
+    enc = Encoder(1,encoding_size=encoding_size)
+    dec = Decoder(48,encoding_size=encoding_size)
     # input shape to the encoder = [batch,in_channel,input_len]
-    enc = Encoder(1)
     encoding = (enc(torch.Tensor(x))).detach().numpy()
     # plt.plot(encoding[0,:])
     # plt.show()
 
-    x_recon = train_ecoder(encoder_model=enc, decoder_model=dec,x=torch.Tensor(x), n_epochs=500)
+    x_recon = train_ecoder(encoder_model=enc, decoder_model=dec,x=torch.Tensor(x), n_epochs=200)
     x_recon = x_recon.detach().numpy()
 
     plt.plot(np.array(x_recon[3,:,:]).reshape(-1,))
@@ -110,7 +111,7 @@ if __name__=='__main__':
     x_recon_test = x_recon_test.detach().numpy()
 
     plt.figure()
-    plt.plot(np.array(x_recon_test[3,:,:]).reshape(-1,))
-    plt.plot(np.array(x_test[3,:,:]).reshape(-1,))
+    plt.plot(np.array(x_recon_test[0,:,:]).reshape(-1,))
+    plt.plot(np.array(x_test[0,:,:]).reshape(-1,))
     plt.title('Test reconstruction')
     plt.show()

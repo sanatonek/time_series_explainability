@@ -79,17 +79,17 @@ class Encoder(nn.Module):
         c = torch.zeros(code.shape[0], self.encoding_size)
         for i in range(code.shape[2]):
             h, c = self.enc_lstm(code[:,:,i].view(code.shape[0],code.shape[1]) , (h,c))
-        return nn.Softmax(dim=1)(h)
+        return h
 
 
 
 class Decoder(nn.Module):
-    def __init__(self, output_len, code_size):
+    def __init__(self, output_len, encoding_size):
         super(Decoder, self).__init__()
-        self.code_size = code_size
+        self.encoding_size = encoding_size
         self.output_len = output_len
         # Decoder specification
-        self.dec_linear_1 = nn.Linear(self.code_size, 160)
+        self.dec_linear_1 = nn.Linear(self.encoding_size, 160)
         self.dec_linear_2 = nn.Linear(160, self.output_len)
 
 
