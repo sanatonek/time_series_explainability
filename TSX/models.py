@@ -1,6 +1,7 @@
 import numpy as numpy
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 class EncoderRNN(nn.Module):
     def __init__(self, feature_size, hidden_size):
@@ -56,3 +57,44 @@ class RiskPredictor(nn.Module):
         x = torch.cat((encoding,demographics), dim=1) 
         risk = nn.Sigmoid()(self.net(x))  
         return risk
+
+
+class Encoder(nn.Module):
+    ''' This encoder consists of a CNN and a RNN layer on top of it, 
+        in order to be ableto handle variable length inputs
+    '''
+    def __init__(self, in_channels, encoding_size=64):
+        super(Encoder, self).__init__()
+        self.in_channels = in_channels
+        self.enc_channels = 32
+        self.encoding_size = encoding_size
+        self.enc_cnn = nn.Sequential( nn.Conv1d(self.in_channels, self.enc_channels, kernel_size=4),
+                                      nn.MaxPool1d(kernel_size=2, stride=2),
+                                      nn.ReLU()  )
+        self.enc_lstm = nn.LSTMCell(input_size=self.enc_channels, hidden_size=self.encoding_size)
+
+    def forward(self, signals):
+        code = self.enc_cnn(signals)
+        h = torch.zeros(code.shape[0], self.encoding_size)
+        c = torch.zeros(code.shape[0], self.encoding_size)
+        for i in range(code.shape[2]):
+            h, c = self.enc_lstm(code[:,:,i].view(code.shape[0],code.shape[1]) , (h,c))
+        return nn.Softmax(dim=1)(h)
+
+
+
+class Decoder(nn.Module):
+    def __init__(self, output_len, code_size):
+        super(Decoder, self).__init__()
+        self.code_size = code_size
+        self.output_len = output_len
+        # Decoder specification
+        self.dec_linear_1 = nn.Linear(self.code_size, 160)
+        self.dec_linear_2 = nn.Linear(160, self.output_len)
+
+
+    def forward(self, code):
+        out = F.relu(self.dec_linear_1(code))
+        out = self.dec_linear_2(out)
+        out = out.view([code.size(0), 1,self.output_len])
+        return out
