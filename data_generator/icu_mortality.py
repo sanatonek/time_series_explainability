@@ -1,4 +1,4 @@
-# Generates the following data files from MIMIC:
+# Generates the following data file from MIMIC:
 # adult_icu.gz: data from adult ICUs
 
 import numpy as np
@@ -161,7 +161,7 @@ def main(sqluser, sqlpass):
   , avg(case when VitalID = 8 then valuenum else null end) as Glucose_Mean
 
   FROM  (
-    select ie.subject_id, ie.hadm_id, ie.icustay_id
+    select ie.subject_id, ie.hadm_id, ie.icustay_id, ce.charttime, ce.valuenum
     , case
       when itemid in (211,220045) and valuenum > 0 and valuenum < 300 then 1 -- HeartRate
       when itemid in (51,442,455,6701,220179,220050) and valuenum > 0 and valuenum < 400 then 2 -- SysBP
