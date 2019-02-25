@@ -1,5 +1,4 @@
-# Generates the following data file from MIMIC:
-# adult_icu.gz: data from adult ICUs
+# Generates data from adult ICUs including demographics, lab results and vital measurements
 
 import numpy as np
 import pandas as pd
@@ -23,7 +22,9 @@ def replace(group):
 def main(sqluser, sqlpass):
   random.seed(22891)
   # Ouput directory to generate the files
-  mimicdir = os.path.expanduser("./")
+  if not os.path.exists("./data/"):
+    os.mkdir("./data/")
+  mimicdir = os.path.expanduser("./data/")
 
   # create a database connection and connect to local postgres version of mimic
   dbname = 'mimic'
@@ -39,27 +40,18 @@ def main(sqluser, sqlpass):
   # this query extracts the following:
   #   Unique ids for the admission, patient and icu stay 
   #   Patient gender 
-  #   admission & discharge times 
-  #   length of stay 
+  #   diagnosis
   #   age 
   #   ethnicity 
   #   admission type 
-  #   in hospital death?
-  #   in icu death?
-  #   one year from admission death?
   #   first hospital stay 
-  #   icu intime, icu outime 
-  #   los in icu 
   #   first icu stay?
 
   denquery = \
   """
-  -- This query extracts useful demographic/administrative information for patient ICU stays
-  --DROP MATERIALIZED VIEW IF EXISTS icustay_detail CASCADE;
-  --CREATE MATERIALIZED VIEW icustay_detail as
-
   --ie is the icustays table 
   --adm is the admissions table 
+
   SELECT ie.subject_id, ie.hadm_id, ie.icustay_id
   , pat.gender
   , adm.admittime, adm.dischtime, adm.diagnosis
@@ -90,26 +82,16 @@ def main(sqluser, sqlpass):
       ON ie.subject_id = pat.subject_id
   WHERE adm.has_chartevents_data = 1
   ORDER BY ie.subject_id, adm.admittime, ie.intime;
-
   """
 
   den = pd.read_sql_query(denquery,con)
 
-  #----drop patients with less than 48 hour 
+  ## drop patients with less than 48 hour 
   den['los_icu_hr'] = (den.outtime - den.intime).astype('timedelta64[h]')
   den = den[(den.los_icu_hr >= 48)]
   den = den[(den.age<300)]
   den.drop('los_icu_hr', 1, inplace = True)
-  # den.isnull().sum()
-
-  #----clean up
-
-  # micu --> medical 
-  # csru --> cardiac surgery recovery unit 
-  # sicu --> surgical icu 
-  # tsicu --> Trauma Surgical Intensive Care Unit
-  # NICU --> Neonatal 
-
+  ## clean up
   den['adult_icu'] = np.where(den['first_careunit'].isin(['PICU', 'NICU']), 0, 1)
   den['gender'] = np.where(den['gender']=="M", 1, 0)
   den.ethnicity = den.ethnicity.str.lower()
@@ -118,10 +100,11 @@ def main(sqluser, sqlpass):
   den.ethnicity.loc[(den.ethnicity.str.contains('^hisp')) | (den.ethnicity.str.contains('^latin'))] = 'hispanic'
   den.ethnicity.loc[(den.ethnicity.str.contains('^asia'))] = 'asian'
   den.ethnicity.loc[~(den.ethnicity.str.contains('|'.join(['white', 'black', 'hispanic', 'asian'])))] = 'other'
-  den = pd.concat([den, pd.get_dummies(den['ethnicity'], prefix='eth')], 1)
-  den = pd.concat([den, pd.get_dummies(den['admission_type'], prefix='admType')], 1)
 
-  den.drop(['diagnosis', 'hospstay_seq', 'los_icu','icustay_seq', 'admittime', 'dischtime','los_hospital', 'intime', 'outtime', 'ethnicity', 'admission_type', 'first_careunit'], 1, inplace =True) 
+  den.drop(['hospstay_seq', 'los_icu','icustay_seq', 'admittime', 'dischtime','los_hospital', 'intime', 'outtime', 'first_careunit'], 1, inplace =True) 
+
+
+
 
   #========= 48 hour vitals query 
   # these are the normal ranges. useful to clean up the data
@@ -132,49 +115,40 @@ def main(sqluser, sqlpass):
   -- Vital signs include heart rate, blood pressure, respiration rate, and temperature
   -- DROP MATERIALIZED VIEW IF EXISTS vitalsfirstday CASCADE;
   -- create materialized view vitalsfirstday as
-  SELECT pvt.subject_id, pvt.hadm_id, pvt.icustay_id
 
-  -- Easier names
-  , min(case when VitalID = 1 then valuenum else null end) as HeartRate_Min
-  , max(case when VitalID = 1 then valuenum else null end) as HeartRate_Max
-  , avg(case when VitalID = 1 then valuenum else null end) as HeartRate_Mean
-  , min(case when VitalID = 2 then valuenum else null end) as SysBP_Min
-  , max(case when VitalID = 2 then valuenum else null end) as SysBP_Max
-  , avg(case when VitalID = 2 then valuenum else null end) as SysBP_Mean
-  , min(case when VitalID = 3 then valuenum else null end) as DiasBP_Min
-  , max(case when VitalID = 3 then valuenum else null end) as DiasBP_Max
-  , avg(case when VitalID = 3 then valuenum else null end) as DiasBP_Mean
-  , min(case when VitalID = 4 then valuenum else null end) as MeanBP_Min
-  , max(case when VitalID = 4 then valuenum else null end) as MeanBP_Max
-  , avg(case when VitalID = 4 then valuenum else null end) as MeanBP_Mean
-  , min(case when VitalID = 5 then valuenum else null end) as RespRate_Min
-  , max(case when VitalID = 5 then valuenum else null end) as RespRate_Max
-  , avg(case when VitalID = 5 then valuenum else null end) as RespRate_Mean
-  , min(case when VitalID = 6 then valuenum else null end) as TempC_Min
-  , max(case when VitalID = 6 then valuenum else null end) as TempC_Max
-  , avg(case when VitalID = 6 then valuenum else null end) as TempC_Mean
-  , min(case when VitalID = 7 then valuenum else null end) as SpO2_Min
-  , max(case when VitalID = 7 then valuenum else null end) as SpO2_Max
-  , avg(case when VitalID = 7 then valuenum else null end) as SpO2_Mean
-  , min(case when VitalID = 8 then valuenum else null end) as Glucose_Min
-  , max(case when VitalID = 8 then valuenum else null end) as Glucose_Max
-  , avg(case when VitalID = 8 then valuenum else null end) as Glucose_Mean
+  SELECT pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.VitalID, pvt.VitalValue, pvt.VitalChartTime
 
   FROM  (
-    select ie.subject_id, ie.hadm_id, ie.icustay_id, ce.charttime, ce.valuenum
+    select ie.subject_id, ie.hadm_id, ie.icustay_id, ce.charttime as VitalChartTime 
     , case
-      when itemid in (211,220045) and valuenum > 0 and valuenum < 300 then 1 -- HeartRate
-      when itemid in (51,442,455,6701,220179,220050) and valuenum > 0 and valuenum < 400 then 2 -- SysBP
-      when itemid in (8368,8440,8441,8555,220180,220051) and valuenum > 0 and valuenum < 300 then 3 -- DiasBP
-      when itemid in (456,52,6702,443,220052,220181,225312) and valuenum > 0 and valuenum < 300 then 4 -- MeanBP
-      when itemid in (615,618,220210,224690) and valuenum > 0 and valuenum < 70 then 5 -- RespRate
-      when itemid in (223761,678) and valuenum > 70 and valuenum < 120  then 6 -- TempF, converted to degC in valuenum call
-      when itemid in (223762,676) and valuenum > 10 and valuenum < 50  then 6 -- TempC
-      when itemid in (646,220277) and valuenum > 0 and valuenum <= 100 then 7 -- SpO2
-      when itemid in (807,811,1529,3745,3744,225664,220621,226537) and valuenum > 0 then 8 -- Glucose
+      when itemid in (211,220045) and valuenum > 0 and valuenum < 300 then 'HeartRate'
+      when itemid in (51,442,455,6701,220179,220050) and valuenum > 0 and valuenum < 400 then 'SysBP'
+      when itemid in (8368,8440,8441,8555,220180,220051) and valuenum > 0 and valuenum < 300 then 'DiasBP'
+      when itemid in (456,52,6702,443,220052,220181,225312) and valuenum > 0 and valuenum < 300 then 'MeanBP'
+      when itemid in (615,618,220210,224690) and valuenum > 0 and valuenum < 70 then 'RespRate'
+      when itemid in (223761,678) and valuenum > 70 and valuenum < 120  then 'TempF' -- converted to degC in valuenum call
+      when itemid in (223762,676) and valuenum > 10 and valuenum < 50  then 'TempC'
+      when itemid in (646,220277) and valuenum > 0 and valuenum <= 100 then 'SpO2'
+      when itemid in (807,811,1529,3745,3744,225664,220621,226537) and valuenum > 0 then 'Glucose'
 
       else null end as VitalID
-        -- convert F to C
+
+
+      , case
+      when itemid in (211,220045) and valuenum > 0 and valuenum < 300 then valuenum -- HeartRate
+      when itemid in (51,442,455,6701,220179,220050) and valuenum > 0 and valuenum < 400 then valuenum -- SysBP
+      when itemid in (8368,8440,8441,8555,220180,220051) and valuenum > 0 and valuenum < 300 then valuenum -- DiasBP
+      when itemid in (456,52,6702,443,220052,220181,225312) and valuenum > 0 and valuenum < 300 then valuenum -- MeanBP
+      when itemid in (615,618,220210,224690) and valuenum > 0 and valuenum < 70 then valuenum -- RespRate
+      when itemid in (223761,678) and valuenum > 70 and valuenum < 120  then valuenum -- TempF, converted to degC in valuenum call
+      when itemid in (223762,676) and valuenum > 10 and valuenum < 50  then valuenum -- TempC
+      when itemid in (646,220277) and valuenum > 0 and valuenum <= 100 then valuenum -- SpO2
+      when itemid in (807,811,1529,3745,3744,225664,220621,226537) and valuenum > 0 then valuenum -- Glucose
+
+      else null end as VitalValue
+
+
+     -- convert F to C
     , case when itemid in (223761,678) then (valuenum-32)/1.8 else valuenum end as valuenum
 
     from icustays ie
@@ -182,7 +156,7 @@ def main(sqluser, sqlpass):
     on ie.subject_id = ce.subject_id and ie.hadm_id = ce.hadm_id and ie.icustay_id = ce.icustay_id
     and ce.charttime between ie.intime and ie.intime + interval '48' hour
     -- exclude rows marked as error
-    and ce.error IS DISTINCT FROM 1
+    and ce.error IS DISTINCT FROM 1 
     where ce.itemid in
     (
     -- HEART RATE
@@ -190,7 +164,6 @@ def main(sqluser, sqlpass):
     220045, --"Heart Rate"
 
     -- Systolic/diastolic
-
     51, --	Arterial BP [Systolic]
     442, --	Manual BP [Systolic]
     455, --	NBP [Systolic]
@@ -204,7 +177,6 @@ def main(sqluser, sqlpass):
     8555, --	Arterial BP #2 [Diastolic]
     220180, --	Non Invasive Blood Pressure diastolic
     220051, --	Arterial Blood Pressure diastolic
-
 
     -- MEAN ARTERIAL PRESSURE
     456, --"NBP Mean"
@@ -220,7 +192,6 @@ def main(sqluser, sqlpass):
     615,--	Resp Rate (Total)
     220210,--	Respiratory Rate
     224690, --	Respiratory Rate (Total)
-
 
     -- SPO2, peripheral
     646, 220277,
@@ -241,14 +212,14 @@ def main(sqluser, sqlpass):
     223761, -- "Temperature Fahrenheit"
     678 --	"Temperature F"
 
-    )
+    ) 
   ) pvt
-  group by pvt.subject_id, pvt.hadm_id, pvt.icustay_id
-  order by pvt.subject_id, pvt.hadm_id, pvt.icustay_id;
+  where pvt.VitalID is not NULL
+  order by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.VitalID, pvt.VitalChartTime;
   """
-
   vit48 = pd.read_sql_query(vitquery,con)
   vit48.isnull().sum()
+
 
 
   #===============48 hour labs query 
@@ -259,9 +230,7 @@ def main(sqluser, sqlpass):
     --- ie is the icu stay 
     --- ad is the admissions table 
     --- le is the lab events table 
-    SELECT ie.subject_id, ie.hadm_id, ie.icustay_id, le.charttime
-    -- here we assign labels to ITEMIDs
-    -- this also fuses together multiple ITEMIDs containing the same data
+    SELECT ie.subject_id, ie.hadm_id, ie.icustay_id, le.charttime as LabChartTime
     , CASE
           when le.itemid = 50868 then 'ANION GAP'
           when le.itemid = 50862 then 'ALBUMIN'
@@ -292,9 +261,8 @@ def main(sqluser, sqlpass):
           when le.itemid = 51301 then 'WBC'
         ELSE null
         END AS label
+    
     , -- add in some sanity checks on the values
-      -- the where clause below requires all valuenum to be > 0, 
-      -- so these are only upper limit checks
       CASE
         when le.itemid = 50862 and le.valuenum >    10 then null -- g/dL 'ALBUMIN'
         when le.itemid = 50868 and le.valuenum > 10000 then null -- mEq/L 'ANION GAP'
@@ -324,14 +292,13 @@ def main(sqluser, sqlpass):
         when le.itemid = 51300 and le.valuenum >  1000 then null -- 'WBC'
         when le.itemid = 51301 and le.valuenum >  1000 then null -- 'WBC'
       ELSE le.valuenum
-      END AS valuenum
-    FROM icustays ie
+      END AS LabValue
 
+
+    FROM icustays ie
     LEFT JOIN labevents le
       ON le.subject_id = ie.subject_id 
       AND le.hadm_id = ie.hadm_id
-      -- TODO: they are using lab times 6 hours before the start of the 
-      -- ICU stay. 
       AND le.charttime between (ie.intime - interval '6' hour) 
       AND (ie.intime + interval '48' hour)
       AND le.itemid IN
@@ -373,63 +340,37 @@ def main(sqluser, sqlpass):
       AND ie.hadm_id = ad.hadm_id
 
       
-  ),
-  ranked AS (
-  SELECT pvt.*, DENSE_RANK() OVER (PARTITION BY 
-      pvt.subject_id, pvt.hadm_id,pvt.icustay_id,pvt.label ORDER BY pvt.charttime) as drank
-  FROM pvt
   )
-  SELECT r.subject_id, r.hadm_id, r.icustay_id
-    , max(case when label = 'ANION GAP' then valuenum else null end) as ANIONGAP
-    , max(case when label = 'ALBUMIN' then valuenum else null end) as ALBUMIN
-    , max(case when label = 'BICARBONATE' then valuenum else null end) as BICARBONATE
-    , max(case when label = 'BILIRUBIN' then valuenum else null end) as BILIRUBIN
-    , max(case when label = 'CREATININE' then valuenum else null end) as CREATININE
-    , max(case when label = 'CHLORIDE' then valuenum else null end) as CHLORIDE
-    , max(case when label = 'GLUCOSE' then valuenum else null end) as GLUCOSE
-    , max(case when label = 'HEMATOCRIT' then valuenum else null end) as HEMATOCRIT
-    , max(case when label = 'HEMOGLOBIN' then valuenum else null end) as HEMOGLOBIN
-    , max(case when label = 'LACTATE' then valuenum else null end) as LACTATE
-    , max(case when label = 'MAGNESIUM' then valuenum else null end) as MAGNESIUM
-    , max(case when label = 'PHOSPHATE' then valuenum else null end) as PHOSPHATE
-    , max(case when label = 'PLATELET' then valuenum else null end) as PLATELET
-    , max(case when label = 'POTASSIUM' then valuenum else null end) as POTASSIUM
-    , max(case when label = 'PTT' then valuenum else null end) as PTT
-    , max(case when label = 'INR' then valuenum else null end) as INR
-    , max(case when label = 'PT' then valuenum else null end) as PT
-    , max(case when label = 'SODIUM' then valuenum else null end) as SODIUM
-    , max(case when label = 'BUN' then valuenum else null end) as BUN
-    , max(case when label = 'WBC' then valuenum else null end) as WBC
+  SELECT pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.LabChartTime, pvt.label, pvt.LabValue 
+  From pvt
+  where pvt.label is not NULL
+  ORDER BY pvt.subject_id, pvt.hadm_id, pvt.icustay_id,pvt.LabChartTime;
 
-  FROM ranked r
-  WHERE r.drank = 1
-  GROUP BY r.subject_id, r.hadm_id, r.icustay_id,  r.drank
-  ORDER BY r.subject_id, r.hadm_id, r.icustay_id,  r.drank;
   """
 
   lab48 = pd.read_sql_query(labquery,con)
 
 
   #=====combine all variables 
-  mort_ds = den.merge(vit48,how = 'left',    on = ['subject_id', 'hadm_id', 'icustay_id'])
-  mort_ds = mort_ds.merge(lab48,how = 'left',    on = ['subject_id', 'hadm_id', 'icustay_id'])
+  mort_vital = den.merge(vit48,how = 'left',    on = ['subject_id', 'hadm_id', 'icustay_id'])
+  mort_lab = den.merge(lab48,how = 'left',    on = ['subject_id', 'hadm_id', 'icustay_id'])
 
 
   # create means by age group and gender 
-  mort_ds['age_group'] = pd.cut(mort_ds['age'], [-1,5,10,15,20, 25, 40,60, 80, 200], 
+  mort_vital['age_group'] = pd.cut(mort_vital['age'], [-1,5,10,15,20, 25, 40,60, 80, 200], 
+    labels = ['l5','5_10', '10_15', '15_20', '20_25', '25_40', '40_60',  '60_80', '80p'])
+  mort_lab['age_group'] = pd.cut(mort_lab['age'], [-1,5,10,15,20, 25, 40,60, 80, 200], 
     labels = ['l5','5_10', '10_15', '15_20', '20_25', '25_40', '40_60',  '60_80', '80p'])
 
-
-  mort_ds = mort_ds.groupby(['age_group', 'gender'])
-  mort_ds = mort_ds.transform(replace)
-
+  
   # one missing variable 
-  adult_icu = mort_ds[(mort_ds.adult_icu==1)].dropna()
-  # create training and testing labels 
-  msk = np.random.rand(len(adult_icu)) < 0.7
-  adult_icu['train'] = np.where(msk, 1, 0) 
-  adult_icu.to_csv(os.path.join(mimicdir, 'adult_icu.gz'), compression='gzip',  index = False)
-
+  adult_vital = mort_vital[(mort_vital.adult_icu==1)]
+  adult_lab = mort_lab[(mort_lab.adult_icu==1)]
+  adult_vital.drop(columns=['adult_icu'], inplace=True)
+  adult_lab.drop(columns=['adult_icu'], inplace=True)
+  
+  adult_vital.to_csv(os.path.join(mimicdir, 'adult_icu_vital.gz'), compression='gzip',  index = False)
+  mort_lab.to_csv(os.path.join(mimicdir, 'adult_icu_lab.gz'), compression='gzip',  index = False)
 
 
 
@@ -438,6 +379,6 @@ if __name__=="__main__":
 
   parser = argparse.ArgumentParser(description='Query ICU mortality data from mimic database')
   parser.add_argument('--sqluser',type=str, default='mimicuser' ,help='postgres user to access mimic database')
-  parser.add_argument('--sqlpass',type=str , default='PASSWORD', help='postgres user password to access mimic database')
+  parser.add_argument('--sqlpass',type=str , default='Iv7bahqu', help='postgres user password to access mimic database')
   args = parser.parse_args()
   main(args.sqluser, args.sqlpass)
