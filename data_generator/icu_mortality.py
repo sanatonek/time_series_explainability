@@ -46,6 +46,7 @@ def main(sqluser, sqlpass):
   #   admission type 
   #   first hospital stay 
   #   first icu stay?
+  #   mortality within a week
 
   denquery = \
   """
@@ -69,6 +70,8 @@ def main(sqluser, sqlpass):
   , ie.FIRST_CAREUNIT
   , ROUND( (CAST(ie.outtime AS DATE) - CAST(ie.intime AS DATE)) , 4) AS los_icu
   , DENSE_RANK() OVER (PARTITION BY ie.hadm_id ORDER BY ie.intime) AS icustay_seq
+  , CASE
+      WHEN adm.deathtime between ie.intime and ie.intime + interval '168' hour THEN 1 ELSE 0 END AS mort_week
 
   -- first ICU stay *for the current hospitalization*
   , CASE
@@ -126,8 +129,8 @@ def main(sqluser, sqlpass):
       when itemid in (8368,8440,8441,8555,220180,220051) and valuenum > 0 and valuenum < 300 then 'DiasBP'
       when itemid in (456,52,6702,443,220052,220181,225312) and valuenum > 0 and valuenum < 300 then 'MeanBP'
       when itemid in (615,618,220210,224690) and valuenum > 0 and valuenum < 70 then 'RespRate'
-      when itemid in (223761,678) and valuenum > 70 and valuenum < 120  then 'TempF' -- converted to degC in valuenum call
-      when itemid in (223762,676) and valuenum > 10 and valuenum < 50  then 'TempC'
+      when itemid in (223761,678) and valuenum > 70 and valuenum < 120  then 'Temp' -- converted to degC in valuenum call
+      when itemid in (223762,676) and valuenum > 10 and valuenum < 50  then 'Temp'
       when itemid in (646,220277) and valuenum > 0 and valuenum <= 100 then 'SpO2'
       when itemid in (807,811,1529,3745,3744,225664,220621,226537) and valuenum > 0 then 'Glucose'
 
@@ -140,16 +143,13 @@ def main(sqluser, sqlpass):
       when itemid in (8368,8440,8441,8555,220180,220051) and valuenum > 0 and valuenum < 300 then valuenum -- DiasBP
       when itemid in (456,52,6702,443,220052,220181,225312) and valuenum > 0 and valuenum < 300 then valuenum -- MeanBP
       when itemid in (615,618,220210,224690) and valuenum > 0 and valuenum < 70 then valuenum -- RespRate
-      when itemid in (223761,678) and valuenum > 70 and valuenum < 120  then valuenum -- TempF, converted to degC in valuenum call
+      when itemid in (223761,678) and valuenum > 70 and valuenum < 120  then (valuenum-32)/1.8 -- TempF, convert to degC
       when itemid in (223762,676) and valuenum > 10 and valuenum < 50  then valuenum -- TempC
       when itemid in (646,220277) and valuenum > 0 and valuenum <= 100 then valuenum -- SpO2
       when itemid in (807,811,1529,3745,3744,225664,220621,226537) and valuenum > 0 then valuenum -- Glucose
 
       else null end as VitalValue
 
-
-     -- convert F to C
-    , case when itemid in (223761,678) then (valuenum-32)/1.8 else valuenum end as valuenum
 
     from icustays ie
     left join chartevents ce
@@ -214,7 +214,7 @@ def main(sqluser, sqlpass):
 
     ) 
   ) pvt
-  where pvt.VitalID is not NULL
+  where VitalID is not null
   order by pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.VitalID, pvt.VitalChartTime;
   """
   vit48 = pd.read_sql_query(vitquery,con)
@@ -299,8 +299,7 @@ def main(sqluser, sqlpass):
     LEFT JOIN labevents le
       ON le.subject_id = ie.subject_id 
       AND le.hadm_id = ie.hadm_id
-      AND le.charttime between (ie.intime - interval '6' hour) 
-      AND (ie.intime + interval '48' hour)
+      AND le.charttime between (ie.intime) AND (ie.intime + interval '48' hour)
       AND le.itemid IN
       (
         -- comment is: LABEL | CATEGORY | FLUID | NUMBER OF ROWS IN LABEVENTS
@@ -344,7 +343,7 @@ def main(sqluser, sqlpass):
   SELECT pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.LabChartTime, pvt.label, pvt.LabValue 
   From pvt
   where pvt.label is not NULL
-  ORDER BY pvt.subject_id, pvt.hadm_id, pvt.icustay_id,pvt.LabChartTime;
+  ORDER BY pvt.subject_id, pvt.hadm_id, pvt.icustay_id, pvt.label, pvt.LabChartTime;
 
   """
 
