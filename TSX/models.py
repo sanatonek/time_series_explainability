@@ -5,17 +5,18 @@ from torch import nn
 import torch.nn.functional as F
 
 class EncoderRNN(nn.Module):
-    def __init__(self, feature_size, hidden_size, rnn="GRU", bidirectional=False, seed=random.seed('2019')):
+    def __init__(self, feature_size, hidden_size, rnn="GRU", regres=True, bidirectional=False, seed=random.seed('2019')):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
         self.seed = seed
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.rnn_type = rnn
+        self.regres = regres
         # Input to torch LSTM should be of size (seq_len, batch, input_size)
         if self.rnn_type=='GRU':
             self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional)
         else:
-            self.rnn = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional, dropout=0.5 )
+            self.rnn = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional)
         self.regressor = nn.Sequential( nn.BatchNorm1d(num_features=self.hidden_size),
                                         nn.Dropout(0.5),
                                         nn.Linear(self.hidden_size, 1),
@@ -24,13 +25,15 @@ class EncoderRNN(nn.Module):
     def forward(self, input, past_state=None):
         if not past_state:
             #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
-            #past_state = torch.randn((1,input.shape[1],self.hidden_size)).to(self.device)
             past_state = torch.zeros([1,input.shape[1],self.hidden_size]).to(self.device)
         if self.rnn_type=='GRU':
             all_encoding, encoding = self.rnn(input, past_state)
         else:
             all_encodings, (encoding,state) = self.rnn(input, (past_state,past_state))
-        return self.regressor(encoding.view(encoding.shape[1],-1))
+        if self.regres:
+            return self.regressor(encoding.view(encoding.shape[1],-1))
+        else:
+            return encoding.view(encoding.shape[1],-1)
 
 
 class DecoderRNN(nn.Module):
@@ -70,11 +73,9 @@ class LR(nn.Module):
 
 
 class RiskPredictor(nn.Module):
-	def __init__(self, encoding_size, demographic_size):
+	def __init__(self, encoding_size):
 		super(RiskPredictor, self).__init__()
 		self.encoding_size = encoding_size 
-		self.demographic_size = demographic_size
-        #self.net = nn.Sequential( nn.Linear(self.encoding_size+self.demographic_size, 500),
 		self.net = nn.Sequential( nn.Linear(self.encoding_size, 500),
 									nn.ReLU(True),
 									nn.Dropout(0.5),
@@ -82,11 +83,7 @@ class RiskPredictor(nn.Module):
 									nn.ReLU(True),
 									nn.Linear(100, 1) )
 
-
-    #def forward(self, encoding, demographics):
 	def forward(self, x):
-		if len(x.shape)==3:
-			x = x.view(-1,self.encoding_size)
 		risk = nn.Sigmoid()(self.net(x))  
 		return risk
 

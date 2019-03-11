@@ -146,13 +146,13 @@ for i,id in enumerate(icu_id):
 f = open("./data/stats.txt","a")
 f.write('\n ******************* Before removing missing *********************')
 f.write('\n Number of patients: '+ str(len(y))+'\n Number of patients who died within their stay: '+str(np.count_nonzero(y)))
-for i,vital in enumerate(vital_IDs):
-        f.write("Missingness report for Vital signals")	
-        f.write("Missingness for %s: %.2f"%(vital,np.count_nonzero(missing_map[:,i])/len(icu_id)))
+f.write("\nMissingness report for Vital signals")
+for i,vital in enumerate(vital_IDs):	
+        f.write("\nMissingness for %s: %.2f"%(vital,np.count_nonzero(missing_map[:,i])/len(icu_id)))
         f.write("\n")
+f.write("\nMissingness report for Vital signals")	
 for i,lab in enumerate(lab_IDs):
-        f.write("Missingness report for Vital signals")	
-        f.write("Missingness for %s: %.2f"%(lab,np.count_nonzero(missing_map_lab[:,i])/len(icu_id)))
+        f.write("\nMissingness for %s: %.2f"%(lab,np.count_nonzero(missing_map_lab[:,i])/len(icu_id)))
         f.write("\n")
 
 
