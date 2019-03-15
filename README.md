@@ -12,6 +12,6 @@ python3 data_generator/data_preprocess.py
 `
 ## Model training
 Once the data is ready, train models using TSX/main.py
-`
+```
 python3 -m TSX.main --model <name of the model to train> --train
-`
+```
