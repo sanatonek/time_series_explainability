@@ -121,6 +121,7 @@ class EncoderRNN(nn.Module):
                                        nn.Sigmoid())
 
     def forward(self, input, past_state=None):
+        input = input.permute(2, 0, 1)
         if not past_state:
             #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
             past_state = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)
@@ -134,25 +135,63 @@ class EncoderRNN(nn.Module):
             return encoding.view(encoding.shape[1], -1)
 
 
+class RnnVAE(nn.Module):
+    def __init__(self, feature_size, hidden_size, bidirectional=False,
+                 seed=random.seed('2019')):
+        super(RnnVAE, self).__init__()
+        self.hidden_size = hidden_size
+        self.feature_size = feature_size
+        self.seed = seed
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # q(Zt|X0:t)
+        self.encoder = nn.GRU(self.feature_size, 2*self.hidden_size, bidirectional=bidirectional)
+        # P(Xt|Zt)
+        self.decoder = nn.Sequential(nn.Linear(self.hidden_size,400),
+                                     nn.ReLU(),
+                                     nn.Linear(400,self.feature_size),
+                                     nn.Sigmoid())
+
+    def encode(self, input):
+        input = input.permute(2, 0, 1)
+            #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
+        past_state = torch.zeros([1, input.shape[1], self.hidden_size*2]).to(self.device)
+        _, encoding= self.encoder(input, past_state)
+        mu = nn.ReLU()(encoding[:,:,:self.hidden_size]).view(-1,self.hidden_size)
+        logvar = nn.ReLU()(encoding[:,:,self.hidden_size:]).view(-1,self.hidden_size)
+        z = self.reparameterize(mu,logvar)
+        return z, mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5*logvar)
+        eps = torch.randn_like(std)
+        return mu + eps*std
+
+    def decode(self, z):
+        return self.decoder(z)
+
+    def forward(self, x):
+        z, mu, logvar = self.encode(x)
+        return z
+
+
 class DecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size):
+    def __init__(self, hidden_size, output_size, device):
         super(DecoderRNN, self).__init__()
         self.output_size = output_size
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTMCell(output_size, hidden_size)
+        self.encoding_size = hidden_size
+        self.rnn = nn.GRUCell(output_size, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
-        self.softmax = nn.Softmax()
+        self.device = device
 
-    def forward(self, past_state, out_len):
-        batch_size = past_state[0].shape[1]
-        hidden_state = past_state[0].view((batch_size, -1))
-        cell_state = past_state[1].view((batch_size, -1))
-        lstm_in = torch.zeros((batch_size, self.output_size))
-        output = torch.zeros((out_len, batch_size, self.output_size))
+    def forward(self, encoding, out_len, past_state=None):
+        output = torch.zeros([out_len, encoding.shape[0], self.output_size])
+        if not past_state:
+            past_state = torch.zeros(encoding.shape).to(self.device)
         for i in range(out_len, 0, -1):
-            hidden_state, cell_state = self.lstm(lstm_in, (hidden_state, cell_state))
-            lstm_in = self.softmax(self.out(hidden_state))
-            output[i - 1, :, :] = lstm_in
+            print(encoding.shape, past_state.shape)
+            encoding = self.rnn(encoding, past_state)
+            past_state = nn.Softmax()(self.out(past_state))
+            output[i - 1, :, :] = past_state
         return output
 
 
@@ -164,6 +203,7 @@ class LR(nn.Module):
                                  nn.Sigmoid())
 
     def forward(self, x):
+        x = x.mean(dim=2).reshape((x.shape[0], -1))
         if len(x.shape) == 3:
             x = x.view(-1, self.feature_size)
         risk = (self.net(x))

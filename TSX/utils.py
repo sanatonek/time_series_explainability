@@ -33,7 +33,7 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
     for i, (x, y) in enumerate(test_loader):
         x, y = torch.Tensor(x.float()).to(device), torch.Tensor(y.float()).to(device)
         # out = model(x.mean(dim=2).reshape((len(y),-1)))
-        out = model(x.permute(2, 0, 1))
+        out = model(x)
         prediction = (out > 0.5).view(len(y), ).float()
         auc, recall, precision, correct = evaluate(y, prediction, out)
         correct_label += correct
@@ -47,6 +47,7 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
 
 
 def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss(), verbose=True):
+    model = model.to(device)
     model.train()
     recall_train, precision_train, auc_train, correct_label, epoch_loss = 0, 0, 0, 0, 0
     count = 0
@@ -54,8 +55,7 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
         optimizer.zero_grad()
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
         # loss_criterion = torch.nn.BCELoss(weight=8*labels+1)
-        # risks = model(signals.mean(dim=2).reshape((len(labels),-1)))
-        risks = model(signals.permute(2, 0, 1))
+        risks = model(signals)
         predicted_label = (risks > 0.5).view(len(labels), ).float()
 
         auc, recall, precision, correct = evaluate(labels, predicted_label, risks)
@@ -72,13 +72,9 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
     return recall_train, precision_train, auc_train / count, correct_label, epoch_loss
 
 
-def train_model(model, train_loader, valid_loader, n_epochs, device, experiment):
+def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment):
     train_loss_trend = []
     test_loss_trend = []
-
-    parameters = model.parameters()
-    optimizer = torch.optim.Adam(parameters, lr=0.0001, weight_decay=1e-3)
-    # optimizer = torch.optim.SGD(parameters, lr=0.001, momentum=0.9, weight_decay=1e-4)
 
     for epoch in range(n_epochs + 1):
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss = train(train_loader, model,
@@ -104,6 +100,58 @@ def train_model(model, train_loader, valid_loader, n_epochs, device, experiment)
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
     plt.savefig('train_loss.png')
+
+
+def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, experiment):
+    train_loss_trend = []
+    test_loss_trend = []
+    model.to(device)
+
+    parameters = model.parameters()
+    optimizer = torch.optim.Adam(parameters, lr=0.0001, weight_decay=1e-3)
+    # optimizer = torch.optim.SGD(parameters, lr=0.001, momentum=0.9, weight_decay=1e-4)
+
+    for epoch in range(n_epochs + 1):
+        model.train()
+        epoch_loss = 0
+        for i, (signals, labels) in enumerate(train_loader):
+            optimizer.zero_grad()
+            signals, _ = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+            mu, logvar, z = model.encode(signals)
+            recon = model.decode(z)
+            loss = torch.nn.MSELoss()(recon, signals[:,:,-1].view(len(signals),-1)) - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            epoch_loss = + loss.item()
+            loss.backward()
+            optimizer.step()
+        test_loss = test_reconstruction(model, valid_loader, device)
+
+        train_loss_trend.append(epoch_loss)
+        test_loss_trend.append(test_loss)
+        if epoch % 10 == 0:
+            print('\nEpoch %d' % (epoch))
+            print('Training ===>loss: ', epoch_loss)
+            print('Test ===>loss: ', test_loss)
+
+    # Save model and results
+    if not os.path.exists("./ckpt/"):
+        os.mkdir("./ckpt/")
+    torch.save(model.state_dict(), './ckpt/' + str(experiment) + '.pt')
+    plt.plot(train_loss_trend, label='Train loss')
+    plt.plot(test_loss_trend, label='Validation loss')
+    plt.legend()
+    plt.savefig('train_loss.png')
+
+
+def test_reconstruction(model, valid_loader, device):
+    model.eval()
+    test_loss = 0
+    for i, (signals, labels) in enumerate(valid_loader):
+        signals, _ = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+        mu, logvar, z = model.encode(signals)
+        recon = model.decode(z)
+        loss = torch.nn.MSELoss()(recon, signals[:,:,-1].view(len(signals),-1)) - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        test_loss = + loss.item()
+    return test_loss
 
 
 def load_data(batch_size, path='./data_generator/data'):
