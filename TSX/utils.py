@@ -4,7 +4,7 @@ import torch
 import torch.utils.data as utils
 from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
-from TSX.models import PatientData
+from TSX.models import PatientData, NormalPatientData
 import matplotlib.pyplot as plt
 
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
@@ -25,6 +25,7 @@ def evaluate(labels, predicted_label, predicted_probability):
 
 
 def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
+    model.to(device)
     correct_label = 0
     recall_test, precision_test, auc_test = 0, 0, 0
     count = 0
@@ -154,8 +155,11 @@ def test_reconstruction(model, valid_loader, device):
     return test_loss
 
 
-def load_data(batch_size, path='./data_generator/data'):
-    p_data = PatientData(path)
+def load_data(batch_size, path='./data_generator/data', *argv):
+    if 'generator_data' in argv:
+        p_data = NormalPatientData(path)
+    else:
+        p_data = PatientData(path)
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
                                         torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
     valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
@@ -170,6 +174,6 @@ def load_data(batch_size, path='./data_generator/data'):
     print('Valid set: ', np.count_nonzero(p_data.train_label[int(0.8 * p_data.n_train):]),
           'patient who died out of %d total'%(len(p_data.train_label[int(0.8 * p_data.n_train):])),
           '(Average missing in validation: %.2f)' % (np.mean(p_data.train_missing[int(0.8 * p_data.n_train):])))
-    print('Test set: ', np.count_nonzero(p_data.test_label), 'patient who died  out of %d total'%(len(p_data.test_label)),
+    print('Test set: ', np.count_nonzero(p_data.test_label), 'patient who died  out of %d total'%(len(p_data.test_data)),
           '(Average missing in test: %.2f)' % (np.mean(p_data.test_missing)))
     return p_data, train_loader, valid_loader, test_loader

@@ -2,11 +2,11 @@ import torch
 import os
 from TSX.utils import train_model, load_data, test
 from TSX.models import DeepKnn
-from TSX.experiments import KalmanExperiment, Baseline, EncoderPredictor
+from TSX.experiments import KalmanExperiment, Baseline, EncoderPredictor, GeneratorExplainer
 import argparse
 
 
-def main(experiment, train, uncertainty_score):
+def main(experiment, train, uncertainty_score, sensitivity=False):
     print('********** Experiment with the %s model **********' %(experiment))
 
     # Configurations
@@ -22,8 +22,18 @@ def main(experiment, train, uncertainty_score):
         exp = EncoderPredictor(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size, rnn_type='GRU')
     elif experiment == 'VAE':
         exp = KalmanExperiment(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
+    elif experiment == 'generator_explainer':
+        exp = GeneratorExplainer(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
 
     exp.run(train=train)
+
+    if sensitivity:
+        exp.model.train()
+        for i, (signals, labels) in enumerate(train_loader):
+            signals = torch.Tensor(signals.float()).to(device).requires_grad_()
+            risks = exp.model(signals)
+            risks[0].backward(retain_graph=True)
+            print(signals.grad.data[0,:,:])
 
     if uncertainty_score:
         # Evaluate uncertainty using deep KNN method

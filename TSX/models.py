@@ -58,14 +58,46 @@ class PatientData():
         self.feature_means = np.tile(np.mean(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
         self.feature_std = np.tile(np.std(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
         np.seterr(divide='ignore', invalid='ignore')
-        self.train_data = np.array(
-            [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
-             x in self.train_data])
-        self.test_data = np.array(
-            [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
-             x in self.test_data])
-    # self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) )    for x in self.train_data])
-    # self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) )    for x in self.test_data])
+        #self.train_data = np.array(
+        #    [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
+        #     x in self.train_data])
+        #self.test_data = np.array(
+        #    [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
+        #     x in self.test_data])
+        self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.train_data])
+        self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
+
+
+class NormalPatientData(PatientData):
+    """ Data class for the generator model that only includes patients who survived in the ICU
+    """
+    def __init__(self, root, train_ratio=0.8, shuffle=True, random_seed='1234', transform="normalize"):
+        self.data_dir = os.path.join(root, 'patient_vital_preprocessed.pkl')
+        self.train_ratio = train_ratio
+        self.random_seed = random.seed(random_seed)
+
+        if not os.path.exists(self.data_dir):
+            raise RuntimeError('Dataset not found')
+        with open(self.data_dir, 'rb') as f:
+            self.data = pickle.load(f)
+        if shuffle:
+            random.shuffle(self.data)
+        self.feature_size = len(self.data[0][0])
+        self.n_train = int(len(self.data) * self.train_ratio)
+        self.n_test = len(self.data) - self.n_train
+
+        self.train_data = np.array([x for (x, y, z) in self.data[0:self.n_train] if y == 1])
+        self.test_data = np.array([x for (x, y, z) in self.data[self.n_train:]])
+        self.train_missing_samples = np.array([z for (x, y, z) in self.data[0:self.n_train] if y == 1])
+        self.test_missing_samples = np.array([z for (x, y, z) in self.data[self.n_train:]])
+        self.test_label = np.array([y for (x, y, z) in self.data[self.n_train:]])
+        self.n_train = len(self.train_data)
+        self.n_test = len(self.test_data)
+        self.train_label = np.zeros((len(self.train_data),1))
+        self.train_missing = np.array([np.mean(z) for (x, y, z) in self.data[0:self.n_train] if y == 1])
+        self.test_missing = np.array([np.mean(z) for (x, y, z) in self.data[self.n_train:]])
+        if transform == "normalize":
+            self.normalize()
 
 
 class DeepKnn:
