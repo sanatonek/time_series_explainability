@@ -1,4 +1,4 @@
-from TSX.utils import load_data
+from TSX.utils import load_data, load_simulated_data
 import random
 import torch
 import os
@@ -30,6 +30,25 @@ class Generator(torch.nn.Module):
         #p_xs = [MultivariateNormal(mu, torch.eye(self.feature_size).to(self.device))for mu in mus]
         reparam_samples = mus + torch.randn_like(mus).to(self.device)*0.1
         return reparam_samples, mus
+
+
+class FeatureGenerator(torch.nn.Module):
+    def __init__(self, feature_size, seed=random.seed('2019')):
+        super(FeatureGenerator, self).__init__()
+        self.seed = seed
+        self.feature_size = feature_size
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1, 20),
+                                             torch.nn.ReLU(),
+                                             torch.nn.BatchNorm1d(num_features=20),
+                                             #torch.nn.Dropout(0.5),
+                                             torch.nn.Linear(20, 1),
+                                             torch.nn.Sigmoid())
+
+    def forward(self, x):
+        mu = self.predictor(x)
+        reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
+        return reparam_samples, mu
 
 
 def train_generator(generator_model, train_loader, valid_loader):
@@ -89,7 +108,66 @@ def test_generator(model, test_loader):
     return test_loss
 
 
-#batch_size = 100
+def train_feature_generator(generator_model, train_loader, valid_loader, feature_to_predict=1, n_epoch=30):
+    train_loss_trend = []
+    test_loss_trend = []
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    generator_model.to(device)
+
+    parameters = generator_model.parameters()
+    optimizer = torch.optim.Adam(parameters, lr=0.0001, weight_decay=1e-3)
+    loss_criterion = torch.nn.MSELoss()
+
+    for epoch in range(n_epoch + 1):
+        generator_model.train()
+        epoch_loss = 0
+        for i, (signals, _) in enumerate(train_loader):
+            optimizer.zero_grad()
+            original = signals[:,feature_to_predict,:].contiguous().view(-1,1)
+            signal = torch.cat((signals[:,:feature_to_predict,:], signals[:,feature_to_predict+1:,:]), 1).permute(0,2,1)
+            signal = signal.contiguous().view(-1,signals.shape[1]-1)
+            signal = torch.Tensor(signal.float()).to(device)
+            prediction, mus = generator_model(signal)
+            reconstruction_loss = loss_criterion(prediction, original.to(device))
+            epoch_loss = + reconstruction_loss.item()
+            reconstruction_loss.backward()
+            optimizer.step()
+        test_loss = test_feature_generator(generator_model, valid_loader, feature_to_predict)
+
+        train_loss_trend.append(epoch_loss)
+        test_loss_trend.append(test_loss)
+        if epoch % 10 == 0:
+            print('\nEpoch %d' % (epoch))
+            print('Training ===>loss: ', epoch_loss)
+            print('Test ===>loss: ', test_loss)
+    # Save model and results
+    if not os.path.exists("./ckpt/"):
+        os.mkdir("./ckpt/")
+    torch.save(generator_model.state_dict(), './ckpt/feature_%d_generator.pt'%(feature_to_predict))
+    plt.plot(train_loss_trend, label='Train loss')
+    plt.plot(test_loss_trend, label='Validation loss')
+    plt.legend()
+    plt.savefig('generator_train_loss.png')
+
+
+def test_feature_generator(model, test_loader, feature_to_predict):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.eval()
+    test_loss = 0
+    for i, (signals, labels) in enumerate(test_loader):
+        original = signals[:, feature_to_predict, :].contiguous().view(-1, 1)
+        signal = torch.cat((signals[:, :feature_to_predict, :], signals[:, feature_to_predict + 1:, :]), 1).permute(0, 2,1)
+        signal = signal.contiguous().view(-1, signals.shape[1] - 1)
+        signal = torch.Tensor(signal.float()).to(device)
+        prediction, mus = model(signal)
+        loss = torch.nn.MSELoss()(prediction, original.to(device))
+        test_loss = + loss.item()
+    return test_loss
+
+
+
+
+#data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data')
 #p_data, train_loader, valid_loader, test_loader = load_data(batch_size, './data_generator/data')
-#generator = Generator(p_data.feature_size-4)
-#train_generator(generator, train_loader, valid_loader)
+#generator = FeatureGenerator(3)
+#train_feature_generator(generator, train_loader, valid_loader)

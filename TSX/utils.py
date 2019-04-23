@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
 from TSX.models import PatientData, NormalPatientData
 import matplotlib.pyplot as plt
+import pickle as pkl
 
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
 import warnings
@@ -177,3 +178,29 @@ def load_data(batch_size, path='./data_generator/data', *argv):
     print('Test set: ', np.count_nonzero(p_data.test_label), 'patient who died  out of %d total'%(len(p_data.test_data)),
           '(Average missing in test: %.2f)' % (np.mean(p_data.test_missing)))
     return p_data, train_loader, valid_loader, test_loader
+
+
+def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data'):
+    with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+        x_train = pkl.load(f)
+    with open(os.path.join(path, 'y_train.pkl'), 'rb') as f:
+        y_train = pkl.load(f)
+    with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+        x_test = pkl.load(f)
+    with open(os.path.join(path, 'y_test.pkl'), 'rb') as f:
+        y_test = pkl.load(f)
+
+    n_train = int(0.8 * len(x_train))
+    train_dataset = utils.TensorDataset(torch.Tensor(x_train[0:n_train, :, :]),
+                                        torch.Tensor(y_train[0:n_train, :]))
+    valid_dataset = utils.TensorDataset(torch.Tensor(x_train[n_train:, :, :]),
+                                        torch.Tensor(y_train[n_train:, :]))
+    test_dataset = utils.TensorDataset(torch.Tensor(x_test), torch.Tensor(y_test))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size)
+    valid_loader = DataLoader(valid_dataset, batch_size=len(x_train) - int(0.8 * n_train))
+    test_loader = DataLoader(test_dataset, batch_size=len(x_test))
+    return np.concatenate([x_train, x_test]), train_loader, valid_loader, test_loader
+
+
+def logistic(x):
+    return 1./(1+np.exp(-1*x))

@@ -1,12 +1,12 @@
 import torch
 import os
-from TSX.utils import train_model, load_data, test
+from TSX.utils import train_model, load_data, test, load_simulated_data
 from TSX.models import DeepKnn
-from TSX.experiments import KalmanExperiment, Baseline, EncoderPredictor, GeneratorExplainer
+from TSX.experiments import KalmanExperiment, Baseline, EncoderPredictor, GeneratorExplainer, FeatureGeneratorExplainer
 import argparse
 
 
-def main(experiment, train, uncertainty_score, sensitivity=False):
+def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False):
     print('********** Experiment with the %s model **********' %(experiment))
 
     # Configurations
@@ -14,7 +14,11 @@ def main(experiment, train, uncertainty_score, sensitivity=False):
     batch_size = 100
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    p_data, train_loader, valid_loader, test_loader = load_data(batch_size)
+    if sim_data:
+        p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data')
+        feature_size = p_data.shape[1]
+    else:
+        p_data, train_loader, valid_loader, test_loader = load_data(batch_size)
 
     if experiment == 'baseline':
         exp = Baseline(train_loader, valid_loader, test_loader, p_data.feature_size)
@@ -24,6 +28,8 @@ def main(experiment, train, uncertainty_score, sensitivity=False):
         exp = KalmanExperiment(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
     elif experiment == 'generator_explainer':
         exp = GeneratorExplainer(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
+    elif experiment == 'feature_generator_explainer':
+        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size)
 
     exp.run(train=train)
 
@@ -50,7 +56,8 @@ def main(experiment, train, uncertainty_score, sensitivity=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train an ICU mortality prediction model')
     parser.add_argument('--model', type=str, default='encoder', help='Prediction model')
+    parser.add_argument('--simulation', action='store_true')
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--uncertainty', action='store_true')
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty)
+    main(args.model, train=args.train, uncertainty_score=args.uncertainty, sim_data=args.simulation)
