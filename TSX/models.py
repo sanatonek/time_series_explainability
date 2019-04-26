@@ -144,16 +144,16 @@ class EncoderRNN(nn.Module):
         self.regres = regres
         # Input to torch LSTM should be of size (seq_len, batch, input_size)
         if self.rnn_type == 'GRU':
-            self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional)
+            self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
         else:
-            self.rnn = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional)
+            self.rnn = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
         self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
                                        nn.Dropout(0.5),
                                        nn.Linear(self.hidden_size, 1),
                                        nn.Sigmoid())
 
     def forward(self, input, past_state=None):
-        input = input.permute(2, 0, 1)
+        input = input.permute(2, 0, 1).to(self.device)
         if not past_state:
             #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
             past_state = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)

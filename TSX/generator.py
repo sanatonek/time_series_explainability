@@ -33,19 +33,35 @@ class Generator(torch.nn.Module):
 
 
 class FeatureGenerator(torch.nn.Module):
-    def __init__(self, feature_size, seed=random.seed('2019')):
+    def __init__(self, feature_size, hist=False, hidden_size=50, seed=random.seed('2019')):
         super(FeatureGenerator, self).__init__()
         self.seed = seed
+        self.hist = hist
         self.feature_size = feature_size
+        self.hidden_size = hidden_size
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1, 20),
-                                             torch.nn.ReLU(),
-                                             torch.nn.BatchNorm1d(num_features=20),
-                                             #torch.nn.Dropout(0.5),
-                                             torch.nn.Linear(20, 1),
-                                             torch.nn.Sigmoid())
+        if self.hist:
+            self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
+            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1+self.hidden_size, 20),
+                                                 torch.nn.ReLU(),
+                                                 torch.nn.BatchNorm1d(num_features=20),
+                                                 #torch.nn.Dropout(0.5),
+                                                 torch.nn.Linear(20, 1),
+                                                 torch.nn.Sigmoid())
+        else:
+            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1, 20),
+                                                 torch.nn.ReLU(),
+                                                 torch.nn.BatchNorm1d(num_features=20),
+                                                 #torch.nn.Dropout(0.5),
+                                                 torch.nn.Linear(20, 1),
+                                                 torch.nn.Sigmoid())
 
-    def forward(self, x):
+    def forward(self, x, past=None):
+        if self.hist:
+            past = past.permute(2, 0, 1)
+            prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
+            all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
+            x = torch.cat((encoding.view(encoding.size(1),-1), x), 1)
         mu = self.predictor(x)
         reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
         return reparam_samples, mu
@@ -108,7 +124,7 @@ def test_generator(model, test_loader):
     return test_loss
 
 
-def train_feature_generator(generator_model, train_loader, valid_loader, feature_to_predict=1, n_epoch=30):
+def train_feature_generator(generator_model, train_loader, valid_loader, feature_to_predict=1, n_epoch=30, historical=False):
     train_loss_trend = []
     test_loss_trend = []
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -122,21 +138,40 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
         generator_model.train()
         epoch_loss = 0
         for i, (signals, _) in enumerate(train_loader):
-            optimizer.zero_grad()
-            original = signals[:,feature_to_predict,:].contiguous().view(-1,1)
-            signal = torch.cat((signals[:,:feature_to_predict,:], signals[:,feature_to_predict+1:,:]), 1).permute(0,2,1)
-            signal = signal.contiguous().view(-1,signals.shape[1]-1)
-            signal = torch.Tensor(signal.float()).to(device)
-            prediction, mus = generator_model(signal)
-            reconstruction_loss = loss_criterion(prediction, original.to(device))
-            epoch_loss = + reconstruction_loss.item()
-            reconstruction_loss.backward()
-            optimizer.step()
-        test_loss = test_feature_generator(generator_model, valid_loader, feature_to_predict)
+            if historical:
+                for t in [24]:#range(10,signals.shape[2]):
+                    label = signals[:, feature_to_predict, t].contiguous().view(-1, 1)
+                    signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
+
+                    #print(signal.shape)
+                    signal = signal.contiguous().view(-1, signals.shape[1] - 1)
+                    signal = torch.Tensor(signal.float()).to(device)
+                    past = signals[:,:,:t]
+                    optimizer.zero_grad()
+                    prediction, mus = generator_model(signal, past)
+                    reconstruction_loss = loss_criterion(prediction, label.to(device))
+                    epoch_loss = + reconstruction_loss.item()
+                    reconstruction_loss.backward()
+                    optimizer.step()
+
+            else:
+                original = signals[:,feature_to_predict,:].contiguous().view(-1,1)
+                signal = torch.cat((signals[:,:feature_to_predict,:], signals[:,feature_to_predict+1:,:]), 1).permute(0,2,1)
+                signal = signal.contiguous().view(-1,signals.shape[1]-1)
+                signal = torch.Tensor(signal.float()).to(device)
+
+                optimizer.zero_grad()
+                prediction, mus = generator_model(signal)
+                reconstruction_loss = loss_criterion(prediction, original.to(device))
+                epoch_loss = + reconstruction_loss.item()
+                reconstruction_loss.backward()
+                optimizer.step()
+
+        test_loss = test_feature_generator(generator_model, valid_loader, feature_to_predict, historical)
 
         train_loss_trend.append(epoch_loss)
         test_loss_trend.append(test_loss)
-        if epoch % 10 == 0:
+        if epoch % 1 == 0:
             print('\nEpoch %d' % (epoch))
             print('Training ===>loss: ', epoch_loss)
             print('Test ===>loss: ', test_loss)
@@ -150,18 +185,29 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     plt.savefig('generator_train_loss.png')
 
 
-def test_feature_generator(model, test_loader, feature_to_predict):
+def test_feature_generator(model, test_loader, feature_to_predict, historical=False):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
     test_loss = 0
     for i, (signals, labels) in enumerate(test_loader):
-        original = signals[:, feature_to_predict, :].contiguous().view(-1, 1)
-        signal = torch.cat((signals[:, :feature_to_predict, :], signals[:, feature_to_predict + 1:, :]), 1).permute(0, 2,1)
-        signal = signal.contiguous().view(-1, signals.shape[1] - 1)
-        signal = torch.Tensor(signal.float()).to(device)
-        prediction, mus = model(signal)
-        loss = torch.nn.MSELoss()(prediction, original.to(device))
-        test_loss = + loss.item()
+        if historical:
+            for t in [24]:# range(10, signals.shape[2]):
+                label = signals[:, feature_to_predict, t].contiguous().view(-1, 1)
+                signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
+                signal = signal.contiguous().view(-1, signals.shape[1] - 1)
+                signal = torch.Tensor(signal.float()).to(device)
+                past = signals[:, :, :t]
+                prediction, mus = model(signal, past)
+                loss = torch.nn.MSELoss()(prediction, label.to(device))
+                test_loss = + loss.item()
+        else:
+            original = signals[:, feature_to_predict, :].contiguous().view(-1, 1)
+            signal = torch.cat((signals[:, :feature_to_predict, :], signals[:, feature_to_predict + 1:, :]), 1).permute(0, 2,1)
+            signal = signal.contiguous().view(-1, signals.shape[1] - 1)
+            signal = torch.Tensor(signal.float()).to(device)
+            prediction, mus = model(signal)
+            loss = torch.nn.MSELoss()(prediction, original.to(device))
+            test_loss = + loss.item()
     return test_loss
 
 

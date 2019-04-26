@@ -74,12 +74,14 @@ class EncoderPredictor(Experiment):
 class GeneratorExplainer(Experiment):
     """ Generating time step importance using a time series generator
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, encoding_size, experiment='generator_explainer'):
+    ## TODO: This function currently doesn't work for simulation data
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, encoding_size, simulation=False, experiment='generator_explainer'):
         super(GeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader)
         #self.state_encoder = EncoderRNN(feature_size, encoding_size, regres=False)
         #self.predictor = RiskPredictor(encoding_size)
         #self.risk_predictor = torch.nn.Sequential(self.state_encoder, self.predictor)
         self.risk_predictor = EncoderRNN(feature_size, encoding_size, rnn='GRU', regres=True)
+        self.simulation = simulation
         # Demographics are not fed into the generator model
         self.generator = Generator(feature_size-4).to(self.device)
         self.experiment = experiment
@@ -140,62 +142,83 @@ class GeneratorExplainer(Experiment):
 
 
 class FeatureGeneratorExplainer(Experiment):
-    """ Generating time step importance using a time series generator
+    """ Generating feature importance over time using a generative model
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, experiment='feature_generator_explainer'):
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, historical=False, simulation=False,  experiment='feature_generator_explainer'):
         super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader)
-        self.generator = FeatureGenerator(feature_size).to(self.device)
+        self.generator = FeatureGenerator(feature_size, historical).to(self.device)
         self.feature_size = feature_size
         self.experiment = experiment
+        self.historical = historical
+        self.simulation = simulation
+        if simulation:
+            self.risk_predictor = lambda signal,t:logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * signal[1,t] * signal[1,t] + 0.5 * signal[2, t] * signal[2, t])
+        else:
+            self.risk_predictor = EncoderRNN(feature_size, hidden_size=100, rnn='GRU', regres=True)
 
     def run(self, train):
         if train:
             self.train(self.feature_size, n_epochs=30)
         else:
             if os.path.exists('./ckpt/feature_0_generator.pt'):
-                self.generator.load_state_dict(torch.load('./ckpt/feature_0_generator.pt'))
-                gen_test_loss = test_feature_generator(self.generator, self.test_loader, 1)
-                print('Generator test loss: ', gen_test_loss)
+                if not self.simulation:
+                    self.risk_predictor.load_state_dict(torch.load('./ckpt/risk_predictor.pt'))
+                    self.risk_predictor = self.risk_predictor.to(self.device)
+                    self.risk_predictor.eval()
+                #gen_test_loss = test_feature_generator(self.generator, self.test_loader, 1)
+                #print('Generator test loss: ', gen_test_loss)
             else:
                 raise RuntimeError('No saved checkpoint for this model')
 
             with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
                 th = pkl.load(f)
             testset = list(self.test_loader.dataset)
-            for subject in [6,37,86,45]:#range(30):
+            #label = np.array([x[1] for x in testset])
+            #dead = np.where(label==1)[0]
+            #sub = np.random.choice(dead, 10, replace=False)
+            for subject in [58,2,86,45]:#range(30):
                 signals, label = testset[subject]
-                print(th[subject])
-                t = np.arange(48)
-                for sig_ind in range(self.feature_size):
+                #print(th[subject])
+                t = np.arange(47)
+                for sig_ind in [0,1,2]:#range(self.feature_size):
                     self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig_ind)))
-                    importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals, sig_ind=sig_ind)
+                    label, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals, sig_ind=sig_ind)
                     plt.plot(t, mean_predicted_risk, label='Estimated score imputing %d'%(sig_ind))
                     plt.errorbar(t, importance, yerr=std_predicted_risk, marker='^', label='Feature %d importance'%(sig_ind))
-                plt.plot(np.array(signals[sig_ind,:]), label='Changing signal')
+                    plt.plot(np.array(signals[sig_ind,:]), label='Signal %d'%(sig_ind))
                 plt.plot(t, np.array(label), label='Risk score')
-                #plt.plot(t,importance, label='Importance')
                 plt.legend()
                 plt.show()
 
     def train(self, n_features, n_epochs):
-        for feature_to_predict in range(n_features):
-            train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, 50)
+        for feature_to_predict in [0,1,2]:#range(n_features):
+            train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, 40, self.historical)
 
     def _get_feature_importance(self, signal, sig_ind):
+        self.generator.eval()
         risks = []
         importance = []
         mean_predicted_risk = []
         std_predicted_risk = []
-        for t in range(signal.shape[1]):
-            risk = logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * signal[sig_ind,t] * signal[sig_ind,t] + 0.5 * signal[2, t] * signal[2, t])
-            signal_known = torch.cat((signal[:sig_ind,t], signal[sig_ind+1:,t]))
-            signal_known = torch.Tensor(signal_known.float()).to(self.device)
+        for t in range(1,signal.shape[1]):
+            if self.simulation:
+                risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
+            else:
+                risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t + 1)).item()
+            signal_known = torch.cat((signal[:sig_ind,t], signal[sig_ind+1:,t])).to(self.device)
+            signal = signal.to(self.device)
             risks.append(risk)
             # print('Predicted risk score at 19th hour (based on the generator): ', self.risk_predictor(generated_sig.to(self.device)).item())
             predicted_risks = []
             for _ in range(10):
-                prediction, _ = self.generator(signal_known.view(1,-1))
-                predicted_risk = logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * prediction.item() * prediction.item() + 0.5 * signal[2, t] * signal[2, t])
+                prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t))
+                #predicted_risk = logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * prediction.item() * prediction.item() + 0.5 * signal[2, t] * signal[2, t])
+                predicted_signal = signal[:,0:t+1].clone()
+                predicted_signal[:,t] = torch.cat((signal[:sig_ind,t], prediction.view(-1), signal[sig_ind+1:,t]),0)
+                if self.simulation:
+                    predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
+                else:
+                    predicted_risk = self.risk_predictor(predicted_signal[:, 0:t + 1].view(1, predicted_signal.shape[0], t + 1).to(self.device)).item()
                 predicted_risks.append(predicted_risk)
             predicted_risks = np.array(predicted_risks)
             mean_imp = np.mean(predicted_risks,0)
@@ -203,7 +226,7 @@ class FeatureGeneratorExplainer(Experiment):
             mean_predicted_risk.append(mean_imp)
             std_predicted_risk.append(std_imp)
             importance.append(abs(mean_imp-risk))
-        return importance, mean_predicted_risk, std_predicted_risk
+        return risks, importance, mean_predicted_risk, std_predicted_risk
 
 
 class KalmanExperiment(Experiment):
