@@ -171,10 +171,12 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
 
         train_loss_trend.append(epoch_loss)
         test_loss_trend.append(test_loss)
-        if epoch % 1 == 0:
+        if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
             print('Training ===>loss: ', epoch_loss)
             print('Test ===>loss: ', test_loss)
+    print('***** Training feature %d *****'%(feature_to_predict))
+    print('Test loss: ', test_loss)
     # Save model and results
     if not os.path.exists("./ckpt/"):
         os.mkdir("./ckpt/")

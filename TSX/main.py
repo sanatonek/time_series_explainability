@@ -32,6 +32,18 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, historical=True, simulation=sim_data)
 
     exp.run(train=train)
+    # span = []
+    # for i,(signal,label) in enumerate(list(test_loader.dataset)):
+    #     exp.risk_predictor.load_state_dict(torch.load('./ckpt/risk_predictor.pt'))
+    #     exp.risk_predictor.to(device)
+    #     exp.risk_predictor.eval()
+    #     risk=[]
+    #     for t in range(1,48):
+    #         risk.append(exp.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t).to(device)).item())
+    #     span.append((i,max(risk) - min(risk)))
+    # span.sort(key= lambda pair:pair[1], reverse=True)
+    # print(span[0:100])
+
 
     if sensitivity:
         exp.model.train()
@@ -40,6 +52,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
             risks = exp.model(signals)
             risks[0].backward(retain_graph=True)
             print(signals.grad.data[0,:,:])
+
 
     if uncertainty_score:
         # Evaluate uncertainty using deep KNN method

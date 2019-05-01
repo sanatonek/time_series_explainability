@@ -9,6 +9,10 @@ import numpy as np
 import pickle as pkl
 
 
+feature_map = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN',
+           'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate' ,
+           'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose','Temp']
+
 class Experiment(ABC):
     def __init__(self, train_loader, valid_loader, test_loader):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -172,30 +176,99 @@ class FeatureGeneratorExplainer(Experiment):
 
             with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
                 th = pkl.load(f)
+
             testset = list(self.test_loader.dataset)
-            #label = np.array([x[1] for x in testset])
-            #dead = np.where(label==1)[0]
-            #sub = np.random.choice(dead, 10, replace=False)
-            for subject in [58,2,86,45]:#range(30):
-                signals, label = testset[subject]
-                #print(th[subject])
+            label = np.array([x[1] for x in testset])
+            # dead = np.where(label==1)[0]
+            # sub = np.random.choice(dead, 10, replace=False)
+            samples_to_analyse = [2313, 4258, 3048,3460,881,188,3845,454]#,58,218,86,45]
+
+            ## Sensitivity analysis as a baseline
+            signal = torch.stack([sample[0] for i,sample in enumerate(testset) if i in samples_to_analyse])
+            if not self.simulation:
+                self.risk_predictor.train()
+                signal = torch.Tensor(signal).to(self.device).requires_grad_()
+                out = self.risk_predictor(signal)
+                out[0].backward(retain_graph=True)
+                #print('Feature importance using sensitivity analysis:\n', torch.mean(signal.grad.data,2)[:, 0:3])
+                self.risk_predictor.eval()
+
+            print('\n********** Visualizing a few samples **********')
+            for sub_ind, subject in enumerate(samples_to_analyse):#range(30):
+                f, (ax1, ax2) = plt.subplots(2, sharex=True)
+                signals, label_o = testset[subject]
+                # print('Change thresholds: ', th[subject])
+                print('Subject ID: ', subject)
+                print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()])
                 t = np.arange(47)
-                for sig_ind in [0,1,2]:#range(self.feature_size):
+                importance = np.zeros((28,47))
+                mean_predicted_risk = np.zeros((28,47))
+                std_predicted_risk = np.zeros((28,47))
+                max_imp = []
+                for i, sig_ind in enumerate(range(0,28)):#[5,6,15,26,25]):#range(self.feature_size):
                     self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig_ind)))
-                    label, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals, sig_ind=sig_ind)
-                    plt.plot(t, mean_predicted_risk, label='Estimated score imputing %d'%(sig_ind))
-                    plt.errorbar(t, importance, yerr=std_predicted_risk, marker='^', label='Feature %d importance'%(sig_ind))
-                    plt.plot(np.array(signals[sig_ind,:]), label='Signal %d'%(sig_ind))
-                plt.plot(t, np.array(label), label='Risk score')
-                plt.legend()
+                    label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind)
+                    max_imp.append((i,max(mean_predicted_risk[i,:])))
+
+                ## Pick the most influential signals and plot thir importance over time
+                max_imp.sort(key=lambda pair: pair[1], reverse=True)
+                for sig in range(10):
+                    ind = max_imp[sig][0]
+                    # plt.plot(t, mean_predicted_risk, label='Estimated score imputing %d'%(sig_ind))
+                    # ax2.errorbar(t, importance[ind,:], yerr=std_predicted_risk[ind,:], marker='^', label='%s importance'%(feature_map[ind]))
+                    ax2.errorbar(t, importance[ind,:], label='%s'%(feature_map[ind]))
+                    ax1.plot(np.array(signals[ind,:]), label='%s'%(feature_map[ind]))
+                    # plt.plot(abs(signal.grad.data[sub_ind,i,:].cpu().detach().numpy()*1e+2), label='Feature %s Sensitivity analysis'%(feature_map[sig_ind]))
+                ax1.plot(t, np.array(label), '--', label='Risk score')
+                ax1.legend()
+                ax2.legend()
+                ax1.grid()
+                ax2.grid()
+                ax1.set_title('Time series signals')
+                ax2.set_title('Signal importance')
                 plt.show()
 
+
+            # tp = [[]]*8
+            # fn = [[]]*8
+            # tn = [[]]*8
+            # fp = [[]]*8
+            # for i,sig in enumerate(range(20,28)):
+            #     self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig)))
+            #     for signals,label in testset:
+            #         pred, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals,
+            #                                                                                                   sig_ind=sig)
+            #         imp = np.mean(mean_predicted_risk)
+            #         if label==1:
+            #             if pred[-1]>.5:
+            #                 # True positive
+            #                 tp[i].append(imp)
+            #             if pred[-1] <= .5:
+            #                 # False negative
+            #                 fn[i].append(imp)
+            #         if label==0:
+            #             if pred[-1] >.5:
+            #                 # False positive
+            #                 fp[i].append(imp)
+            #             if pred[-1] <= .5:
+            #                 # True negative
+            #                 tn[i].append(imp)
+            # tp = [np.mean(imps) for imps in tp]
+            # fn = [np.mean(imps) for imps in fn]
+            # tn = [np.mean(imps) for imps in tn]
+            # fp = [np.mean(imps) for imps in fp]
+            # print("Importance of TRUE POSITIVES: ", tp)
+            # print("Importance of FALSE NEGATIVES: ", fn)
+            # print("Importance of TRUE NEGATIVES: ", tn)
+            # print("Importance of FALSE POSITIVES: ", fp)
+
     def train(self, n_features, n_epochs):
-        for feature_to_predict in [0,1,2]:#range(n_features):
+        for feature_to_predict in range(0,28):#range(n_features):
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, 40, self.historical)
 
     def _get_feature_importance(self, signal, sig_ind):
         self.generator.eval()
+
         risks = []
         importance = []
         mean_predicted_risk = []
