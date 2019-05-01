@@ -2,19 +2,47 @@ import timesynth as ts
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.special import expit
+from scipy.signal import butter, lfilter, freqz
 import pickle as pkl
 import os
+
+def butter_lowpass(cutoff, fs, order=5):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_lowpass(cutoff, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+
+# Filter requirements.
+order = 6
+fs = 30.0       # sample rate, Hz
+cutoff = 6.0  # desired cutoff frequency of the filter, Hz
+
+# Get the filter coefficients so we can check its frequency response.
+b, a = butter_lowpass(cutoff, fs, order)
+
+w, h = freqz(b, a, worN=8000)
+plt.subplot(1, 1, 1)
+plt.plot(0.5*fs*w/np.pi, np.abs(h), 'b')
+plt.plot(cutoff, 0.5*np.sqrt(2), 'ko')
+plt.axvline(cutoff, color='k')
+plt.xlim(0, 0.5*fs)
+plt.title("Lowpass Filter Frequency Response")
+plt.xlabel('Frequency [Hz]')
+plt.grid()
 
 
 def main(n_samples, plot):
     signal_in = []
-    #signal_out = []
     thresholds = []
     trend_style=[]
     for i in range(n_samples):
-        x, y, t,trend = generate_sample(plot)
+        x, t,trend = generate_sample(plot)
         signal_in.append(x)
-        #signal_out.append(y)
         thresholds.append(t)
         trend_style.append(trend)
 
@@ -33,8 +61,19 @@ def main(n_samples, plot):
     x_train_n = np.array([ np.where(feature_min==feature_max, (x-feature_min) , (x-feature_min)/(feature_max-feature_min) ) for x in x_train])
     x_test_n = np.array([ np.where(feature_min==feature_max, (x-feature_min) , (x-feature_min)/(feature_max-feature_min) ) for x in x_test])
 
-    y_train = np.array([logistic(0.5*x[0,:]*x[0,:] + 0.5*x[1,:]*x[1,:] + 0.5*x[2,:]*x[2,:]) for x in x_train_n])
-    y_test = np.array([logistic(0.5 * x[0, :] * x[0, :] + 0.5 * x[1, :] * x[1, :] + 0.5 * x[2, :] * x[2, :]) for x in x_test_n])
+    
+    x1_train_lpf = np.array([butter_lowpass_filter(x[0,:], cutoff, fs, order) for x in x_train_n])
+    x2_train_lpf = np.array([butter_lowpass_filter(x[1,:], cutoff, fs, order) for x in x_train_n])
+    x3_train_lpf = np.array([butter_lowpass_filter(x[2,:], cutoff, fs, order) for x in x_train_n])
+    x_train_lpf = np.stack([x1_train_lpf, x2_train_lpf, x3_train_lpf],axis=1)
+
+    x1_test_lpf = np.array([butter_lowpass_filter(x[0,:], cutoff, fs, order) for x in x_test_n])
+    x2_test_lpf = np.array([butter_lowpass_filter(x[1,:], cutoff, fs, order) for x in x_test_n])
+    x3_test_lpf = np.array([butter_lowpass_filter(x[2,:], cutoff, fs, order) for x in x_test_n])
+    x_test_lpf = np.stack([x1_test_lpf, x2_test_lpf, x3_test_lpf],axis=1)
+    
+    y_train = np.array([logistic(0.5*x[0,:]*x[0,:] + 0.5*x[1,:]*x[1,:] + 0.5*x[2,:]*x[2,:]) for x in x_train_lpf])
+    y_test = np.array([logistic(0.5 * x[0, :] * x[0, :] + 0.5 * x[1, :] * x[1, :] + 0.5 * x[2, :] * x[2, :]) for x in x_test_lpf])
 
     if plot:
         for i in range(x_train_n.shape[0]):
@@ -59,7 +98,7 @@ def generate_sample(plot):
     seed = np.random.randint(1,100)
     # Correlation coefficients for x2=f(x1)
     coeff = [0.4,0.5,0.01]
-    noise = ts.noise.GaussianNoise(std=0.3)
+    noise = ts.noise.GaussianNoise(std=0.5)
     trend_style = {0:'increase', 1:'decrease', 2:'hill', 3:'valley'}
     trend = np.random.randint(4)
 
@@ -78,24 +117,24 @@ def generate_sample(plot):
         x1_sample[t[1]:t[2]] = x1_sample[t[1]:t[2]] + s * np.log(0.5 * np.full(x1_sample[t[1]:t[2]].shape, (t[1]-t[0])) + 1.)
         x1_sample[t[2]:t[3]] = x1_sample[t[2]:t[3]] - s*np.log(0.5*np.asarray(range(t[3]-t[2]))+1.)
 
+    
     seed = np.random.randint(1,1000)
     x2 = ts.signals.NARMA(seed=seed)
-    noise = ts.noise.GaussianNoise(std=0.3)
-    x2_ts = ts.TimeSeries(x2,noise_generator=noise)
+    noise = ts.noise.GaussianNoise(std=0.5)
+    x2_ts = ts.TimeSeries(x2,noise_generator=None)
     x2_sample,signals,errors = x2_ts.sample(np.array(range(48)))
     x2_sample += coeff[0]*x1_sample + coeff[1]*x1_sample*x1_sample + coeff[2]*x1_sample*x1_sample*x1_sample 
     #x2_sample += .5*np.random.randn(len(x2_sample))
+    
 
     x3 = ts.signals.NARMA(10,[.5,.2,2.5,.5], seed=seed*5000)
+    noise = ts.noise.GaussianNoise(std=0.5)
     x3_ts = ts.TimeSeries(x3, noise_generator=noise)
     x3_sample, signals, errors = x3_ts.sample(np.array(range(48)))
-    #x3_sample -= 0.0004*np.log(x1_sample + 10)
+    x3_sample -= 0.0004*np.log(x1_sample+10)*x1_sample
     #x3_sample = x3.sample_vectorized(np.array(range(48)))
 
-    #y = logistic(0.5*x1_sample*x1_sample + 0.05*x2_sample*np.log(x2_sample+0.5) - 0*np.cos(x3_sample*x3_sample))
-    y = logistic(0.05*x1_sample*x1_sample + 0.05*x2_sample*x2_sample + 0.05*x3_sample*x3_sample) #make sure this does not saturate
-
-    return np.stack([x1_sample, x2_sample, x3_sample]), y, t, trend_style[trend]
+    return np.stack([x1_sample, x2_sample, x3_sample]), t, trend_style[trend]
 
 def save_data(path,array):
     with open(path,'wb') as f:
