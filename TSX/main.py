@@ -1,4 +1,6 @@
 import torch
+import os,sys
+sys.path.append(os.path.join(os.path.dirname(__file__),".."))
 from TSX.utils import train_model, load_data, test, load_simulated_data
 from TSX.models import DeepKnn
 from TSX.experiments import KalmanExperiment, Baseline, EncoderPredictor, GeneratorExplainer, FeatureGeneratorExplainer
@@ -46,7 +48,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
 
 
     if sensitivity:
-        exp.model.train()
+        #exp.model.train()
         for i, (signals, labels) in enumerate(train_loader):
             signals = torch.Tensor(signals.float()).to(device).requires_grad_()
             risks = exp.model(signals)
@@ -68,9 +70,10 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train an ICU mortality prediction model')
-    parser.add_argument('--model', type=str, default='encoder', help='Prediction model')
+    parser.add_argument('--model', type=str, default='feature_generator_explainer', help='Prediction model')
     parser.add_argument('--simulation', action='store_true')
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--uncertainty', action='store_true')
+    parser.add_argument('--sensitivity',action='store_true')
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty, sim_data=args.simulation)
+    main(args.model, train=args.train, uncertainty_score=args.uncertainty, sensitivity=args.sensitivity, sim_data=args.simulation)

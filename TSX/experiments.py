@@ -263,7 +263,8 @@ class FeatureGeneratorExplainer(Experiment):
             # print("Importance of FALSE POSITIVES: ", fp)
 
     def train(self, n_features, n_epochs):
-        for feature_to_predict in range(0,28):#range(n_features):
+        for feature_to_predict in range(n_features):
+            print('**** training to sample feature: ', feature_to_predict)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, 40, self.historical)
 
     def _get_feature_importance(self, signal, sig_ind):
