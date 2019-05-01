@@ -9,9 +9,11 @@ import numpy as np
 import pickle as pkl
 
 
-feature_map = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN',
+feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN',
            'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate' ,
            'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose','Temp']
+
+feature_map_simulation = ['var 0', 'var 1', 'var 2']
 
 class Experiment(ABC):
     def __init__(self, train_loader, valid_loader, test_loader):
@@ -157,8 +159,10 @@ class FeatureGeneratorExplainer(Experiment):
         self.simulation = simulation
         if simulation:
             self.risk_predictor = lambda signal,t:logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * signal[1,t] * signal[1,t] + 0.5 * signal[2, t] * signal[2, t])
+            self.feature_map = feature_map_simulation
         else:
             self.risk_predictor = EncoderRNN(feature_size, hidden_size=100, rnn='GRU', regres=True)
+            self.feature_map = feature_map_mimic
 
     def run(self, train):
         if train:
@@ -174,14 +178,21 @@ class FeatureGeneratorExplainer(Experiment):
             else:
                 raise RuntimeError('No saved checkpoint for this model')
 
-            with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
-                th = pkl.load(f)
-
             testset = list(self.test_loader.dataset)
-            label = np.array([x[1] for x in testset])
-            # dead = np.where(label==1)[0]
-            # sub = np.random.choice(dead, 10, replace=False)
-            samples_to_analyse = [2313, 4258, 3048,3460,881,188,3845,454]#,58,218,86,45]
+
+            if self.simulation:
+                with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
+                    th = pkl.load(f)
+                #For simulated data this is the last entry - end of 48 hours that's the actual outcome
+                label = np.array([x[1][-1] for x in testset])
+                #print(label)
+                high_risk = np.where(label>=0.5)[0]
+                samples_to_analyse = np.random.choice(high_risk, 2, replace=False)
+            else:
+                label = np.array([x[1] for x in testset])
+                # high_risk = np.where(label==1)[0]
+                # sub = np.random.choice(high_risk, 10, replace=False)
+                samples_to_analyse = [2313, 4258, 3048,3460,881,188,3845,454]#,58,218,86,45]
 
             ## Sensitivity analysis as a baseline
             signal = torch.stack([sample[0] for i,sample in enumerate(testset) if i in samples_to_analyse])
@@ -196,29 +207,38 @@ class FeatureGeneratorExplainer(Experiment):
             print('\n********** Visualizing a few samples **********')
             for sub_ind, subject in enumerate(samples_to_analyse):#range(30):
                 f, (ax1, ax2) = plt.subplots(2, sharex=True)
-                signals, label_o = testset[subject]
-                # print('Change thresholds: ', th[subject])
-                print('Subject ID: ', subject)
-                print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()])
+                if self.simulation:
+                    signals, label_o = testset[subject]
+                    label_o = label_o[-1]
+                    print('Subject ID: ', subject)
+                    print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()>0.5])
+                else:
+                    signals, label_o = testset[subject]
+                    print('Subject ID: ', subject)
+                    print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()])
+
                 t = np.arange(47)
-                importance = np.zeros((28,47))
-                mean_predicted_risk = np.zeros((28,47))
-                std_predicted_risk = np.zeros((28,47))
+                importance = np.zeros((self.feature_size,47))
+                mean_predicted_risk = np.zeros((self.feature_size,47))
+                std_predicted_risk = np.zeros((self.feature_size,47))
+
                 max_imp = []
-                for i, sig_ind in enumerate(range(0,28)):#[5,6,15,26,25]):#range(self.feature_size):
+                for i, sig_ind in enumerate(range(self.feature_size)):#[5,6,15,26,25])-for mimic
                     self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig_ind)))
-                    label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind)
+                    label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind,n_samples=10)
                     max_imp.append((i,max(mean_predicted_risk[i,:])))
 
-                ## Pick the most influential signals and plot thir importance over time
+                ## Pick the most influential signals and plot their importance over time
+                n_feats_to_plot = min(self.feature_size,10)
                 max_imp.sort(key=lambda pair: pair[1], reverse=True)
-                for sig in range(10):
+                for sig in range(n_feats_to_plot):
                     ind = max_imp[sig][0]
                     # plt.plot(t, mean_predicted_risk, label='Estimated score imputing %d'%(sig_ind))
-                    # ax2.errorbar(t, importance[ind,:], yerr=std_predicted_risk[ind,:], marker='^', label='%s importance'%(feature_map[ind]))
-                    ax2.errorbar(t, importance[ind,:], label='%s'%(feature_map[ind]))
-                    ax1.plot(np.array(signals[ind,:]), label='%s'%(feature_map[ind]))
-                    # plt.plot(abs(signal.grad.data[sub_ind,i,:].cpu().detach().numpy()*1e+2), label='Feature %s Sensitivity analysis'%(feature_map[sig_ind]))
+                    #ax2.errorbar(t, importance[ind,:], yerr=std_predicted_risk[ind,:], marker='^', label='%s importance'%(self.feature_map[ind]))
+                    ax2.errorbar(t, importance[ind,:], label='%s'%(self.feature_map[ind]))
+                    ax1.plot(np.array(signals[ind,:]), label='%s'%(self.feature_map[ind]))
+                    if not self.simulation:
+                        plt.plot(abs(signal.grad.data[sub_ind,i,:].cpu().detach().numpy()*1e+2), label='Feature %s Sensitivity analysis'%(self.feature_map[sig_ind]))
                 ax1.plot(t, np.array(label), '--', label='Risk score')
                 ax1.legend()
                 ax2.legend()
@@ -267,7 +287,7 @@ class FeatureGeneratorExplainer(Experiment):
             print('**** training to sample feature: ', feature_to_predict)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, 40, self.historical)
 
-    def _get_feature_importance(self, signal, sig_ind):
+    def _get_feature_importance(self, signal, sig_ind, n_samples=10):
         self.generator.eval()
 
         risks = []
@@ -284,7 +304,7 @@ class FeatureGeneratorExplainer(Experiment):
             risks.append(risk)
             # print('Predicted risk score at 19th hour (based on the generator): ', self.risk_predictor(generated_sig.to(self.device)).item())
             predicted_risks = []
-            for _ in range(10):
+            for _ in range(n_samples):
                 prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t))
                 #predicted_risk = logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * prediction.item() * prediction.item() + 0.5 * signal[2, t] * signal[2, t])
                 predicted_signal = signal[:,0:t+1].clone()
