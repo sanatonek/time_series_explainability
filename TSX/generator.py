@@ -180,7 +180,10 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     # Save model and results
     if not os.path.exists("./ckpt/"):
         os.mkdir("./ckpt/")
-    torch.save(generator_model.state_dict(), './ckpt/feature_%d_generator.pt'%(feature_to_predict))
+    if historical:
+        torch.save(generator_model.state_dict(), './ckpt/feature_%d_generator.pt'%(feature_to_predict))
+    else:
+        torch.save(generator_model.state_dict(), './ckpt/feature_%d_generator_nohist.pt'%(feature_to_predict))
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()

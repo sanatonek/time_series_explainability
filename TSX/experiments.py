@@ -155,6 +155,8 @@ class FeatureGeneratorExplainer(Experiment):
         self.experiment = experiment
         self.historical = historical
         self.simulation = simulation
+        trainset = list(self.train_loader.dataset)
+        self.feature_dist = torch.stack([x[0] for x in trainset])
         if simulation:
             self.risk_predictor = lambda signal,t:logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * signal[1,t] * signal[1,t] + 0.5 * signal[2, t] * signal[2, t])
         else:
@@ -190,12 +192,11 @@ class FeatureGeneratorExplainer(Experiment):
                 signal = torch.Tensor(signal).to(self.device).requires_grad_()
                 out = self.risk_predictor(signal)
                 out[0].backward(retain_graph=True)
-                #print('Feature importance using sensitivity analysis:\n', torch.mean(signal.grad.data,2)[:, 0:3])
                 self.risk_predictor.eval()
 
             print('\n********** Visualizing a few samples **********')
             for sub_ind, subject in enumerate(samples_to_analyse):#range(30):
-                f, (ax1, ax2) = plt.subplots(2, sharex=True)
+                f, (ax1, ax2, ax3, ax4) = plt.subplots(4, sharex=True)
                 signals, label_o = testset[subject]
                 # print('Change thresholds: ', th[subject])
                 print('Subject ID: ', subject)
@@ -204,70 +205,112 @@ class FeatureGeneratorExplainer(Experiment):
                 importance = np.zeros((28,47))
                 mean_predicted_risk = np.zeros((28,47))
                 std_predicted_risk = np.zeros((28,47))
-                max_imp = []
-                for i, sig_ind in enumerate(range(0,28)):#[5,6,15,26,25]):#range(self.feature_size):
-                    self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig_ind)))
-                    label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind)
-                    max_imp.append((i,max(mean_predicted_risk[i,:])))
+                importance_occ = np.zeros((28,47))
+                std_predicted_risk_occ = np.zeros((28,47))
+                importance_comb = np.zeros((28,47))
+                std_predicted_risk_comb = np.zeros((28,47))
+                f_imp = np.zeros(28)
+                f_imp_occ = np.zeros(28)
+                f_imp_comb = np.zeros(28)
+                max_imp_total = []
 
-                ## Pick the most influential signals and plot thir importance over time
-                max_imp.sort(key=lambda pair: pair[1], reverse=True)
-                for sig in range(10):
-                    ind = max_imp[sig][0]
-                    # plt.plot(t, mean_predicted_risk, label='Estimated score imputing %d'%(sig_ind))
-                    # ax2.errorbar(t, importance[ind,:], yerr=std_predicted_risk[ind,:], marker='^', label='%s importance'%(feature_map[ind]))
-                    ax2.errorbar(t, importance[ind,:], label='%s'%(feature_map[ind]))
-                    ax1.plot(np.array(signals[ind,:]), label='%s'%(feature_map[ind]))
-                    # plt.plot(abs(signal.grad.data[sub_ind,i,:].cpu().detach().numpy()*1e+2), label='Feature %s Sensitivity analysis'%(feature_map[sig_ind]))
+                for i, sig_ind in enumerate(range(0,28)):#[5,6,15,26,25]):#range(self.feature_size):
+                    if self.historical:
+                        self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig_ind)))
+                    else:
+                        self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator_nohist.pt'%(sig_ind)))
+
+                    label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, mode='generator')
+                    _, importance_occ[i, :], _, std_predicted_risk_occ[i,:] = self._get_feature_importance(signals,
+                                                                                                          sig_ind=sig_ind,
+                                                                                                          mode='feature_occlusion')
+                    _, importance_comb[i, :], _, std_predicted_risk_comb[i,:] = self._get_feature_importance(signals,
+                                                                                                          sig_ind=sig_ind,
+                                                                                                          mode='combined')
+                    max_imp_total.append((i,max(mean_predicted_risk[i,:])))
+
+                retain_style=False
+                if retain_style:
+                    orders = np.argsort(importance, axis=0)
+                    for imps in orders[-3:,:]:
+                        for time in range(len(imps)):
+                            imp = importance[imps[time],time]
+                            texts = feature_map[imps[time]]
+                            ax2.text(time, imp, texts)
+                        ax2.set_ylim(0,np.max(importance))
+                        ax2.set_xlim(0,48)
+
+                    orders = np.argsort(importance_occ, axis=0)
+                    for imps in orders[-3:,:]:
+                        for time in range(len(imps)):
+                            imp = importance_occ[imps[time],time]
+                            texts = feature_map[imps[time]]
+                            ax3.text(time, imp, texts)
+                        ax3.set_ylim(0,np.max(importance_occ))
+                        ax3.set_xlim(0,48)
+
+                    orders = np.argsort(importance_comb, axis=0)
+                    for imps in orders[-3:,:]:
+                        for time in range(len(imps)):
+                            imp = importance_comb[imps[time],time]
+                            texts = feature_map[imps[time]]
+                            ax4.text(time, imp, texts)
+                        ax4.set_ylim(0,np.max(importance_comb))
+                        ax4.set_xlim(0,48)
+
+                else:
+                    max_imp = np.argmax(importance,axis=0)
+                    for im in max_imp:
+                        f_imp[im] += 1
+                    max_imp_occ = np.argmax(importance_occ,axis=0)
+                    for im in max_imp_occ:
+                        f_imp_occ[im] += 1
+                    max_imp_comb = np.argmax(importance_comb,axis=0)
+                    for im in max_imp_comb:
+                        f_imp_comb[im] += 1
+
+                    ## Pick the most influential signals and plot their importance over time
+                    max_imp_total.sort(key=lambda pair: pair[1], reverse=True)
+
+                    for ind,sig in max_imp_total[0:4]:
+                    # for ind in np.argsort(f_imp)[-4:]:# range(4):
+                        #ax1.plot(np.array(signals[ind,:]), label='%s'%(feature_map[ind]))
+                        ax2.errorbar(t, importance[ind,:], yerr=std_predicted_risk[ind,:], marker='^', label='%s importance'%(feature_map[ind]))
+                        # plt.plot(abs(signal.grad.data[sub_ind,i,:].cpu().detach().numpy()*1e+2), label='Feature %s Sensitivity analysis'%(feature_map[sig_ind]))
+                    for ind, sig in max_imp_total[0:4]:
+                    #for ind in np.argsort(f_imp_occ)[-4:]:# range(4):
+                        ax3.errorbar(t, importance_occ[ind, :], yerr=std_predicted_risk_occ[ind, :], marker='^',
+                                     label='%s importance' % (feature_map[ind]))
+                        #ax1.plot(np.array(signals[ind,:]), label='%s'%(feature_map[ind]))
+                    for ind, sig in max_imp_total[0:4]:
+                    #for ind in np.argsort(f_imp_comb)[-4:]:# range(4):
+                        ax1.plot(np.array(signals[ind,:]), label='%s'%(feature_map[ind]))
+                        ax4.errorbar(t, importance_comb[ind, :], yerr=std_predicted_risk_comb[ind, :], marker='^', label='%s importance' % (feature_map[ind]))
+
                 ax1.plot(t, np.array(label), '--', label='Risk score')
                 ax1.legend()
                 ax2.legend()
+                ax3.legend()
+                ax4.legend()
                 ax1.grid()
                 ax2.grid()
+                ax3.grid()
+                ax4.grid()
                 ax1.set_title('Time series signals')
-                ax2.set_title('Signal importance')
+                ax2.set_title('Signal importance using generative model')
+                ax3.set_title('Signal importance using feature occlusion')
+                ax4.set_title('Signal importance using combined methods')
                 plt.show()
 
-
-            # tp = [[]]*8
-            # fn = [[]]*8
-            # tn = [[]]*8
-            # fp = [[]]*8
-            # for i,sig in enumerate(range(20,28)):
-            #     self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig)))
-            #     for signals,label in testset:
-            #         pred, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals,
-            #                                                                                                   sig_ind=sig)
-            #         imp = np.mean(mean_predicted_risk)
-            #         if label==1:
-            #             if pred[-1]>.5:
-            #                 # True positive
-            #                 tp[i].append(imp)
-            #             if pred[-1] <= .5:
-            #                 # False negative
-            #                 fn[i].append(imp)
-            #         if label==0:
-            #             if pred[-1] >.5:
-            #                 # False positive
-            #                 fp[i].append(imp)
-            #             if pred[-1] <= .5:
-            #                 # True negative
-            #                 tn[i].append(imp)
-            # tp = [np.mean(imps) for imps in tp]
-            # fn = [np.mean(imps) for imps in fn]
-            # tn = [np.mean(imps) for imps in tn]
-            # fp = [np.mean(imps) for imps in fp]
-            # print("Importance of TRUE POSITIVES: ", tp)
-            # print("Importance of FALSE NEGATIVES: ", fn)
-            # print("Importance of TRUE NEGATIVES: ", tn)
-            # print("Importance of FALSE POSITIVES: ", fp)
 
     def train(self, n_features, n_epochs):
         for feature_to_predict in range(0,28):#range(n_features):
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, 40, self.historical)
 
-    def _get_feature_importance(self, signal, sig_ind):
+    def _get_feature_importance(self, signal, sig_ind, mode="feature_occlusion"):
         self.generator.eval()
+
+        feature_dist = np.sort(np.array(self.feature_dist[:,sig_ind,:]).reshape(-1))
 
         risks = []
         importance = []
@@ -284,8 +327,16 @@ class FeatureGeneratorExplainer(Experiment):
             # print('Predicted risk score at 19th hour (based on the generator): ', self.risk_predictor(generated_sig.to(self.device)).item())
             predicted_risks = []
             for _ in range(10):
-                prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t))
-                #predicted_risk = logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * prediction.item() * prediction.item() + 0.5 * signal[2, t] * signal[2, t])
+                # Replace signal with random sample from the distribution if feature_occlusion==True,
+                # else use the generator model to estimate the value
+                if mode=="feature_occlusion":
+                    prediction = torch.Tensor(np.random.choice(feature_dist).reshape(-1,)).to(self.device)
+                elif mode=="generator":
+                    prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t))
+                elif mode=="combined":
+                    prediction1, _ = self.generator(signal_known.view(1, -1), signal[:, 0:t].view(1, signal.size(0), t))
+                    prediction = torch.Tensor( self._find_closest(feature_dist, prediction1.cpu().detach().numpy()).reshape(-1)).to(self.device)
+
                 predicted_signal = signal[:,0:t+1].clone()
                 predicted_signal[:,t] = torch.cat((signal[:sig_ind,t], prediction.view(-1), signal[sig_ind+1:,t]),0)
                 if self.simulation:
@@ -300,6 +351,85 @@ class FeatureGeneratorExplainer(Experiment):
             std_predicted_risk.append(std_imp)
             importance.append(abs(mean_imp-risk))
         return risks, importance, mean_predicted_risk, std_predicted_risk
+
+    def get_stats(self):
+        tp = [[]]*8
+        fn = [[]]*8
+        tn = [[]]*8
+        fp = [[]]*8
+        for i,sig in enumerate(range(20,28)):
+            self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig)))
+            for signals,label in list(self.test_loader.dataset):
+                pred, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals,
+                                                                                                          sig_ind=sig)
+                imp = np.mean(mean_predicted_risk)
+                if label==1:
+                    if pred[-1]>.5:
+                        # True positive
+                        tp[i].append(imp)
+                    if pred[-1] <= .5:
+                        # False negative
+                        fn[i].append(imp)
+                if label==0:
+                    if pred[-1] >.5:
+                        # False positive
+                        fp[i].append(imp)
+                    if pred[-1] <= .5:
+                        # True negative
+                        tn[i].append(imp)
+        tp = [np.mean(imps) for imps in tp]
+        fn = [np.mean(imps) for imps in fn]
+        tn = [np.mean(imps) for imps in tn]
+        fp = [np.mean(imps) for imps in fp]
+        print("Importance of TRUE POSITIVES: ", tp)
+        print("Importance of FALSE NEGATIVES: ", fn)
+        print("Importance of TRUE NEGATIVES: ", tn)
+        print("Importance of FALSE POSITIVES: ", fp)
+
+    def _find_closest(self, arr, target):
+        n = len(arr)
+        # Corner cases
+        if (target <= arr[0]):
+            return arr[0]
+        if (target >= arr[n - 1]):
+            return arr[n - 1]
+
+        # Doing binary search
+        i = 0;
+        j = n;
+        mid = 0
+        while (i < j):
+            mid = (i + j) // 2
+            if (arr[mid] == target):
+                return arr[mid]
+            # If target is less than array
+            # element, then search in left
+            if (target < arr[mid]):
+                # If target is greater than previous
+                # to mid, return closest of two
+                if (mid > 0 and target > arr[mid - 1]):
+                    return self._get_closest(arr[mid - 1], arr[mid], target)
+
+                    # Repeat for left half
+                j = mid
+
+                # If target is greater than mid
+            else:
+                if (mid < n - 1 and target < arr[mid + 1]):
+                    return self._get_closest(arr[mid], arr[mid + 1], target)
+
+                    # update i
+                i = mid + 1
+
+        # Only single element left after search
+        return arr[mid]
+
+    def _get_closest(self,val1, val2, target):
+
+        if (target - val1 >= val2 - target):
+            return val2
+        else:
+            return val1
 
 
 class KalmanExperiment(Experiment):

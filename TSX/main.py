@@ -3,6 +3,7 @@ from TSX.utils import train_model, load_data, test, load_simulated_data
 from TSX.models import DeepKnn
 from TSX.experiments import KalmanExperiment, Baseline, EncoderPredictor, GeneratorExplainer, FeatureGeneratorExplainer
 import argparse
+import numpy as np
 
 
 def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False):
@@ -29,7 +30,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
     elif experiment == 'generator_explainer':
         exp = GeneratorExplainer(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
     elif experiment == 'feature_generator_explainer':
-        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, historical=True, simulation=sim_data)
+        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, historical=False, simulation=sim_data)
 
     exp.run(train=train)
     # span = []
