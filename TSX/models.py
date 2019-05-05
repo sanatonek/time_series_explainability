@@ -134,7 +134,7 @@ class DeepKnn:
 
 
 class EncoderRNN(nn.Module):
-    def __init__(self, feature_size, hidden_size, rnn="GRU", regres=True, bidirectional=False,
+    def __init__(self, feature_size, hidden_size, rnn="GRU", regres=True, bidirectional=False, return_all=False,
                  seed=random.seed('2019')):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
@@ -142,6 +142,7 @@ class EncoderRNN(nn.Module):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.rnn_type = rnn
         self.regres = regres
+        self.return_all = return_all
         # Input to torch LSTM should be of size (seq_len, batch, input_size)
         if self.rnn_type == 'GRU':
             self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
@@ -158,11 +159,17 @@ class EncoderRNN(nn.Module):
             #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
             past_state = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)
         if self.rnn_type == 'GRU':
-            all_encoding, encoding = self.rnn(input, past_state)
+            all_encodings, encoding = self.rnn(input, past_state)
         else:
             all_encodings, (encoding, state) = self.rnn(input, (past_state, past_state))
         if self.regres:
-            return self.regressor(encoding.view(encoding.shape[1], -1))
+            if not self.return_all:
+                return self.regressor(encoding.view(encoding.shape[1], -1))
+            else:
+                #print('before: ', all_encodings[-1,-1,:])
+                reshaped_encodings = all_encodings.view(all_encodings.shape[1]*all_encodings.shape[0],-1)
+                #print('after: ', reshaped_encodings[-1:,:].data.cpu().numpy())
+                return torch.t(self.regressor(reshaped_encodings).view(all_encodings.shape[0],-1))
         else:
             return encoding.view(encoding.shape[1], -1)
 

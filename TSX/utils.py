@@ -47,6 +47,20 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
         total += len(x)
     return recall_test, precision_test, auc_test / count, correct_label, loss
 
+def test_rt(test_loader, model, device, criteria=torch.nn.MSELoss(), verbose=True):
+    model.to(device)
+    model.eval()
+    test_loss = 0
+    for i, (signals,labels) in enumerate(test_loader):
+        for t in [24]:
+            label = labels[:,t].contiguous().view(-1,1)
+            signal = signals[:,:,t].contiguous.view(-1,signals.shape[1])
+            signal = torch.Tensor(signal.float()).to(device)
+            prediction = model(signal)
+            loss = torch.nn.MSELoss(prediction, label.to(device))
+            test_loss += loss.item()
+    return test_loss
+
 
 def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss(), verbose=True):
     model = model.to(device)
@@ -103,6 +117,62 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.legend()
     plt.savefig('train_loss.png')
 
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, regress=False):
+    train_loss_trend = []
+    test_loss_trend = []
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.to(device)
+    parameters = model.parameters()
+    loss_criterion = torch.nn.MSELoss()
+
+    for epoch in range(n_epochs + 1):
+        model.train()
+        epoch_loss = 0
+
+        for i, (signals,labels) in enumerate(train_loader):
+            optimizer.zero_grad()
+            signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+            #print(labels.shape, signals.shape)
+            predictions = model(signals)
+            #print(predictions.shape)
+            reconstruction_loss = loss_criterion(predictions, labels.to(device))
+            epoch_loss += reconstruction_loss.item()
+            reconstruction_loss.backward()
+            optimizer.step()
+
+        test_loss = test_model_rt(model,valid_loader)
+
+        train_loss_trend.append(epoch_loss)
+        test_loss_trend.append(test_loss)
+
+        if epoch % 10 ==0:
+            print('\n Epoch %d' %(epoch))
+            print('Training ===> loss: ', epoch_loss)
+            print('Test ===> loss: ', test_loss)
+
+    print('Test loss: ', test_loss)
+
+    # Save model and results
+    if not os.path.exists("./ckpt/"):
+        os.mkdir("./ckpt/")
+    torch.save(model.state_dict(), './ckpt/' + str(experiment) + '.pt')
+    plt.plot(train_loss_trend, label='Train loss')
+    plt.plot(test_loss_trend, label='Validation loss')
+    plt.legend()
+    plt.savefig('train_loss.png')
+
+def test_model_rt(model,test_loader):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.eval()
+    test_loss = 0
+    for i, (signals,labels) in enumerate(test_loader):
+        signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+        prediction = model(signals)
+        loss = torch.nn.MSELoss()(prediction, labels.to(device))
+        test_loss += loss.item()
+
+    return test_loss
 
 def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, experiment):
     train_loss_trend = []
