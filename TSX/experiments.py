@@ -197,13 +197,22 @@ class FeatureGeneratorExplainer(Experiment):
                 # sub = np.random.choice(high_risk, 10, replace=False)
                 samples_to_analyse = [2313, 4258, 3048,3460,881,188,3845,454]#,58,218,86,45]
 
+            sen = []
             ## Sensitivity analysis as a baseline
             signal = torch.stack([sample[0] for i,sample in enumerate(testset) if i in samples_to_analyse])
             if not self.simulation:
                 self.risk_predictor.train()
                 signal = torch.Tensor(signal).to(self.device).requires_grad_()
                 out = self.risk_predictor(signal)
-                out[0].backward(retain_graph=True)
+                for s in range(len(samples_to_analyse)):
+                    out[s, 0].backward(retain_graph=True)
+                    sen.append(signal.grad.data[s,:,:].cpu().detach().numpy())
+                    signal.grad.data.zero_()
+                sen = np.array(sen)
+                print(sen.shape)
+                for g in range (5):
+                    plt.plot(sen[0,g,:])
+                plt.show()
                 self.risk_predictor.eval()
 
             print('\n********** Visualizing a few samples **********')
@@ -234,7 +243,7 @@ class FeatureGeneratorExplainer(Experiment):
                 f_imp_comb = np.zeros(self.feature_size)
                 max_imp_total = []
 
-                for i, sig_ind in enumerate(range(0,self.feature_size)):#[5,6,15,26,25]):#range(self.feature_size):
+                for i, sig_ind in enumerate(range(0,self.feature_size)):
                     if self.historical:
                         self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig_ind)))
                     else:
@@ -319,8 +328,7 @@ class FeatureGeneratorExplainer(Experiment):
                 ax4.set_title('Signal importance using combined methods')
                 plt.show()
 
-
-    def train(self, n_features, n_epochs):
+    def train(self, n_epochs, n_features):
         for feature_to_predict in range(n_features):
             print('**** training to sample feature: ', feature_to_predict)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, 40, self.historical)
@@ -354,10 +362,6 @@ class FeatureGeneratorExplainer(Experiment):
                 elif mode=="combined":
                     prediction1, _ = self.generator(signal_known.view(1, -1), signal[:, 0:t].view(1, signal.size(0), t))
                     prediction = torch.Tensor( self._find_closest(feature_dist, prediction1.cpu().detach().numpy()).reshape(-1)).to(self.device)
-
-            for _ in range(n_samples):
-                prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t))
-                #predicted_risk = logistic(.5 * signal[0, t] * signal[0, t] + 0.5 * prediction.item() * prediction.item() + 0.5 * signal[2, t] * signal[2, t])
                 predicted_signal = signal[:,0:t+1].clone()
                 predicted_signal[:,t] = torch.cat((signal[:sig_ind,t], prediction.view(-1), signal[sig_ind+1:,t]),0)
                 if self.simulation:
