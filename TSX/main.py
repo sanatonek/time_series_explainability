@@ -37,7 +37,8 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
 
     exp.run(train=train)
     # span = []
-    # for i,(signal,label) in enumerate(list(test_loader.dataset)):
+    # testset = list(exp.test_loader.dataset)
+    # for i,(signal,label) in enumerate(testset):
     #     exp.risk_predictor.load_state_dict(torch.load('./ckpt/risk_predictor.pt'))
     #     exp.risk_predictor.to(device)
     #     exp.risk_predictor.eval()

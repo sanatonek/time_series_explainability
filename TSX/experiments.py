@@ -185,6 +185,7 @@ class FeatureGeneratorExplainer(Experiment):
         else:
             self.risk_predictor = EncoderRNN(self.input_size, hidden_size=100, rnn='GRU', regres=True)
             self.feature_map = feature_map_mimic
+        self.risk_predictor = self.risk_predictor.to(self.device)
 
     def run(self, train):
         if train:
@@ -219,20 +220,21 @@ class FeatureGeneratorExplainer(Experiment):
                 label = np.array([x[1] for x in testset])
                 # high_risk = np.where(label==1)[0]
                 # sub = np.random.choice(high_risk, 10, replace=False)
-                samples_to_analyse = [2313, 4258, 3048,3460,881,188,3845,454]#,58,218,86,45]
+                samples_to_analyse = [3460,3048,3460,881,188,3845,454]#,58,218,86,45]
 
-            sen = []
+
             ## Sensitivity analysis as a baseline
-            signal = torch.stack([sample[0] for i,sample in enumerate(testset) if i in samples_to_analyse])
+            signal = torch.stack([testset[sample][0] for sample in samples_to_analyse])
+            sensitivity_analysis = np.zeros((signal.shape))
             if not self.simulation:
                 self.risk_predictor.train()
-                signal = torch.Tensor(signal).to(self.device).requires_grad_()
-                out = self.risk_predictor(signal)
-                for s in range(len(samples_to_analyse)):
-                    out[s, 0].backward(retain_graph=True)
-                    sen.append(signal.grad.data[s,:,:].cpu().detach().numpy())
-                    signal.grad.data.zero_()
-                sen = np.array(sen)
+                for t in range(1,signal.size(2)):
+                    signal_t = torch.Tensor(signal[:,:,:t+1]).to(self.device).requires_grad_()
+                    out = self.risk_predictor(signal_t)
+                    for s in range(len(samples_to_analyse)):
+                        out[s, 0].backward(retain_graph=True)
+                        sensitivity_analysis[s,:,t] = signal_t.grad.data[s,:,t].cpu().detach().numpy()
+                        signal_t.grad.data.zero_()
                 self.risk_predictor.eval()
             else:
                 #print(testset[0][0].shape)
@@ -247,7 +249,7 @@ class FeatureGeneratorExplainer(Experiment):
                         grad_x2 = 3*out[kk,:]*(1-out[kk,:])*sample[2,:]
                         grad_out.append(np.stack([grad_x0, grad_x1, grad_x2]))
                     grad_out = np.array(grad_out)
-                    sen = grad_out
+                    sensitivity_analysis = grad_out
                 else:
                     #In simulation data also get sensitivity w.r.t. a learned predictor
                     self.risk_predictor.train()
@@ -262,12 +264,11 @@ class FeatureGeneratorExplainer(Experiment):
                         grad_out.append(grad_vec)
                     #print('gradient:, ', i ,signal.grad.data[i,:,:].norm(2).cpu().detach().numpy(),signal.grad.shape)
                     grad_out = np.array(grad_out)
-                    sen = grad_out
+                    sensitivity_analysis = grad_out
                     self.risk_predictor.eval()
 
             print('\n********** Visualizing a few samples **********')
             for sub_ind, subject in enumerate(samples_to_analyse):#range(30):
-                t = np.arange(47)
                 f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, sharex=True)
                 if self.simulation:
                     signals, label_o = testset[subject]
@@ -276,9 +277,12 @@ class FeatureGeneratorExplainer(Experiment):
                     print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()>0.5])
                 else:
                     signals, label_o = testset[subject]
+                    risk = []
+                    for ttt in range(1,48):
+                        risk.append(self.risk_predictor(signals[:, 0:ttt].view(1, signals.shape[0], ttt).to(self.device)).item())
+                    print((max(risk) - min(risk)))
                     print('Subject ID: ', subject)
                     print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()])
-
 
                 importance = np.zeros((self.feature_size,47))
                 mean_predicted_risk = np.zeros((self.feature_size,47))
@@ -305,6 +309,7 @@ class FeatureGeneratorExplainer(Experiment):
                     max_imp_total.append((i,max(mean_predicted_risk[i,:])))
 
                 retain_style=False
+                t = np.arange(47)
                 if retain_style:
                     orders = np.argsort(importance, axis=0)
                     for imps in orders[-3:,:]:
@@ -364,7 +369,7 @@ class FeatureGeneratorExplainer(Experiment):
                         ax4.errorbar(t, importance_comb[ind, :], yerr=std_predicted_risk_comb[ind, :], marker='^', label='%s importance' % (self.feature_map[ind]))
 
                     for ind,sig in max_imp_total[0:n_feats_to_plot]:
-                        ax5.plot(t,sen[sub_ind,ind,:-1],label='%s'%(self.feature_map[ind]))
+                        ax5.plot(t,abs(sensitivity_analysis[sub_ind,ind,:-1]),label='%s'%(self.feature_map[ind]))
                 ax1.plot(t, np.array(label), '--', label='Risk score')
                 ax1.legend()
                 ax2.legend()
@@ -390,7 +395,6 @@ class FeatureGeneratorExplainer(Experiment):
 
     def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion",learned_risk=False):
         self.generator.eval()
-
         feature_dist = np.sort(np.array(self.feature_dist[:,sig_ind,:]).reshape(-1))
 
         risks = []
@@ -404,7 +408,8 @@ class FeatureGeneratorExplainer(Experiment):
                 else:
                     risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t + 1))[:,t].item()
             else:
-                risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t + 1)).item()
+                risk = self.risk_predictor(signal[:,0:t + 1].view(1, signal.shape[0], t + 1)).item()
+                # risk = self.risk_predictor(signal.view(1, signal.shape[0], signal.shape[1])).item()
             signal_known = torch.cat((signal[:sig_ind,t], signal[sig_ind+1:,t])).to(self.device)
             signal = signal.to(self.device)
             risks.append(risk)
@@ -421,6 +426,7 @@ class FeatureGeneratorExplainer(Experiment):
                     prediction1, _ = self.generator(signal_known.view(1, -1), signal[:, 0:t].view(1, signal.size(0), t))
                     prediction = torch.Tensor( self._find_closest(feature_dist, prediction1.cpu().detach().numpy()).reshape(-1)).to(self.device)
                 predicted_signal = signal[:,0:t+1].clone()
+                # predicted_signal = signal[:, :].clone()
                 predicted_signal[:,t] = torch.cat((signal[:sig_ind,t], prediction.view(-1), signal[sig_ind+1:,t]),0)
                 if self.simulation:
                     if not learned_risk:
@@ -429,6 +435,7 @@ class FeatureGeneratorExplainer(Experiment):
                         predicted_risk = self.risk_predictor(predicted_signal[:,0:t+1].view(1,predicted_signal.shape[0],t+1).to(self.device))[:,t].item()
                 else:
                     predicted_risk = self.risk_predictor(predicted_signal[:, 0:t + 1].view(1, predicted_signal.shape[0], t + 1).to(self.device)).item()
+                    # predicted_risk = self.risk_predictor(predicted_signal.view(1, predicted_signal.shape[0], predicted_signal.shape[1]).to(self.device)).item()
                 predicted_risks.append(predicted_risk)
             predicted_risks = np.array(predicted_risks)
             mean_imp = np.mean(predicted_risks,0)
