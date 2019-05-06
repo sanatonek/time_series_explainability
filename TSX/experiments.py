@@ -210,9 +210,6 @@ class FeatureGeneratorExplainer(Experiment):
                     signal.grad.data.zero_()
                 sen = np.array(sen)
                 print(sen.shape)
-                for g in range (5):
-                    plt.plot(sen[0,g,:])
-                plt.show()
                 self.risk_predictor.eval()
 
             print('\n********** Visualizing a few samples **********')
