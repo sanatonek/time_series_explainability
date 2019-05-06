@@ -142,7 +142,6 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
                 for t in [24]:#range(10,signals.shape[2]):
                     label = signals[:, feature_to_predict, t].contiguous().view(-1, 1)
                     signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
-
                     #print(signal.shape)
                     signal = signal.contiguous().view(-1, signals.shape[1] - 1)
                     signal = torch.Tensor(signal.float()).to(device)

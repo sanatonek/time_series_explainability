@@ -19,6 +19,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
     if sim_data:
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data')
         feature_size = p_data.shape[1]
+        encoding_size=20
     else:
         p_data, train_loader, valid_loader, test_loader = load_data(batch_size)
         feature_size = p_data.feature_size
@@ -26,7 +27,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
     if experiment == 'baseline':
         exp = Baseline(train_loader, valid_loader, test_loader, p_data.feature_size)
     elif experiment == 'risk_predictor':
-        exp = EncoderPredictor(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size, rnn_type='GRU')
+        exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, encoding_size, rnn_type='GRU',simulation=sim_data)
     elif experiment == 'VAE':
         exp = KalmanExperiment(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
     elif experiment == 'generator_explainer':
