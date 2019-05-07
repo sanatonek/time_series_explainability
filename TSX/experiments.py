@@ -66,7 +66,10 @@ class EncoderPredictor(Experiment):
         #self.state_encoder = EncoderRNN(feature_size, encoding_size, rnn=rnn_type, regres=False)
         #self.risk_predictor = RiskPredictor(encoding_size)
         #self.model = torch.nn.Sequential(self.state_encoder, self.risk_predictor)
-        self.model = EncoderRNN(feature_size, encoding_size, rnn=rnn_type, regres=True, return_all=True)
+        if simulation:
+            self.model = EncoderRNN(feature_size, encoding_size, rnn=rnn_type, regres=True, return_all=True)
+        else:
+            self.model = EncoderRNN(feature_size, encoding_size, rnn=rnn_type, regres=True, return_all=False)
         self.experiment = experiment
         self.simulation = simulation
 
