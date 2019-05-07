@@ -5,6 +5,7 @@ from scipy.special import expit
 from scipy.signal import butter, lfilter, freqz
 import pickle as pkl
 import os
+from sklearn.preprocessing import OneHotEncoder
 
 def butter_lowpass(cutoff, fs, order=5):
     nyq = 0.5 * fs
@@ -20,7 +21,7 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
 # Filter requirements.
 order = 6
 fs = 30.0       # sample rate, Hz
-cutoff = 14 # desired cutoff frequency of the filter, Hz
+cutoff = 3.8 # desired cutoff frequency of the filter, Hz
 
 # Get the filter coefficients so we can check its frequency response.
 b, a = butter_lowpass(cutoff, fs, order)
@@ -61,7 +62,7 @@ def main(n_samples, plot, Tt=48):
     x_train_n = np.array([ np.where(feature_min==feature_max, (x-feature_min) , (x-feature_min)/(feature_max-feature_min) ) for x in x_train])
     x_test_n = np.array([ np.where(feature_min==feature_max, (x-feature_min) , (x-feature_min)/(feature_max-feature_min) ) for x in x_test])
 
-    print(np.std(np.std(x_train_n,axis=2),axis=0))
+    #print(np.std(np.std(x_train_n,axis=2),axis=0))
     
     x1_train_lpf = np.array([butter_lowpass_filter(x[0,:], cutoff, fs, order) for x in x_train_n])
     x2_train_lpf = np.array([butter_lowpass_filter(x[1,:], cutoff, fs, order) for x in x_train_n])
@@ -73,9 +74,56 @@ def main(n_samples, plot, Tt=48):
     x3_test_lpf = np.array([butter_lowpass_filter(x[2,:], cutoff, fs, order) for x in x_test_n])
     x_test_lpf = np.stack([x1_test_lpf, x2_test_lpf, x3_test_lpf],axis=1)
     
-    y_train = np.array([logistic(1.5*(x[0,:]*x[0,:] +  x[1,:]*x[1,:] +  x[2,:]*x[2,:]-1)) for x in x_train_lpf])
-    y_test = np.array([logistic(1.5*(x[0,:]*x[0,:] +  x[1,:]*x[1,:] +  x[2,:]*x[2,:]-1)) for x in x_test_lpf])
+    n_phases = 3
+    
+    enc = OneHotEncoder(categories='auto')
+    enc.fit(np.reshape(np.array([0,1,2]),[-1,1]))
+    
+    y_train=[]
+    ground_truth_importance_train=[]
+    for x in x_train_lpf:
+        ph1 = np.random.choice([0,1,2],1, replace=False)
+        ph2 = np.random.choice([0,1,2],1, replace=False)
+        ph3 = np.random.choice([0,1,2],1, replace=False)
+        
+        pht = int(Tt/3)
+        phase_vec = np.reshape(np.stack([ph1,ph2,ph3]),[-1,1])
+        encoded_phase = enc.transform(phase_vec)
+        yph1 = logistic(1.5*(encoded_phase[0,0]*x[0,:pht]*x[0,:pht] +  encoded_phase[0,1]*x[1,:pht]*x[1,:pht] +  encoded_phase[0,2]*x[2,:pht]*x[2,:pht]-1))
+        yph2 = logistic(1.5*(encoded_phase[1,0]*x[0,pht:2*pht]*x[0,pht:2*pht] +  encoded_phase[1,1]*x[1,pht:2*pht]*x[1,pht:2*pht] +  encoded_phase[1,2]*x[2,pht:2*pht]*x[2,pht:2*pht]-1))
+        yph3 = logistic(1.5*(encoded_phase[2,0]*x[0,2*pht:]*x[0,2*pht:] +  encoded_phase[2,1]*x[1,2*pht:]*x[1,2*pht:] +  encoded_phase[2,2]*x[2,2*pht:]*x[2,2*pht:]-1))
+        
+        ground_truth_importance_train.append(np.array([ph1]*pht+[ph2]*pht+[ph3]*pht))
 
+        y_tar = np.concatenate([yph1,yph2,yph3])
+        y_train.append(y_tar)
+        
+    y_train = np.array(y_train)
+    ground_truth_importance_train = np.array(ground_truth_importance_train)
+    #print(np.shape(ground_truth_importance_train[:,:,0]))
+    
+    y_test=[]
+    ground_truth_importance_test=[]
+    for x in x_test_lpf:
+        ph1 = np.random.choice([0,1,2],1, replace=False)
+        ph2 = np.random.choice([0,1,2],1, replace=False)
+        ph3 = np.random.choice([0,1,2],1, replace=False)
+        
+        pht = int(Tt/3)
+        phase_vec = np.reshape(np.stack([ph1,ph2,ph3]),[-1,1])
+        encoded_phase = enc.transform(phase_vec)
+        ground_truth_importance_test.append(np.array([ph1]*pht+[ph2]*pht+[ph3]*pht))
+        
+        yph1 = logistic(1.5*(encoded_phase[0,0]*x[0,:pht]*x[0,:pht] +  encoded_phase[0,1]*x[1,:pht]*x[1,:pht] +  encoded_phase[0,2]*x[2,:pht]*x[2,:pht]-1))
+        yph2 = logistic(1.5*(encoded_phase[1,0]*x[0,pht:2*pht]*x[0,pht:2*pht] +  encoded_phase[1,1]*x[1,pht:2*pht]*x[1,pht:2*pht] +  encoded_phase[1,2]*x[2,pht:2*pht]*x[2,pht:2*pht]-1))
+        yph3 = logistic(1.5*(encoded_phase[2,0]*x[0,2*pht:]*x[0,2*pht:] +  encoded_phase[2,1]*x[1,2*pht:]*x[1,2*pht:] +  encoded_phase[2,2]*x[2,2*pht:]*x[2,2*pht:]-1))
+        
+        y_test.append(np.concatenate([yph1,yph2,yph3]))
+
+    y_test = np.array(y_test)
+    ground_truth_importance_test = np.array(ground_truth_importance_test)
+    #print(np.shape(ground_truth_importance_test))
+        
     if plot:
         for i in range(x_train_n.shape[0]):
             plt.plot(x_train_n[i,0,:], label='x1')
@@ -93,7 +141,7 @@ def main(n_samples, plot, Tt=48):
             plt.legend()
             plt.show()
 
-    return x_train_n[:,:,:],y_train,x_test_n[:,:,:],y_test,thresholds_train,thresholds_test
+    return x_train_n[:,:,:],y_train,x_test_n[:,:,:],y_test,thresholds_train,thresholds_test, ground_truth_importance_train[:,:,0], ground_truth_importance_test[:,:,0]
 
 def generate_sample(plot, Tt=48):
     seed = np.random.randint(1,100)
@@ -151,7 +199,7 @@ def logistic(x):
 if __name__=='__main__':
  
     n_samples = 30000
-    x_train_n,y_train,x_test_n,y_test,thresholds_train,thresholds_test = main(n_samples=n_samples, plot=False)
+    x_train_n,y_train,x_test_n,y_test,thresholds_train,thresholds_test, gt_importance_train, gt_importance_test = main(n_samples=n_samples, plot=False)
 
     if not os.path.exists('./data_generator/data/simulated_data'):
         os.mkdir('./data_generator/data/simulated_data')
@@ -161,4 +209,7 @@ if __name__=='__main__':
     save_data('./data_generator/data/simulated_data/y_test.pkl', y_test)
     save_data('./data_generator/data/simulated_data/thresholds_train.pkl', thresholds_train)
     save_data('./data_generator/data/simulated_data/thresholds_test.pkl', thresholds_test)
+    save_data('./data_generator/data/simulated_data/gt_train.pkl', gt_importance_train)
+    save_data('./data_generator/data/simulated_data/gt_test.pkl', gt_importance_test)
+    print(gt_importance_train.shape)
 
