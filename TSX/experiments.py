@@ -305,7 +305,7 @@ class FeatureGeneratorExplainer(Experiment):
                     _, importance_occ[i, :], _, std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode="feature_occlusion",learned_risk=self.learned_risk)
                     _, importance_comb[i, :], _, std_predicted_risk_comb[i,:] = self._get_feature_importance(signals,
                                                                                                           sig_ind=sig_ind, n_samples=10, mode='combined',learned_risk=self.learned_risk)
-                    max_imp_total.append((i,max(mean_predicted_risk[i,:])))
+                    max_imp_total.append((i,max(importance[i,:])))
 
                 retain_style=False
                 t = np.arange(47)
@@ -392,7 +392,7 @@ class FeatureGeneratorExplainer(Experiment):
             print('**** training to sample feature: ', feature_to_predict)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, n_epochs, self.historical)
 
-    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion",learned_risk=False):
+    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=False):
         self.generator.eval()
         feature_dist = np.sort(np.array(self.feature_dist[:,sig_ind,:]).reshape(-1))
 
@@ -418,7 +418,8 @@ class FeatureGeneratorExplainer(Experiment):
                 # Replace signal with random sample from the distribution if feature_occlusion==True,
                 # else use the generator model to estimate the value
                 if mode=="feature_occlusion":
-                    prediction = torch.Tensor(np.random.choice(feature_dist).reshape(-1,)).to(self.device)
+                    # prediction = torch.Tensor(np.random.choice(feature_dist).reshape(-1,)).to(self.device)
+                    prediction = torch.Tensor(np.array(np.random.randn()).reshape(-1)).to(self.device)
                 elif mode=="generator":
                     prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t))
                 elif mode=="combined":

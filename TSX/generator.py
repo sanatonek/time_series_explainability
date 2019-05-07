@@ -33,16 +33,20 @@ class Generator(torch.nn.Module):
 
 
 class FeatureGenerator(torch.nn.Module):
-    def __init__(self, feature_size, hist=False, hidden_size=50, seed=random.seed('2019')):
+    def __init__(self, feature_size, hist=False, hidden_size=50, conditional=True, seed=random.seed('2019')):
         super(FeatureGenerator, self).__init__()
         self.seed = seed
         self.hist = hist
         self.feature_size = feature_size
         self.hidden_size = hidden_size
+        self.conditional = conditional
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         if self.hist:
             self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
-            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1+self.hidden_size, 20),
+            f_size = self.hidden_size
+            if conditional:
+                f_size = f_size + self.feature_size-1
+            self.predictor = torch.nn.Sequential(torch.nn.Linear(f_size, 20),
                                                  torch.nn.ReLU(),
                                                  torch.nn.BatchNorm1d(num_features=20),
                                                  #torch.nn.Dropout(0.5),
@@ -61,7 +65,10 @@ class FeatureGenerator(torch.nn.Module):
             past = past.permute(2, 0, 1)
             prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
             all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
-            x = torch.cat((encoding.view(encoding.size(1),-1), x), 1)
+            if self.conditional:
+                x = torch.cat((encoding.view(encoding.size(1),-1), x), 1)
+            else:
+                x = encoding.view(encoding.size(1),-1)
         mu = self.predictor(x)
         reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
         return reparam_samples, mu
