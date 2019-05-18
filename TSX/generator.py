@@ -3,8 +3,12 @@ import random
 import torch
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 from torch.distributions.multivariate_normal import MultivariateNormal
 
+feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN',
+           'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate' ,
+           'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose','Temp']
 
 class Generator(torch.nn.Module):
     def __init__(self, feature_size, seed=random.seed('2019')):
@@ -33,32 +37,33 @@ class Generator(torch.nn.Module):
 
 
 class FeatureGenerator(torch.nn.Module):
-    def __init__(self, feature_size, hist=False, hidden_size=50, conditional=True, seed=random.seed('2019')):
+    def __init__(self, feature_size, hist=False, hidden_size=100, prediction_size=1, conditional=True, seed=random.seed('2019')):
         super(FeatureGenerator, self).__init__()
         self.seed = seed
         self.hist = hist
         self.feature_size = feature_size
         self.hidden_size = hidden_size
         self.conditional = conditional
+        self.prediction_size = prediction_size
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         if self.hist:
             self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
             f_size = self.hidden_size
             if conditional:
                 f_size = f_size + self.feature_size-1
-            self.predictor = torch.nn.Sequential(torch.nn.Linear(f_size, 20),
+            self.predictor = torch.nn.Sequential(torch.nn.Linear(f_size, self.hidden_size),
                                                  torch.nn.ReLU(),
-                                                 torch.nn.BatchNorm1d(num_features=20),
+                                                 torch.nn.BatchNorm1d(num_features=self.hidden_size),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(20, 1),
-                                                 torch.nn.Sigmoid())
+                                                 torch.nn.Linear(self.hidden_size, self.prediction_size))
+                                                 #torch.nn.Sigmoid())
         else:
-            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1, 20),
+            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1, self.hidden_size),
                                                  torch.nn.ReLU(),
-                                                 torch.nn.BatchNorm1d(num_features=20),
+                                                 torch.nn.BatchNorm1d(num_features=self.hidden_size),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(20, 1),
-                                                 torch.nn.Sigmoid())
+                                                 torch.nn.Linear(self.hidden_size, self.prediction_size))
+                                                 # torch.nn.Sigmoid())
 
     def forward(self, x, past=None):
         if self.hist:
@@ -146,8 +151,8 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
         epoch_loss = 0
         for i, (signals, _) in enumerate(train_loader):
             if historical:
-                for t in [24]:#range(10,signals.shape[2]):
-                    label = signals[:, feature_to_predict, t].contiguous().view(-1, 1)
+                for t in np.random.randint(low=24, high=45, size=2):#range(10,signals.shape[2]):
+                    label = signals[:, feature_to_predict, t:t+generator_model.prediction_size].contiguous().view(-1, generator_model.prediction_size)
                     signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
                     #print(signal.shape)
                     signal = signal.contiguous().view(-1, signals.shape[1] - 1)
@@ -187,13 +192,14 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     if not os.path.exists("./ckpt/"):
         os.mkdir("./ckpt/")
     if historical:
-        torch.save(generator_model.state_dict(), './ckpt/feature_%d_generator.pt'%(feature_to_predict))
+        torch.save(generator_model.state_dict(), './ckpt/feature_%s_generator.pt'%(feature_map_mimic[feature_to_predict]))
     else:
-        torch.save(generator_model.state_dict(), './ckpt/feature_%d_generator_nohist.pt'%(feature_to_predict))
+        torch.save(generator_model.state_dict(), './ckpt/feature_%s_generator_nohist.pt'%(feature_map_mimic[feature_to_predict]))
+    plt.figure()
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('generator_train_loss.png')
+    plt.savefig('%s_generator_loss.png'%(feature_map_mimic[feature_to_predict]))
 
 
 def test_feature_generator(model, test_loader, feature_to_predict, historical=False):
@@ -203,7 +209,7 @@ def test_feature_generator(model, test_loader, feature_to_predict, historical=Fa
     for i, (signals, labels) in enumerate(test_loader):
         if historical:
             for t in [24]:# range(10, signals.shape[2]):
-                label = signals[:, feature_to_predict, t].contiguous().view(-1, 1)
+                label = signals[:, feature_to_predict, t:t+model.prediction_size].contiguous().view(-1, model.prediction_size)
                 signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
                 signal = signal.contiguous().view(-1, signals.shape[1] - 1)
                 signal = torch.Tensor(signal.float()).to(device)

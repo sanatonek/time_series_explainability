@@ -274,3 +274,4 @@ def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_da
 
 def logistic(x):
     return 1./(1+np.exp(-1*x))
+

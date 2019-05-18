@@ -21,7 +21,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
         feature_size = p_data.shape[1]
         encoding_size=20
     else:
-        p_data, train_loader, valid_loader, test_loader = load_data(batch_size)
+        p_data, train_loader, valid_loader, test_loader = load_data(batch_size, path='./data_generator/data_before')
         feature_size = p_data.feature_size
 
     if experiment == 'baseline':
@@ -33,12 +33,17 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
     elif experiment == 'generator_explainer':
         exp = GeneratorExplainer(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
     elif experiment == 'feature_generator_explainer':
-        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, historical=True, simulation=sim_data)
+        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data= p_data, prediction_size=1, historical=False, simulation=sim_data)
 
     exp.run(train=train)
     # span = []
+    # import matplotlib.pyplot as plt
     # testset = list(exp.test_loader.dataset)
     # for i,(signal,label) in enumerate(testset):
+    #     if i==79:
+    #         for j in range(31):
+    #             plt.plot(signal[j,:].cpu().detach().numpy())
+    #         plt.show()
     #     exp.risk_predictor.load_state_dict(torch.load('./ckpt/risk_predictor.pt'))
     #     exp.risk_predictor.to(device)
     #     exp.risk_predictor.eval()

@@ -18,7 +18,7 @@ class PatientData():
         shuffle: Shuffle dataset before separating train/test
     """
 
-    def __init__(self, root, train_ratio=0.8, shuffle=True, random_seed='1234', transform="normalize"):
+    def __init__(self, root, train_ratio=0.8, shuffle=False, random_seed='1234', transform="normalize"):
         self.data_dir = os.path.join(root, 'patient_vital_preprocessed.pkl')
         self.train_ratio = train_ratio
         self.random_seed = random.seed(random_seed)
@@ -27,8 +27,14 @@ class PatientData():
             raise RuntimeError('Dataset not found')
         with open(self.data_dir, 'rb') as f:
             self.data = pickle.load(f)
+        with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
+            self.intervention = pickle.load(f)
         if shuffle:
-            random.shuffle(self.data)
+            inds = np.arange(len(self.data))
+            random.shuffle(inds)
+            self.data = [self.data[i] for i in inds]
+            self.intervention = np.array([self.intervention[i,:,:] for i in inds])
+            # random.shuffle(self.data)
         self.feature_size = len(self.data[0][0])
         self.n_train = int(len(self.data) * self.train_ratio)
         self.n_test = len(self.data) - self.n_train
@@ -38,6 +44,8 @@ class PatientData():
         self.test_label = np.array([y for (x, y, z) in self.data[self.n_train:]])
         self.train_missing = np.array([np.mean(z) for (x, y, z) in self.data[0:self.n_train]])
         self.test_missing = np.array([np.mean(z) for (x, y, z) in self.data[self.n_train:]])
+        self.train_intervention = self.intervention[0:self.n_train,:,:]
+        self.test_intervention = self.intervention[self.n_train:,:,:]
         if transform == "normalize":
             self.normalize()
 
@@ -58,14 +66,14 @@ class PatientData():
         self.feature_means = np.tile(np.mean(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
         self.feature_std = np.tile(np.std(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
         np.seterr(divide='ignore', invalid='ignore')
-        #self.train_data = np.array(
-        #    [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
-        #     x in self.train_data])
-        #self.test_data = np.array(
-        #    [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
-        #     x in self.test_data])
-        self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.train_data])
-        self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
+        self.train_data = np.array(
+           [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
+            x in self.train_data])
+        self.test_data = np.array(
+           [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
+            x in self.test_data])
+        # self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.train_data])
+        # self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
 
 
 class NormalPatientData(PatientData):

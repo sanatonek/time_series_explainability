@@ -34,15 +34,19 @@ def check_nan(A):
     nan_count = np.count_nonzero(nan_arr)
     return nan_arr, nan_count
 
+
 def forward_impute(x, nan_arr):
     x_impute = x.copy()
-    last = np.nan
+    first_value = 0
+    while first_value<len(x) and nan_arr[first_value]==1:
+        first_value += 1
+    last = x_impute[first_value]
     for i,measurement in enumerate(x):
         if nan_arr[i]==1:
             x_impute[i] = last
         else:
             last = measurement
-        return x_impute
+    return x_impute
 
 
 def impute_lab(lab_data):
