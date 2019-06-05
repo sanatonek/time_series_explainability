@@ -1,41 +1,57 @@
 import torch
 import os,sys
 sys.path.append(os.path.join(os.path.dirname(__file__),".."))
-from TSX.utils import train_model, load_data, test, load_simulated_data
+from TSX.utils import train_model, load_data, test, load_simulated_data, load_ghg_data
 from TSX.models import DeepKnn
 from TSX.experiments import KalmanExperiment, Baseline, EncoderPredictor, GeneratorExplainer, FeatureGeneratorExplainer
 import argparse
 import numpy as np
 
 
-def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False):
+def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False, data='mimic'):
     print('********** Experiment with the %s model **********' %(experiment))
 
     # Configurations
     encoding_size = 100
     batch_size = 100
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    n_epochs=120
+    historical=True
+    rnn_type='GRU'
 
     if sim_data:
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data')
         feature_size = p_data.shape[1]
-        encoding_size=20
+        encoding_size=5
+        if experiment =='feature_generator_explainer':
+            n_epochs = 50
+        elif experiment=='risk_predictor':
+            n_epochs = 60
+        data='simulation'
+        historical=True
     else:
-        p_data, train_loader, valid_loader, test_loader = load_data(batch_size)
-        feature_size = p_data.feature_size
+        if data=='mimic':
+            p_data, train_loader, valid_loader, test_loader = load_data(batch_size)
+            feature_size = p_data.feature_size
+        elif data=='ghg':
+            p_data, train_loader, valid_loader, test_loader = load_ghg_data(batch_size)
+            feature_size = p_data.feature_size
+            n_epochs=80
+            rnn_type='GRU'
+            encoding_size=100
 
     if experiment == 'baseline':
         exp = Baseline(train_loader, valid_loader, test_loader, p_data.feature_size)
     elif experiment == 'risk_predictor':
-        exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, encoding_size, rnn_type='GRU',simulation=sim_data)
+        exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, encoding_size, rnn_type=rnn_type,simulation=sim_data,data=data)
     elif experiment == 'VAE':
         exp = KalmanExperiment(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
     elif experiment == 'generator_explainer':
         exp = GeneratorExplainer(train_loader, valid_loader, test_loader, p_data.feature_size, encoding_size)
     elif experiment == 'feature_generator_explainer':
-        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, historical=False, simulation=sim_data)
+        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, historical=historical, simulation=sim_data,data=data)
 
-    exp.run(train=train)
+    exp.run(train=train,n_epochs=n_epochs,loader_obj=p_data)
     # span = []
     # testset = list(exp.test_loader.dataset)
     # for i,(signal,label) in enumerate(testset):
@@ -75,8 +91,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train an ICU mortality prediction model')
     parser.add_argument('--model', type=str, default='feature_generator_explainer', help='Prediction model')
     parser.add_argument('--simulation', action='store_true')
+    parser.add_argument('--data', type=str, default='mimic')
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--uncertainty', action='store_true')
     parser.add_argument('--sensitivity',action='store_true')
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty, sensitivity=args.sensitivity, sim_data=args.simulation)
+    main(args.model, train=args.train, uncertainty_score=args.uncertainty, sensitivity=args.sensitivity, sim_data=args.simulation, data=args.data)

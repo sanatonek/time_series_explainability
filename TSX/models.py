@@ -99,6 +99,64 @@ class NormalPatientData(PatientData):
         if transform == "normalize":
             self.normalize()
 
+class GHGData():
+    """Dataset of GHG time series
+    Args:
+        root: Root directory of dataset the pickled dataset
+        train_ratio: train/test ratio
+        shuffle: Shuffle dataset before separating train/test
+    """
+
+    def __init__(self, root, train_ratio=0.8, shuffle=True, random_seed='1234', transform=None):
+        self.data_dir = os.path.join(root,'ghg_data.pkl')
+        self.train_ratio = train_ratio
+        self.random_seed = random.seed(random_seed)
+
+        if not os.path.exists(self.data_dir):
+            raise RuntimeError('Dataset not found')
+
+        with open(self.data_dir, 'rb') as f:
+            self.data = pickle.load(f)
+
+        print('Ignoring train ratio for this data...')
+
+        self.feature_size = self.data['x_train'].shape[1]
+        self.train_data = self.data['x_train']
+        if shuffle:
+            random.shuffle(self.train_data)
+        self.test_data = self.data['x_test']
+        self.train_label = self.data['y_train']
+        self.test_label = self.data['y_test']
+        self.scaler_x = self.data['scaler_x']
+        self.scaler_y = self.data['scaler_y']
+        self.train_missing = None
+        self.test_missing = None
+        self.n_train = len(self.train_data)
+        self.n_test = len(self.test_data)
+ 
+        if transform == "normalize":
+            self.normalize()
+
+    def __getitem__(self, index):
+        signals, target = self.data[index]
+        return signals, target
+
+    def __len__(self):
+        return len(self.data)
+
+    def normalize(self):
+        """ Calculate the mean and std of each feature from the training set
+        """
+        d = [x.T for x in self.train_data]
+        d = np.stack(d, axis=0)
+        self.feature_max = np.tile(np.max(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
+        self.feature_min = np.tile(np.min(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
+        self.feature_means = np.tile(np.mean(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
+        self.feature_std = np.tile(np.std(d.reshape(-1, self.feature_size), axis=0), (len_of_stay, 1)).T
+        np.seterr(divide='ignore', invalid='ignore')
+        self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.train_data])
+        self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
+
 
 class DeepKnn:
     """
@@ -135,7 +193,7 @@ class DeepKnn:
 
 class EncoderRNN(nn.Module):
     def __init__(self, feature_size, hidden_size, rnn="GRU", regres=True, bidirectional=False, return_all=False,
-                 seed=random.seed('2019')):
+                 seed=random.seed('2019'),data='mimic'):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
         self.seed = seed
@@ -148,10 +206,22 @@ class EncoderRNN(nn.Module):
             self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
         else:
             self.rnn = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
-        self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
+
+        if data=='mimic':
+            self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
                                        nn.Dropout(0.5),
                                        nn.Linear(self.hidden_size, 1),
                                        nn.Sigmoid())
+        elif data=='ghg':
+            self.regressor = nn.Sequential(#nn.BatchNorm1d(self.hidden_size),
+                                       #nn.Dropout(0.5),
+                                       nn.Linear(self.hidden_size, 1))
+        elif data=='simulation':
+            self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
+                                       nn.Dropout(0.5),
+                                       nn.Linear(self.hidden_size, 1),
+                                       nn.Sigmoid())
+ 
 
     def forward(self, input, past_state=None):
         input = input.permute(2, 0, 1).to(self.device)
