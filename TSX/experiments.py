@@ -168,15 +168,26 @@ class GeneratorExplainer(Experiment):
 
 
 class FeatureGeneratorExplainer(Experiment):
-    """ Generating feature importance over time using a generative model
+    """ Experiment for generating feature importance over time using a generative model
     """
     def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, simulation=False,  experiment='feature_generator_explainer'):
+        """
+        :param train_loader:
+        :param valid_loader:
+        :param test_loader:
+        :param feature_size: Size of input features
+        :param patient_data:
+        :param generator_hidden_size: Generator hidden size
+        :param prediction_size: Size of the prediction window. AKA number of samples the generator predicts
+        :param historical: (boolean) If True, use past history for the generator
+        :param simulation: (boolean) If True, run experiment on simulated data
+        :param experiment: Experiment name
+        """
         super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader)
         self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size).to(self.device)
         if not simulation:
-            self.feature_size = feature_size - 4
-        else:
-            self.feature_size = feature_size
+            self.timeseries_feature_size = feature_size - 4
+        self.feature_size = feature_size
         self.input_size = feature_size
         self.patient_data = patient_data
         self.experiment = experiment
@@ -201,84 +212,19 @@ class FeatureGeneratorExplainer(Experiment):
             self.feature_map = feature_map_simulation
         else:
             self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True)
-            # self.risk_predictor = LR(self.input_size).to(self.device)
             self.feature_map = feature_map_mimic
         self.risk_predictor = self.risk_predictor.to(self.device)
 
     def run(self, train):
-        single_plot = False
+        """ Run feature generator experiment
+        :param train: (boolean) If True, train the generators, if False, use saved checkpoints
+        """
         if train:
             self.train(n_features=self.feature_size, n_epochs=150)
-        elif single_plot:
-            t = range(47)
-            testset=list(self.test_loader.dataset)
-            label = np.array([x[1] for x in testset])
-            samples_to_analyze = range(153,245)
-            # self.risk_predictor.load_state_dict(torch.load('./ckpt/LR.pt'))
-            self.risk_predictor.load_state_dict(torch.load('./ckpt/risk_predictor.pt'))
-            self.risk_predictor.to(self.device)
-            self.risk_predictor.eval()
-            for subject in samples_to_analyze:
-                signals, label_o = testset[subject]
-                print('Subject ID: ', subject)
-                print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()])
-
-                importance = np.zeros((self.feature_size,47))
-                mean_predicted_risk = np.zeros((self.feature_size,47))
-                std_predicted_risk = np.zeros((self.feature_size,47))
-                max_imp_FCC = []
-            
-                signals_to_analyze = range(0,27)#[20,22,23,27]
-                for i, sig_ind in enumerate(signals_to_analyze):#enumerate(range(0,self.feature_size)):
-                    f, (ax1, ax2) = plt.subplots(2, sharex=True)
-                    if self.historical:
-                        self.generator.load_state_dict(torch.load('./ckpt/feature_%s_generator.pt'%(feature_map_mimic[sig_ind])))
-                    else:
-                        self.generator.load_state_dict(torch.load('./ckpt/feature_%s_generator_nohist.pt'%(feature_map_mimic[sig_ind])))
-
-                    label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)
-                    max_imp_FCC.append((i,max(importance[i,:])))
-
-                    max_imp_FCC.sort(key=lambda pair: pair[1], reverse=True)
-                    n_feats_to_plot = min(self.feature_size,4)
-                    # for ind,sig in max_imp_total[0:n_feats_to_plot]:
-                    if hasattr(self.patient_data, 'test_intervention'):
-                        f_color = ['g', 'b', 'r', 'c', 'm', 'y', 'k']
-                        for int_ind, intervention in enumerate(self.patient_data.test_intervention[subject, :, :]):
-                            if sum(intervention)!=0:
-                                ax1.axvspan(xmin=np.where(intervention>0)[0][0], xmax=np.where(intervention>0)[0][-1]+1, facecolor=f_color[int_ind%len(f_color)], alpha=0.2, label='%s' % (intervention_list[int_ind]))
-
-                    markers = ['*', 'D', 'X', 'o', '8', 'v', '+']
-                    l_style = ['-.', '--', ':','-.','--']
-                    important_signals = []
-
-                    # Our method
-                    for count,(ind, sig) in enumerate(max_imp_FCC[0:n_feats_to_plot]):
-                    #for ind in np.argsort(f_imp_comb)[-4:]:# range(4):
-                        ref_ind = signals_to_analyze[ind]
-                        if ref_ind not in important_signals:
-                            important_signals.append(ref_ind)
-                        color_ind = np.where(important_signals==ref_ind)[0]
-                        ax2.errorbar(t, importance[ind, :], yerr=std_predicted_risk[ind, :], marker=markers[ind%len(markers)],
-                                     markersize=6, linewidth=3, linestyle=l_style[count], label='%s' % (self.feature_map[ref_ind]))
-       
-                        ax1.plot(np.array(signals[ref_ind,1:]/max(abs(signals[ref_ind,1:]))), linewidth=3,
-                                 linestyle=l_style[count], label='%s'%(self.feature_map[ref_ind]))
-                ax1.plot(t,np.array(label), linewidth=3, label='Risk score')
-                ax1.legend(bbox_to_anchor=(1, 1), loc=2, borderaxespad=0.,  prop={'size': 20})
-                ax1.grid()
-                ax2.grid()
-                ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=24)
-                ax2.set_title('FFC importance', fontweight='bold', fontsize=24)
-                f.set_figheight(15)
-                f.set_figwidth(30)
-                plt.tight_layout()
-                plt.savefig('./examples/FFC/importance_sample_%d.pdf'%(subject), dpi=300)
-                # plt.savefig('./examples/LR/LR_importance_sample_%d.pdf'%(subject))
-                # plt.show()
-       
         else:
-            if os.path.exists('./ckpt/feature_0_generator.pt'):
+            if not os.path.exists('./ckpt/feature_0_generator.pt'):
+                raise RuntimeError('No saved checkpoint for this model')
+            else:
                 if not self.simulation:
                     self.risk_predictor.load_state_dict(torch.load('./ckpt/risk_predictor.pt'))
                     self.risk_predictor = self.risk_predictor.to(self.device)
@@ -290,11 +236,8 @@ class FeatureGeneratorExplainer(Experiment):
                         self.risk_predictor.eval()
                 #gen_test_loss = test_feature_generator(self.generator, self.test_loader, 1)
                 #print('Generator test loss: ', gen_test_loss)
-            else:
-                raise RuntimeError('No saved checkpoint for this model')
 
             testset = list(self.test_loader.dataset)
-
             if self.simulation:
                 with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
                     th = pkl.load(f)
@@ -303,19 +246,13 @@ class FeatureGeneratorExplainer(Experiment):
                 #print(label)
                 high_risk = np.where(label>=0.5)[0]
                 samples_to_analyse = np.random.choice(high_risk, 5, replace=False)
-            else:
-                label = np.array([x[1] for x in testset])
-                # high_risk = np.where(label==1)[0]
-                # sub = np.random.choice(high_risk, 10, replace=False)
-                # samples_to_analyse = np.where(label==1)[0]
-                samples_to_analyse = [4387, 481]#, 4552, 2242, 303, 3589]
-                # samples_to_analyse = [80, 481, 210, 3356, 1534, 4387, 3422, 3663, 4494, 1430, 3055, 1235, 2599, 3586, 816, 3305]
-                # samples_to_analyse = [3095, 345, 1527, 4453, 2717, 3575, 1801, 4053, 2318, 1778, 3304, 3022, 4126, 4552, 4223, 3037, 8, 2242, 2589, 3589, 1672, 323, 303, 262, 1187, 4564]#[210, 2491, 1411, 299, 3095, 4126, 8] # [3421,3048,3460,881,188,3845,454]
 
 
+            samples_to_analyse = [4387, 481]
             ## Sensitivity analysis as a baseline
             signal = torch.stack([testset[sample][0] for sample in samples_to_analyse])
             sensitivity_analysis = np.zeros((signal.shape))
+
             if not self.simulation:
                 self.risk_predictor.train()
                 for t in range(1,signal.size(2)):
@@ -352,7 +289,6 @@ class FeatureGeneratorExplainer(Experiment):
                             out[i,t].backward(retain_graph=True)
                             grad_vec[:,t] = signal.grad.data[i,:,t].cpu().detach().numpy()
                         grad_out.append(grad_vec)
-                    #print('gradient:, ', i ,signal.grad.data[i,:,:].norm(2).cpu().detach().numpy(),signal.grad.shape)
                     grad_out = np.array(grad_out)
                     sensitivity_analysis = grad_out
                     self.risk_predictor.eval()
@@ -362,12 +298,7 @@ class FeatureGeneratorExplainer(Experiment):
             self.risk_predictor.to(self.device)
             self.risk_predictor.eval()
             signals_to_analyze = range(0,27)
-            # cmap = plt.get_cmap("tab10")
-            # # cmap = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe',
-            # #         '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#000075', '#808000', '#ffd8b1', '#aaffc3', '#808080',
-            # #         '#ffffff', '#000000', '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6']
-            for sub_ind, subject in enumerate(samples_to_analyse):#range(30):
-                # f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
+            for sub_ind, subject in enumerate(samples_to_analyse):
                 if self.simulation:
                     signals, label_o = testset[subject]
                     label_o = label_o[-1]
@@ -389,13 +320,13 @@ class FeatureGeneratorExplainer(Experiment):
         print('Subject ID: ', subject)
         print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
 
-        importance = np.zeros((self.feature_size, 47))
-        mean_predicted_risk = np.zeros((self.feature_size, 47))
-        std_predicted_risk = np.zeros((self.feature_size, 47))
-        importance_occ = np.zeros((self.feature_size, 47))
-        std_predicted_risk_occ = np.zeros((self.feature_size, 47))
-        importance_occ_aug = np.zeros((self.feature_size, 47))
-        std_predicted_risk_occ_aug = np.zeros((self.feature_size, 47))
+        importance = np.zeros((self.timeseries_feature_size, 47))
+        mean_predicted_risk = np.zeros((self.timeseries_feature_size, 47))
+        std_predicted_risk = np.zeros((self.timeseries_feature_size, 47))
+        importance_occ = np.zeros((self.timeseries_feature_size, 47))
+        std_predicted_risk_occ = np.zeros((self.timeseries_feature_size, 47))
+        importance_occ_aug = np.zeros((self.timeseries_feature_size, 47))
+        std_predicted_risk_occ_aug = np.zeros((self.timeseries_feature_size, 47))
         max_imp_FCC = []
         max_imp_occ = []
         max_imp_occ_aug = []
@@ -477,7 +408,7 @@ class FeatureGeneratorExplainer(Experiment):
                 max_imp_occ_aug.sort(key=lambda pair: pair[1], reverse=True)
                 max_imp_sen.sort(key=lambda pair: pair[1], reverse=True)
 
-                n_feats_to_plot = min(self.feature_size, n_important_features)
+                n_feats_to_plot = min(self.timeseries_feature_size, n_important_features)
                 if hasattr(self.patient_data, 'test_intervention'):
                     f_color = ['g', 'b', 'r', 'c', 'm', 'y', 'k']
                     for int_ind, intervention in enumerate(self.patient_data.test_intervention[subject, :, :]):
@@ -592,7 +523,7 @@ class FeatureGeneratorExplainer(Experiment):
             if self.simulation:
                 self.generator = FeatureGenerator(self.feature_size, self.historical).to(self.device)
             else:
-                self.generator = FeatureGenerator(self.feature_size+4, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size).to(self.device)
+                self.generator = FeatureGenerator(self.feature_size, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size).to(self.device)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, n_epochs, self.historical)
 
     def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=False):
