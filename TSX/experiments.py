@@ -383,13 +383,6 @@ class FeatureGeneratorExplainer(Experiment):
             mse_vec_comb=[]
             mse_vec_sens=[]
 
-            if self.data=='simulation':
-                spike_y_vec=[]
-                spike_pred_vec=[]
-                spike_pred_occ_vec=[]
-                spike_pred_su_vec=[]
-                spike_pred_sens_vec=[]
-
             for sub_ind, subject in enumerate(samples_to_analyse):#range(30):
                 if self.data=='simulation':
                     f, (ax1,ax2, ax3, ax4) = plt.subplots(4,sharex=True,figsize=(12,10))
@@ -397,16 +390,6 @@ class FeatureGeneratorExplainer(Experiment):
                     f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, sharex=True,figsize=(10,6))
                 if self.simulation:
                     signals, label_o = testset[subject]
-                    #print()
-                    #time_spikes = np.where(label_o.cpu().detach().numpy()>1)[0]
-                    #print(time_spikes)
-                    #if len(time_spikes)>0:
-                    #    for l in len(time_spikes):
-                    #        spike_y_vec.append(1)
-                    if label_o.cpu().detach().numpy()[0]==1:
-                        spike_y_.append(1)
-                    #print(label_o.item())
-                    #label_o = label_o[-1]
                     print('Subject ID: ', subject)
                     print('Did this patient die? ', {1:'yes',0:'no'}[label_o.item()>0.5])
                 elif self.data=='mimic':
@@ -479,16 +462,6 @@ class FeatureGeneratorExplainer(Experiment):
                         _, importance_su[i, :], mean_predicted_risk_su[i,:], std_predicted_risk_su[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='suresh_et_al',learned_risk=self.learned_risk,gt_imp = gt_importance[subject,:],tvec=tvec)
                         _, importance_comb[i, :], mean_predicted_risk_comb[i,:], std_predicted_risk_comb[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='combined',learned_risk=self.learned_risk,gt_imp= gt_importance[subject,:],tvec=tvec)
 
-                        if i==0:
-                            time_spikes = np.where(importance[0,:]>0.5)[0]
-                            if len(time_spikes)>0:
-                                spike_pred_vec.append(1)
-                            else:
-                                spike_pred_vec.append(0)
- 
-                            #    spike_pred_occ_vec.append(spike_importance_occ[ii])
-                            #    spike_pred_su_vec.append(spike_importance[ii])
-                            #    spike_pred_sens_vec.append(spike_importance[ii])
                     else:
                         label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk,tvec=tvec)
                         _, importance_occ[i, :], mean_predicted_risk_occ[i,:], std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode="augmented_feature_occlusion",learned_risk=self.learned_risk,tvec=tvec)
@@ -795,13 +768,6 @@ class FeatureGeneratorExplainer(Experiment):
                     print('AFO: 1:', np.mean(abs(np.array(mse_vec_occ)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_occ)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_occ)[:,2])))
                     print('Su: 1:', np.mean(abs(np.array(mse_vec_su)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_su)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_su)[:,2])))
                     print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_sens)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:,2])))
-
-                if self.data=='simulation' and len(time_spikes)>0:
-                    auc_score = roc_auc_score(np.array(spike_y_vec).reshape[-1], np.array(spike_pred_vec).reshape(-1))
-                    auc_score_occ = roc_auc_score(np.array(spike_y_vec).reshape[-1], np.array(spike_pred_occ_vec).reshape(-1))
-                    auc_score_su = roc_auc_score(np.array(spike_y_vec).reshape[-1], np.array(spike_pred_su_vec).reshape(-1))
-                    auc_score_sens = roc_auc_score(np.array(spike_y_vec).reshape[-1], np.array(spike_pred_sens_vec).reshape(-1))
-                    print('AUC FFC: ', auc_score , 'Occ: ', auc_score_occ, 'Su: ', auc_score_su, 'Sens: ', auc_score_sens)
 
             print("Importance Accuracy Orig   : ", imp_acc/(len(tvec)*len(samples_to_analyse)))
             print("Importance Accuracy FeatOcc: ", imp_acc_occ/(len(tvec)*len(samples_to_analyse)))
