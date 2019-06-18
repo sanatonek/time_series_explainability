@@ -106,7 +106,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.savefig(os.path.join('./plots',data,'train_loss.png'))
 
 def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, regress=False,data='mimic'):
     print('training data: ', data)
@@ -169,7 +169,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.savefig(os.path.join('./plots',data,'train_loss.png'))
 
 def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='ghg'):
     print('training data: ', data)
@@ -220,7 +220,7 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, de
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.savefig(os.path.join('./plots',data,'train_loss.png'))
 
 
 def test_model_rt(model,test_loader):
