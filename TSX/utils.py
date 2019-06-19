@@ -88,7 +88,7 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
     return recall_train, precision_train, auc_train / count, correct_label, epoch_loss
 
 
-def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment):
+def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, ckpt_path):
     train_loss_trend = []
     test_loss_trend = []
 
@@ -109,13 +109,15 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
                   ' AUC: %.2f' % (auc_test))
 
     # Save model and results
-    if not os.path.exists("./ckpt/"):
-        os.mkdir("./ckpt/")
-    torch.save(model.state_dict(), './ckpt/' + str(experiment) + '.pt')
+    if not os.path.exists(ckpt_path):
+        os.mkdir(ckpt_path)
+    torch.save(model.state_dict(), os.path.join(ckpt_path, (str(experiment) + '.pt')))
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.title('Risk Predictor Loss')
+    plt.savefig('train_loss.pdf')
+
 
 def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, regress=False):
     train_loss_trend = []
@@ -173,6 +175,7 @@ def test_model_rt(model,test_loader):
         test_loss += loss.item()
 
     return test_loss
+
 
 def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, experiment):
     train_loss_trend = []
@@ -275,3 +278,18 @@ def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_da
 def logistic(x):
     return 1./(1+np.exp(-1*x))
 
+
+def top_risk_change(exp):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    span = []
+    testset = list(exp.test_loader.dataset)
+    for i,(signal, label) in enumerate(testset):
+        exp.risk_predictor.load_state_dict(torch.load('./ckpt/mimic/risk_predictor.pt'))
+        exp.risk_predictor.to(device)
+        exp.risk_predictor.eval()
+        risk = []
+        for t in range(1,48):
+            risk.append(exp.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t).to(device)).item())
+        span.append((i, max(risk) - min(risk)))
+    span.sort(key=lambda pair:pair[1], reverse=True)
+    print([x[0] for x in span[0:300]])
