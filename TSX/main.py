@@ -58,7 +58,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
     # for i in range(27):
     #     print('#### %s'%(feature_map_mimic[i]))
     #     print(torch.mean(exp.feature_dist_0[:,i,:]),torch.mean(exp.feature_dist_1[:,i,:]))
-    exp.run(train=train)
+    exp.run(train=train,n_epochs=n_epochs)
     # span = []
     # # import matplotlib.pyplot as plt
     # testset = list(exp.test_loader.dataset)

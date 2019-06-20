@@ -84,7 +84,7 @@ class FeatureGenerator(torch.nn.Module):
         return reparam_samples, mu
 
 
-def train_feature_generator(generator_model, train_loader, valid_loader, feature_to_predict=1, path='./ckpt/', n_epoch=30, historical=False, **kwargs):
+def train_feature_generator(generator_model, train_loader, valid_loader, feature_to_predict=1, path='./ckpt/', n_epochs=30, historical=False, **kwargs):
     train_loss_trend = []
     test_loss_trend = []
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -106,7 +106,7 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     else:
         num = 1
 
-    for epoch in range(n_epoch + 1):
+    for epoch in range(n_epochs + 1):
         generator_model.train()
         epoch_loss = 0
         for i, (signals, _) in enumerate(train_loader):

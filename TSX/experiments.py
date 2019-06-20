@@ -119,9 +119,9 @@ class EncoderPredictor(Experiment):
         self.simulation = simulation
         self.data = data
 
-    def run(self, train,loader_obj=None):
+    def run(self, train,n_epochs=30):
         if train:
-            self.train(n_epochs=80, learn_rt=self.data=='ghg')
+            self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
         else:
             if os.path.exists('./ckpt/' + self.data + '/' + str(self.experiment) + '.pt'):
                 self.model.load_state_dict(torch.load(os.path.join('./ckpt/' + self.data, str(self.experiment) + '.pt')))
@@ -163,7 +163,7 @@ class FeatureGeneratorExplainer(Experiment):
         self.patient_data = patient_data
         self.experiment = experiment
         self.historical = historical
-        self.simulation = simulation
+        self.simulation = self.data=='simulation'
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
         self.data=data
@@ -172,8 +172,13 @@ class FeatureGeneratorExplainer(Experiment):
         self.learned_risk = True
         trainset = list(self.train_loader.dataset)
         self.feature_dist = torch.stack([x[0] for x in trainset])
-        self.feature_dist_0 = torch.stack([x[0] for x in trainset if x[1]==0])
-        self.feature_dist_1 = torch.stack([x[0] for x in trainset if x[1]==1])
+        if self.data=='mimic' or self.data=='simulation':
+            self.feature_dist_0 = torch.stack([x[0] for x in trainset if x[1]==0])
+            self.feature_dist_1 = torch.stack([x[0] for x in trainset if x[1]==1])
+        else:
+            self.feature_dist_0=self.feature_dist
+            self.feature_dist_1=self.feature_dist
+
         if self.data=='simulation':
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
@@ -190,7 +195,7 @@ class FeatureGeneratorExplainer(Experiment):
                 self.feature_map = feature_map_ghg
                 self.risk_predictor = self.risk_predictor.to(self.device)
 
-    def run(self, train,n_epochs=80,loader_obj=None):
+    def run(self, train,n_epochs=80):
         """ Run feature generator experiment
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
         """
@@ -233,7 +238,7 @@ class FeatureGeneratorExplainer(Experiment):
             else:
                 if self.data=='mimic':
                     samples_to_analyse = [4387, 481]
-                elif seld.data=='ghg':
+                elif self.data=='ghg':
                     label = np.array([x[1][-1] for x in testset])
                     high_risk = np.arange(label.shape[0])
                     samples_to_analyse = np.random.choice(high_risk, len(high_risk), replace=False)
@@ -244,9 +249,9 @@ class FeatureGeneratorExplainer(Experiment):
             #Some setting up for ghg data
             if self.data=='ghg':
                 label_tch = torch.stack([testset[sample][1] for sample in samples_to_analyse])
-                signal_scaled = loader_obj.scaler_x.inverse_transform(np.reshape(signal.cpu().detach().numpy(),[len(samples_to_analyse),-1]))
+                signal_scaled = self.patient_data.scaler_x.inverse_transform(np.reshape(signal.cpu().detach().numpy(),[len(samples_to_analyse),-1]))
                 signal_scaled = np.reshape(signal_scaled,signal.shape)
-                label_scaled = loader_obj.scaler_y.inverse_transform(np.reshape(label_tch.cpu().detach().numpy(),[len(samples_to_analyse),-1]))
+                label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(label_tch.cpu().detach().numpy(),[len(samples_to_analyse),-1]))
                 label_scaled = np.reshape(label_scaled,label_tch.shape)
                 #label_scaled = label_tch.cpu().detach().numpy()
 
@@ -258,8 +263,8 @@ class FeatureGeneratorExplainer(Experiment):
             nt = len(tvec)
             sensitivity_analysis = np.zeros((signal.shape))
 
-            if not self.simulation:
-                if self.data=='mimic':
+            if not self.data=='simulation':
+                if self.data=='mimic' or self.data=='ghg':
                     self.risk_predictor.train()
                     for t_ind,t in enumerate(tvec):
                         signal_t = torch.Tensor(signal[:,:,:t]).to(self.device).requires_grad_()
@@ -307,9 +312,6 @@ class FeatureGeneratorExplainer(Experiment):
             elif self.data=='ghg':
                 signals_to_analyze = range(0,15)
 
-            for sub_ind, subject in enumerate(samples_to_analyse):
-                self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data)
-            
             if self.data=='ghg':
                 #GHG experiment variables
                 mse_vec=[]
@@ -319,7 +321,11 @@ class FeatureGeneratorExplainer(Experiment):
                 mse_vec_sens=[]
 
                 # Replace and Predict Experiment
-                self.replace_and_predict(subject,signals_to_analyze,sensitivity_analysis,data=self.data)
+                self.replace_and_predict(signals_to_analyze,sensitivity_analysis,data=self.data,tvec=tvec)
+            else:
+                for sub_ind, subject in enumerate(samples_to_analyse):
+                    self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data)
+
 
     def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic'):
         """ Plot importance score across all baseline methods
@@ -337,7 +343,8 @@ class FeatureGeneratorExplainer(Experiment):
         testset = list(self.test_loader.dataset)
         signals, label_o = testset[subject]
         print('Subject ID: ', subject)
-        print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
+        if data=='mimic':
+            print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
 
         importance = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
         mean_predicted_risk = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
@@ -368,10 +375,10 @@ class FeatureGeneratorExplainer(Experiment):
                     torch.load(os.path.join('.ckpt',data,'%s_generator_nohist.pt' % (feature_map_mimic[sig_ind]))))
                 elif data=='simulation':
                     self.generator.load_state_dict(
-                    torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                    torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
                 elif data=='ghg':
                     self.generator.load_state_dict(
-                    torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                    torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
 
             label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
                 signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)
@@ -551,14 +558,16 @@ class FeatureGeneratorExplainer(Experiment):
                 plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
                 fig_legend.savefig(os.path.join('./examples',data,'legend_%d.pdf' %(subject)), dpi=300, bbox_inches='tight')
 
-    def replace_and_predict(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic'):
+    def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3,data='ghg',tvec=None):
         mse_vec=[]
         mse_vec_occ=[]
         mse_vec_su=[]
         mse_vec_comb=[]
         mse_vec_sens=[]
 
-        for sub_ind, subject in enumerate(samples_to_analyse):#range(30):
+        nt = len(tvec)
+        testset = list(self.test_loader.dataset)
+        for sub_ind, subject in enumerate(signals_to_analyze):#range(30):
             signals, label_o = testset[subject]
             label_o_o = label_o[-1]
             risk = []
@@ -593,29 +602,29 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_total_sens = []
             legend_elements=[]
 
-            ckpt_path='./ckpt/' + data + '/' 
-            for i, sig_ind in enumerate(range(0,self.feature_size)):
-            #for i, sig_ind in enumerate(range(0,5)):
+            ckpt_path='./ckpt/' + data + '/'
+            print(data)
+            #for i, sig_ind in enumerate(range(0,self.feature_size)):
+            for i, sig_ind in enumerate(range(0,3)):
                 print('loading feature from:', ckpt_path)
                 if self.historical:
-                    self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'feature_%d_generator.pt'%(sig_ind))))
+                    self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator.pt'%(sig_ind))))
                 else:
-                    self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'feature_%d_generator_nohist.pt'%(sig_ind))))
+                    self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator_nohist.pt'%(sig_ind))))
 
-                label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk,tvec=tvec)
-                _, importance_occ[i, :], mean_predicted_risk_occ[i,:], std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode="augmented_feature_occlusion",learned_risk=self.learned_risk,tvec=tvec)
-                _, importance_su[i, :], mean_predicted_risk_su[i,:], std_predicted_risk_su[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='suresh_et_al',learned_risk=self.learned_risk,tvec=tvec)
-                _, importance_comb[i, :], mean_predicted_risk_comb[i,:], std_predicted_risk_comb[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='combined',learned_risk=self.learned_risk,tvec=tvec)
+                label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode='generator',tvec=tvec)
+                _, importance_occ[i, :], mean_predicted_risk_occ[i,:], std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode="feature_occlusion",tvec=tvec)
+                _, importance_su[i, :], mean_predicted_risk_su[i,:], std_predicted_risk_su[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='augmented_feature_occlusion',tvec=tvec)
+                #_, importance_comb[i, :], mean_predicted_risk_comb[i,:], std_predicted_risk_comb[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='combined',learned_risk=self.learned_risk,tvec=tvec)
 
                     #print('importance:', importance[i,:])
                 max_imp_total.append((i,max(mean_predicted_risk[i,:])))
                 max_imp_total_occ.append((i,max(mean_predicted_risk_occ[i,:])))
-                max_imp_total_comb.append((i,max(mean_predicted_risk_comb[i,:])))
                 max_imp_total_su.append((i,max(mean_predicted_risk_su[i,:])))
-                max_imp_total_sens.append((i,max(sensitivity_analysis[sub_ind,i,:])))
+                max_imp_total_sens.append((i,max(sensitivity_analysis_importance[sub_ind,i,:])))
 
                 #print(label)
-                label_scaled = loader_obj.scaler_y.inverse_transform(np.reshape(np.array(label),[-1,1]))
+                label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(np.array(label),[-1,1]))
                 label_scaled = np.reshape(label_scaled,[1,-1])
 
             max_imp = np.argmax(importance,axis=0)
@@ -624,14 +633,11 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ = np.argmax(importance_occ,axis=0)
             for im in max_imp_occ:
                 f_imp_occ[im] += 1
-            max_imp_comb = np.argmax(importance_comb,axis=0)
-            for im in max_imp_comb:
-                f_imp_comb[im] += 1
 
             ## Pick the most influential signals and plot their importance over time
             max_imp_total.sort(key=lambda pair: pair[1], reverse=True)
             max_imp_total_occ.sort(key=lambda pair: pair[1], reverse=True)
-            max_imp_total_comb.sort(key=lambda pair: pair[1], reverse=True)
+            #max_imp_total_comb.sort(key=lambda pair: pair[1], reverse=True)
             max_imp_total_su.sort(key=lambda pair: pair[1], reverse=True)
             max_imp_total_sens.sort(key=lambda pair: pair[1], reverse=True)
 
@@ -695,24 +701,69 @@ class FeatureGeneratorExplainer(Experiment):
 
             mse_vec_sens.append(top_3_vec_sens)
 
-            with open('mse.pkl','wb') as f:
+            #fig, ax_list = plt.subplots(nrows=3,ncols=len(tvec))
+            fig, ax_list = plt.subplots(1,len(tvec),figsize=(8,2))
+            map_img = mpimg.imread('./results/ghc_figure.png')
+            max_to_plot=2
+            colorvec = plt.get_cmap("Oranges")(np.linspace(1,2/3,max_to_plot))
+            k_count=0
+            for ind,sig in max_imp_total[0:max_to_plot]:
+                for t_num, t_val in enumerate(tvec):
+                    ax_list[t_num].imshow(map_img, extent=[0,width,0,height])
+                    ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind+1)][0]], y=[scatter_map_ghg[str(ind+1)][1]],c=["w"],s=18,marker='s',edgecolor="r",linewidth=2)
+                    if k_count==0:
+                        ax_list[t_num].set_title("day %d"%(int(t_val/4)))
+                k_count+=1
+
+            plt.tight_layout()
+            plt.savefig('/scratch/gobi1/shalmali/ghg/feature_imp_ghg_%d.pdf'%(subject),dpi=300,orientation='landscape')
+
+            fig, ax_list = plt.subplots(1,len(tvec),figsize=(8,2))
+            k_count=0
+            for ind,sig in max_imp_total_occ[0:max_to_plot]:
+                for t_num, t_val in enumerate(tvec):
+                    ax_list[t_num].imshow(map_img, extent=[0,width,0,height])
+                    ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind+1)][0]], y=[scatter_map_ghg[str(ind+1)][1]],c=["w"],s=18,marker='s',edgecolor="r",linewidth=2)
+                    if k_count==0:
+                        ax_list[t_num].set_title("day %d"%(t_val/4))
+                k_count+=1
+
+            plt.tight_layout()
+            plt.savefig('/scratch/gobi1/shalmali/ghg/feature_occ_ghg_%d.pdf'%(subject),dpi=300,orientation='landscape')
+ 
+            fig, ax_list = plt.subplots(1,len(tvec),figsize=(8,2))
+            k_count=0
+            for ind,sig in max_imp_total_comb[0:max_to_plot]:
+                for t_num, t_val in enumerate(tvec):
+                    ax_list[t_num].imshow(map_img, extent=[0,width,0,height])
+                    ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind+1)][0]], y=[scatter_map_ghg[str(ind+1)][1]],c=["w"],s=18,marker='s',edgecolor="r",linewidth=2)
+                    if k_count==0:
+                        ax_list[t_num].set_title("day %d"%(t_val/4))
+
+                k_count+=1
+
+            plt.tight_layout()
+            plt.savefig('/scratch/gobi1/shalmali/ghg/feature_imp_comb_ghg_%d.pdf'%(subject),dpi=300,orientation='landscape')
+
+
+            with open('./results/ghg_mse.pkl','wb') as f:
                 pkl.dump({'FFC': mse_vec, 'FO': mse_vec_occ, 'Su': mse_vec_su, 'Sens': mse_vec_sens},f)
         
             if self.data=='ghg':
                 print(np.shape(np.array(mse_vec)))
                 print('FFC: 1:', np.mean(abs(np.array(mse_vec)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec)[:,2])))
-                print('AFO: 1:', np.mean(abs(np.array(mse_vec_occ)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_occ)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_occ)[:,2])))
-                print('Su: 1:', np.mean(abs(np.array(mse_vec_su)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_su)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_su)[:,2])))
+                print('FO: 1:', np.mean(abs(np.array(mse_vec_occ)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_occ)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_occ)[:,2])))
+                print('AFO: 1:', np.mean(abs(np.array(mse_vec_su)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_su)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_su)[:,2])))
                 print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_sens)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:,2])))
 
 
     def train(self, n_epochs, n_features):
         for feature_to_predict in range(0,n_features):#(n_features):
-            print('**** training to sample feature: ', feature_to_predict)
+            print('**** training to sample feature: ', feature_to_predict, n_epochs)
             #self.generator = FeatureGenerator(self.feature_size, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size,conditional=True,data=self.data).to(self.device)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, n_epochs=n_epochs, historical=self.historical,path=os.path.join('./ckpt',self.data))
 
-    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=False):
+    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True,tvec=None):
         self.generator.eval()
         feature_dist = np.sort(np.array(self.feature_dist[:,sig_ind,:]).reshape(-1))
         feature_dist_0 = (np.array(self.feature_dist_0[:, sig_ind, :]).reshape(-1))
@@ -722,7 +773,9 @@ class FeatureGeneratorExplainer(Experiment):
         importance = []
         mean_predicted_risk = []
         std_predicted_risk = []
-        for t in range(1,signal.shape[1]):
+        if tvec is None:
+            tvec = range(1,signal.shape[1])
+        for t in tvec:
             if self.simulation:
                 if not learned_risk:
                     risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
