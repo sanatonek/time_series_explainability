@@ -386,3 +386,19 @@ def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_da
 
 def logistic(x):
     return 1./(1+np.exp(-1*x))
+
+
+def top_risk_change(exp):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    span = []
+    testset = list(exp.test_loader.dataset)
+    for i,(signal, label) in enumerate(testset):
+        exp.risk_predictor.load_state_dict(torch.load('./ckpt/mimic/risk_predictor.pt'))
+        exp.risk_predictor.to(device)
+        exp.risk_predictor.eval()
+        risk = []
+        for t in range(1,48):
+            risk.append(exp.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t).to(device)).item())
+        span.append((i, max(risk) - min(risk)))
+    span.sort(key=lambda pair:pair[1], reverse=True)
+    print([x[0] for x in span[0:300]])

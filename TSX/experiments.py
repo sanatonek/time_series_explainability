@@ -133,6 +133,8 @@ class EncoderPredictor(Experiment):
             else:
                 raise RuntimeError('No saved checkpoint for this model')
 
+    def train(self, n_epochs, learn_rt=False):
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001, weight_decay=1e-3)
 
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
@@ -306,7 +308,7 @@ class FeatureGeneratorExplainer(Experiment):
             self.risk_predictor.to(self.device)
             self.risk_predictor.eval()
             if self.data=='mimic':
-                signals_to_analyze = range(0,27)
+                signals_to_analyze = range(0,47)
             elif self.data=='simulation':
                 signals_to_analyze = range(0,3)
             elif self.data=='ghg':
@@ -835,7 +837,10 @@ class FeatureGeneratorExplainer(Experiment):
         tn = [[]]*8
         fp = [[]]*8
         for i,sig in enumerate(range(20,28)):
-            self.generator.load_state_dict(torch.load('./ckpt/feature_%d_generator.pt'%(sig)))
+            if self.historical:
+                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator.pt' % (sig))))
+            else:
+                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator_nohist.pt'%(sig))))
             for signals,label in list(self.test_loader.dataset):
                 pred, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals,
                                                                                                           sig_ind=sig)
@@ -875,8 +880,6 @@ class FeatureGeneratorExplainer(Experiment):
             ## Sensitivity analysis
             test_signals = torch.stack([testset[sample][0] for sample in ind_list])
             sensitivity_analysis = np.zeros((test_signals.shape))
-            # self.risk_predictor = LR(self.input_size).to(self.device)
-            # self.risk_predictor.load_state_dict(torch.load('./ckpt/LR.pt'))
             self.risk_predictor.train()
             for t in range(1,test_signals.size(2)):
                 signal_t = torch.Tensor(test_signals[:,:,:t+1]).to(self.device).requires_grad_()
@@ -887,8 +890,6 @@ class FeatureGeneratorExplainer(Experiment):
                     signal_t.grad.data.zero_()
             self.risk_predictor.eval()
 
-            # self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True).to(self.device)
-            # self.risk_predictor.load_state_dict(torch.load('./ckpt/risk_predictor.pt'))
             for ind, subject in enumerate(ind_list):
                 label = labels[subject]
                 signal = signals[subject,:,:]
@@ -921,10 +922,6 @@ class FeatureGeneratorExplainer(Experiment):
                 max_imp_occ.sort(key=lambda pair: pair[1], reverse=True)
                 max_imp_sen.sort(key=lambda pair: pair[1], reverse=True)
 
-                # print('************ Top 5 signals:')
-                # print('FCC: ', max_imp_FCC[0:5])
-                # print('Feature occlusion: ', max_imp_occ[0:5])
-                # print('Sensitivity analysis: ', max_imp_sen[0:5])
                 df.loc[-1] = [subject,intervention_ID,'FCC',max_imp_FCC[0][0],max_imp_FCC[1][0],max_imp_FCC[2][0]]  # adding a row
                 df.index = df.index + 1
                 df.loc[-1] = [subject,intervention_ID,'f_occ',max_imp_occ[0][0],max_imp_occ[1][0],max_imp_occ[2][0]]  # adding a row
@@ -1050,10 +1047,8 @@ class FeatureGeneratorExplainer(Experiment):
         return arr[mid]
 
     def _get_closest(self,val1, val2, target):
-
-        if (target - val1 >= val2 - target):
+        if target-val1 >= val2-target:
             return val2
         else:
             return val1
-
 
