@@ -108,7 +108,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.legend()
     plt.savefig(os.path.join('./plots',data,'train_loss.png'))
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, regress=False,data='mimic'):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, regress=True,data='mimic'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []

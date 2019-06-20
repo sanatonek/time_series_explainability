@@ -11,7 +11,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
            'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate' ,
            'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose','Temp']
 
-def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False, data='mimic'):
+def main(experiment, train, uncertainty_score, sim_data=False, data='mimic'):
     print('********** Experiment with the %s model **********' %(experiment))
 
     # Configurations
@@ -29,7 +29,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
         if experiment =='feature_generator_explainer':
             n_epochs = 50
         elif experiment=='risk_predictor':
-            n_epochs = 30
+            n_epochs = 60
         data='simulation'
         historical=True
     else:
@@ -54,7 +54,7 @@ def main(experiment, train, uncertainty_score, sensitivity=False, sim_data=False
     exp.run(train=train,n_epochs=n_epochs)
 
     # For MIMIC experiment, extract population level importance for interventions
-    if not sim_data:
+    if data=='mimic':
         for id in range(len(intervention_list)):
             exp.summary_stat(id)
             exp.plot_summary_stat(id)
@@ -80,4 +80,4 @@ if __name__ == '__main__':
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--uncertainty', action='store_true')
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty, sensitivity=args.sensitivity, sim_data=args.simulation, data=args.data)
+    main(args.model, train=args.train, uncertainty_score=args.uncertainty, sim_data=args.simulation, data=args.data)

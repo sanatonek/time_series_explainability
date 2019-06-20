@@ -118,8 +118,9 @@ class EncoderPredictor(Experiment):
         self.experiment = experiment
         self.simulation = simulation
         self.data = data
+        self.ckpt_path='./ckpt/' + self.data
 
-    def run(self, train,n_epochs=30):
+    def run(self, train,n_epochs=60):
         if train:
             self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
         else:
@@ -135,6 +136,18 @@ class EncoderPredictor(Experiment):
 
     def train(self, n_epochs, learn_rt=False):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001, weight_decay=1e-3)
+
+        if not learn_rt:
+            train_model(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
+                                            self.experiment, data=self.data)
+            # Evaluate performance on held-out test set
+            _, _, auc_test, correct_label, test_loss = test(self.test_loader, self.model, self.device)
+            print('\nFinal performance on held out test set ===> AUC: ', auc_test)
+        else:
+            #only for ghg data
+            train_model_rt_rg(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
+                                               self.experiment,data=self.data)
+
 
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
