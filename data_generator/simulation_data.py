@@ -55,6 +55,7 @@ def main(n_samples, plot):
 
     return x_train_n,y_train,x_test_n,y_test,thresholds_train,thresholds_test
 
+
 def generate_sample(plot):
     seed = np.random.randint(1,100)
     # Correlation coefficients for x2=f(x1)
