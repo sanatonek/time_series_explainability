@@ -1,0 +1,50 @@
+{
+  "simulation": {
+    "feature_generator_explainer": {
+        "encoding_size" : 10,
+        "batch_size" : 100,
+        "n_epochs" : 50,
+        "historical": 1,
+        "rnn_type" : "GRU"
+    },
+    "risk_predictor":{
+        "encoding_size" : 5,
+        "batch_size" : 100,
+        "n_epochs" : 60,
+        "historical": 1,
+        "rnn_type" : "GRU"
+    }
+  },
+  "mimic": {
+    "feature_generator_explainer": {
+        "encoding_size" : 80,
+        "batch_size" : 100,
+        "n_epochs" : 150,
+        "historical": 1,
+        "rnn_type" : "GRU"
+    },
+    "risk_predictor":{
+        "encoding_size" : 150,
+        "batch_size" : 100,
+        "n_epochs" : 80,
+        "historical": 1,
+        "rnn_type" : "GRU"
+    }
+  },
+  "ghg": {
+    "feature_generator_explainer": {
+        "encoding_size" : 100,
+        "batch_size" : 100,
+        "n_epochs" : 80,
+        "historical": 1,
+        "rnn_type" : "GRU"
+    },
+    "risk_predictor":{
+        "encoding_size" : 100,
+        "batch_size" : 100,
+        "n_epochs" : 60,
+        "historical": 1,
+        "rnn_type" : "GRU"
+    }
+  }
+}
