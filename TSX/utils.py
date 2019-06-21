@@ -3,8 +3,8 @@ import os
 import torch
 import torch.utils.data as utils
 from torch.utils.data import DataLoader
-from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
-from TSX.models import PatientData, NormalPatientData
+from sklearn.metrics import precision_score, roc_auc_score
+from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import pickle as pkl
 
@@ -15,10 +15,11 @@ warnings.filterwarnings("ignore")
 
 def evaluate(labels, predicted_label, predicted_probability):
     labels_array = np.array(labels.cpu())
-    prediction_prob_array = np.array(predicted_probability.view(len(labels), -1).detach().cpu())
     prediction_array = np.array(predicted_label.cpu())
-    auc = roc_auc_score(np.array(labels.cpu()), np.array(predicted_probability.view(len(labels), -1).detach().cpu()))
-    # recall = recall_score(labels_array, prediction_array)
+    if len(np.unique(labels_array)) < 2:
+        auc = 0
+    else:
+        auc = roc_auc_score(np.array(labels.cpu()), np.array(predicted_probability.view(len(labels), -1).detach().cpu()))
     recall = torch.matmul(labels, predicted_label).item()
     precision = precision_score(labels_array, prediction_array)
     correct_label = torch.eq(labels, predicted_label).sum()
@@ -34,8 +35,8 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
     model.eval()
     for i, (x, y) in enumerate(test_loader):
         x, y = torch.Tensor(x.float()).to(device), torch.Tensor(y.float()).to(device)
-        # out = model(x.mean(dim=2).reshape((len(y),-1)))
         out = model(x)
+        y = y.view(y.shape[0],)
         prediction = (out > 0.5).view(len(y), ).float()
         auc, recall, precision, correct = evaluate(y, prediction, out)
         correct_label += correct
@@ -47,22 +48,8 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
         total += len(x)
     return recall_test, precision_test, auc_test / count, correct_label, loss
 
-def test_rt(test_loader, model, device, criteria=torch.nn.MSELoss(), verbose=True):
-    model.to(device)
-    model.eval()
-    test_loss = 0
-    for i, (signals,labels) in enumerate(test_loader):
-        for t in [24]:
-            label = labels[:,t].contiguous().view(-1,1)
-            signal = signals[:,:,t].contiguous.view(-1,signals.shape[1])
-            signal = torch.Tensor(signal.float()).to(device)
-            prediction = model(signal)
-            loss = torch.nn.MSELoss(prediction, label.to(device))
-            test_loss += loss.item()
-    return test_loss
 
-
-def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss(), verbose=True):
+def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss()):
     model = model.to(device)
     model.train()
     recall_train, precision_train, auc_train, correct_label, epoch_loss = 0, 0, 0, 0, 0
@@ -70,10 +57,9 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
     for i, (signals, labels) in enumerate(train_loader):
         optimizer.zero_grad()
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        # loss_criterion = torch.nn.BCELoss(weight=8*labels+1)
+        labels = labels.view(labels.shape[0],)
         risks = model(signals)
         predicted_label = (risks > 0.5).view(len(labels), ).float()
-
         auc, recall, precision, correct = evaluate(labels, predicted_label, risks)
         correct_label += correct
         auc_train = + auc
@@ -85,23 +71,23 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
         epoch_loss = + loss.item()
         loss.backward()
         optimizer.step()
-    return recall_train, precision_train, auc_train / count, correct_label, epoch_loss
+    return recall_train, precision_train, auc_train / count, correct_label, epoch_loss, i+1
 
 
-def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment):
+def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment,data='mimic'):
     train_loss_trend = []
     test_loss_trend = []
 
     for epoch in range(n_epochs + 1):
-        recall_train, precision_train, auc_train, correct_label_train, epoch_loss = train(train_loader, model,
+        recall_train, precision_train, auc_train, correct_label_train, epoch_loss,n_batches = train(train_loader, model,
                                                                                             device, optimizer)
         recall_test, precision_test, auc_test, correct_label_test, test_loss = test(valid_loader, model,
                                                                                       device)
-        train_loss_trend.append(epoch_loss)
+        train_loss_trend.append(epoch_loss/n_batches)
         test_loss_trend.append(test_loss)
         if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
-            print('Training ===>loss: ', epoch_loss,
+            print('Training ===>loss: ', epoch_loss/n_batches,
                   ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset))),
                   ' AUC: %.2f' % (auc_train))
             print('Test ===>loss: ', test_loss,
@@ -109,70 +95,163 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
                   ' AUC: %.2f' % (auc_test))
 
     # Save model and results
-    if not os.path.exists("./ckpt/"):
-        os.mkdir("./ckpt/")
-    torch.save(model.state_dict(), './ckpt/' + str(experiment) + '.pt')
+    if not os.path.exists(os.path.join("./ckpt/",data)):
+        os.mkdir(os.path.join("./ckpt/", data))
+    torch.save(model.state_dict(), './ckpt/' + data + '/'+ str(experiment) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, regress=False):
+
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='simulation'):
+    print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
-    parameters = model.parameters()
-    loss_criterion = torch.nn.MSELoss()
-
-    for epoch in range(n_epochs + 1):
+    loss_criterion = torch.nn.BCELoss()
+    for epoch in range(n_epochs):
         model.train()
-        epoch_loss = 0
-
+        recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
         for i, (signals,labels) in enumerate(train_loader):
-            optimizer.zero_grad()
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            #print(labels.shape, signals.shape)
-            predictions = model(signals)
-            #print(predictions.shape)
-            reconstruction_loss = loss_criterion(predictions, labels.to(device))
-            epoch_loss += reconstruction_loss.item()
-            reconstruction_loss.backward()
-            optimizer.step()
+            num=5
+            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
+                optimizer.zero_grad()
+                predictions = model(signals[:,:,:t+1])
 
-        test_loss = test_model_rt(model,valid_loader)
+                predicted_label = (predictions > 0.5).float()
+                labels_th = (labels[:,t]>0.5).float()
+                auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
+                correct_label_train += correct
+                auc_train += auc
+                recall_train += recall
+                precision_train += precision
+                count += 1
 
-        train_loss_trend.append(epoch_loss)
+                reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
+                epoch_loss += reconstruction_loss.item()
+                reconstruction_loss.backward()
+                optimizer.step()
+
+        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader)
+
+        train_loss_trend.append(epoch_loss/((i+1)*num))
         test_loss_trend.append(test_loss)
 
-        if epoch % 10 ==0:
-            print('\n Epoch %d' %(epoch))
-            print('Training ===> loss: ', epoch_loss)
-            print('Test ===> loss: ', test_loss)
+        if epoch % 10 == 0:
+            print('\nEpoch %d' % (epoch))
+            print('Training ===>loss: ', epoch_loss,
+                  ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset)*num)),
+                  ' AUC: %.2f' % (auc_train/((i+1)*num)))
+            print('Test ===>loss: ', test_loss,
+                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset))),
+                  ' AUC: %.2f' % (auc_test))
 
+    test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader)
     print('Test loss: ', test_loss)
 
     # Save model and results
-    if not os.path.exists("./ckpt/"):
-        os.mkdir("./ckpt/")
-    torch.save(model.state_dict(), './ckpt/' + str(experiment) + '.pt')
+    if not os.path.exists(os.path.join("./ckpt/", data)):
+        os.mkdir(os.path.join("./ckpt/", data))
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
+
+
+def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='ghg'):
+    print('training data: ', data)
+    train_loss_trend = []
+    test_loss_trend = []
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.to(device)
+    loss_criterion = torch.nn.MSELoss()
+    print('loss function: MSE')
+    for epoch in range(n_epochs):
+        model.train()
+        epoch_loss = 0
+        num = 10
+        for i, (signals,labels) in enumerate(train_loader):
+            signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
+                optimizer.zero_grad()
+                predictions = model(signals[:, :, :t+1])
+
+                reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
+                epoch_loss += reconstruction_loss.item()
+                reconstruction_loss.backward()
+                optimizer.step()
+
+        test_loss = test_model_rt_rg(model,valid_loader)
+        train_loss_trend.append(epoch_loss/(num*(i+1)))
+        test_loss_trend.append(test_loss)
+
+        if epoch % 10 ==0:
+            print('\nEpoch %d' % (epoch))
+            print('Training ===>loss: ', epoch_loss/(num*(i+1)))
+            print('Test ===>loss: ', test_loss)
+
+    test_loss = test_model_rt_rg(model,valid_loader)
+    print('Test loss: ', test_loss)
+
+    # Save model and results
+    if not os.path.exists(os.path.join("./ckpt/",data)):
+        os.mkdir(os.path.join("./ckpt/",data))
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
+    plt.plot(train_loss_trend, label='Train loss')
+    plt.plot(test_loss_trend, label='Validation loss')
+    plt.legend()
+    plt.savefig(os.path.join('./plots',data,'train_loss.png'))
+
 
 def test_model_rt(model,test_loader):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
+    correct_label_test = 0
+    recall_test, precision_test, auc_test = 0, 0, 0
+    count = 0
     test_loss = 0
     for i, (signals,labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        prediction = model(signals)
-        loss = torch.nn.MSELoss()(prediction, labels.to(device))
-        test_loss += loss.item()
+        num=1
+        #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
+        for t in [24]:
+            prediction = model(signals[:,:,:t+1])
+            predicted_label = (prediction > 0.5).float()
+            labels_th = (labels[:,t] > 0.5).float()
+            auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))
+            correct_label_test += correct
+            auc_test += auc
+            recall_test +=  recall
+            precision_test +=  precision
+            count +=  1
+            loss = torch.nn.BCELoss()(prediction, labels[:,t].to(device))
+            test_loss += loss.item()
 
+    test_loss = test_loss/((i+1)*num)
+    return test_loss, recall_test, precision_test, auc_test, correct_label_test 
+
+
+def test_model_rt_rg(model,test_loader):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.eval()
+    test_loss = 0
+    num=10
+    for i, (signals,labels) in enumerate(test_loader):
+        signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+        for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
+            prediction = model(signals[:,:,:t+1])
+            loss = torch.nn.MSELoss()(prediction, labels[:,t].to(device))
+            test_loss += loss.item()
+
+    test_loss = test_loss/(num*(i+1))
     return test_loss
+
 
 def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, experiment):
     train_loss_trend = []
@@ -227,7 +306,7 @@ def test_reconstruction(model, valid_loader, device):
 
 
 def load_data(batch_size, path='./data_generator/data', *argv):
-    if 'generator_data' in argv:
+    if 'class_conditional' in argv:
         p_data = NormalPatientData(path)
     else:
         p_data = PatientData(path)
@@ -247,6 +326,23 @@ def load_data(batch_size, path='./data_generator/data', *argv):
           '(Average missing in validation: %.2f)' % (np.mean(p_data.train_missing[int(0.8 * p_data.n_train):])))
     print('Test set: ', np.count_nonzero(p_data.test_label), 'patient who died  out of %d total'%(len(p_data.test_data)),
           '(Average missing in test: %.2f)' % (np.mean(p_data.test_missing)))
+    return p_data, train_loader, valid_loader, test_loader
+
+
+def load_ghg_data(batch_size, path='./data_generator/data'):
+    p_data = GHGData(path)
+    print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
+    train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
+                                        torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
+    valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
+                                        torch.Tensor(p_data.train_label[int(0.8 * p_data.n_train):]))
+    test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data), torch.Tensor(p_data.test_label))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size)
+    valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
+    test_loader = DataLoader(test_dataset, batch_size=p_data.n_test)
+    print('Train set: ', p_data.train_data.shape)
+    print('Valid set: ', p_data.train_data.shape)
+    print('Test set: ', p_data.test_data.shape)
     return p_data, train_loader, valid_loader, test_loader
 
 
@@ -274,3 +370,19 @@ def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_da
 
 def logistic(x):
     return 1./(1+np.exp(-1*x))
+
+
+def top_risk_change(exp):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    span = []
+    testset = list(exp.test_loader.dataset)
+    for i,(signal, label) in enumerate(testset):
+        exp.risk_predictor.load_state_dict(torch.load('./ckpt/mimic/risk_predictor.pt'))
+        exp.risk_predictor.to(device)
+        exp.risk_predictor.eval()
+        risk = []
+        for t in range(1,48):
+            risk.append(exp.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t).to(device)).item())
+        span.append((i, max(risk) - min(risk)))
+    span.sort(key=lambda pair:pair[1], reverse=True)
+    print([x[0] for x in span[0:300]])
