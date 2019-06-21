@@ -13,9 +13,10 @@ len_of_stay = 48
 class PatientData():
     """Dataset of patient vitals, demographics and lab results
     Args:
-        root: Root directory of dataset the pickled dataset
+        root: Root directory of the pickled dataset
         train_ratio: train/test ratio
         shuffle: Shuffle dataset before separating train/test
+        transform: Preprocessing transformation on the dataset
     """
 
     def __init__(self, root, train_ratio=0.8, shuffle=False, random_seed='1234', transform="normalize"):
@@ -32,9 +33,8 @@ class PatientData():
         if shuffle:
             inds = np.arange(len(self.data))
             random.shuffle(inds)
-            self.data = [self.data[i] for i in inds]
-            self.intervention = np.array([self.intervention[i,:,:] for i in inds])
-            # random.shuffle(self.data)
+            self.data = self.data[inds]
+            self.intervention = self.intervention[inds,:,:]
         self.feature_size = len(self.data[0][0])
         self.n_train = int(len(self.data) * self.train_ratio)
         self.n_test = len(self.data) - self.n_train
@@ -56,7 +56,7 @@ class PatientData():
     def __len__(self):
         return len(self.data)
 
-    def normalize(self):
+    def normalize(self): # TODO: Have multiple normalization option or possibly take in a function for the transform
         """ Calculate the mean and std of each feature from the training set
         """
         d = [x.T for x in self.train_data]
@@ -318,8 +318,10 @@ class LR(nn.Module):
         self.feature_size = feature_size
         self.net = nn.Sequential(nn.Linear(self.feature_size, 1),
                                  nn.Sigmoid())
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def forward(self, x):
+        x = x.to(self.device)
         x = x.mean(dim=2).reshape((x.shape[0], -1))
         if len(x.shape) == 3:
             x = x.view(-1, self.feature_size)
@@ -340,42 +342,3 @@ class RiskPredictor(nn.Module):
         risk = nn.Sigmoid()(self.net(x))
         return risk
 
-
-class Encoder(nn.Module):
-    """ This encoder consists of a CNN and a RNN layer on top of it,
-        in order to be able to handle variable length inputs
-    """
-
-    def __init__(self, in_channels, encoding_size=64):
-        super(Encoder, self).__init__()
-        self.in_channels = in_channels
-        self.enc_channels = 32
-        self.encoding_size = encoding_size
-        self.enc_cnn = nn.Sequential(nn.Conv1d(self.in_channels, self.enc_channels, kernel_size=4),
-                                     nn.MaxPool1d(kernel_size=2, stride=2),
-                                     nn.ReLU())
-        self.enc_lstm = nn.LSTMCell(input_size=self.enc_channels, hidden_size=self.encoding_size)
-
-    def forward(self, signals):
-        code = self.enc_cnn(signals)
-        h = torch.zeros(code.shape[0], self.encoding_size)
-        c = torch.zeros(code.shape[0], self.encoding_size)
-        for i in range(code.shape[2]):
-            h, c = self.enc_lstm(code[:, :, i].view(code.shape[0], code.shape[1]), (h, c))
-        return h
-
-
-class Decoder(nn.Module):
-    def __init__(self, output_len, encoding_size):
-        super(Decoder, self).__init__()
-        self.encoding_size = encoding_size
-        self.output_len = output_len
-        # Decoder specification
-        self.dec_linear_1 = nn.Linear(self.encoding_size, 160)
-        self.dec_linear_2 = nn.Linear(160, self.output_len)
-
-    def forward(self, code):
-        out = F.relu(self.dec_linear_1(code))
-        out = self.dec_linear_2(out)
-        out = out.view([code.size(0), 1, self.output_len])
-        return out
