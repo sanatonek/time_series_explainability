@@ -59,18 +59,18 @@ scatter_map_ghg['15'] = [310,height-212]
 
 
 class Experiment(ABC):
-    def __init__(self, train_loader, valid_loader, test_loader,data='mimic'):
+    def __init__(self, train_loader, valid_loader, test_loader, data='mimic'):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.train_loader = train_loader
         self.valid_loader = valid_loader
         self.test_loader = test_loader
-        self.data=data
+        self.data = data
 
     @abstractmethod
     def run(self):
         raise RuntimeError('Function not implemented')
 
-    def train(self, n_epochs,learn_rt=False):
+    def train(self, n_epochs, learn_rt=False):
         if self.data=='mimic':
             optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001, weight_decay=1e-3)
         else:
@@ -82,9 +82,9 @@ class Experiment(ABC):
             _, _, auc_test, correct_label, test_loss = test(self.test_loader, self.model, self.device)
             print('\nFinal performance on held out test set ===> AUC: ', auc_test)
         else:
-            if self.data=='mimic' or self.data=='simulation':
+            if self.data == 'mimic' or self.data=='simulation':
                 train_model_rt(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device, self.experiment,data=self.data)
-            elif self.data=='ghg':
+            elif self.data == 'ghg':
                 train_model_rt_rg(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device, self.experiment,data=self.data)
 
 
@@ -152,7 +152,7 @@ class EncoderPredictor(Experiment):
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, simulation=False,  experiment='feature_generator_explainer',data='mimic',conditional=True):
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, experiment='feature_generator_explainer', data='mimic', conditional=True):
         """
         :param train_loader:
         :param valid_loader:
@@ -168,10 +168,10 @@ class FeatureGeneratorExplainer(Experiment):
         super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader)
         self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
 
-        if data=='mimic':
+        if data == 'mimic':
             self.timeseries_feature_size = feature_size - 4
         else:
-            self.timeseries_feature_size= feature_size
+            self.timeseries_feature_size = feature_size
 
         self.feature_size = feature_size
         self.input_size = feature_size
@@ -181,13 +181,13 @@ class FeatureGeneratorExplainer(Experiment):
         self.simulation = self.data=='simulation'
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
-        self.data=data
+        self.data = data
 
         #this is used to see fhe difference between true risk vs learned risk for simulations
         self.learned_risk = True
         trainset = list(self.train_loader.dataset)
         self.feature_dist = torch.stack([x[0] for x in trainset])
-        if self.data=='mimic' or self.data=='simulation':
+        if self.data == 'mimic' or self.data == 'simulation':
             self.feature_dist_0 = torch.stack([x[0] for x in trainset if x[1]==0])
             self.feature_dist_1 = torch.stack([x[0] for x in trainset if x[1]==1])
         else:
@@ -321,7 +321,7 @@ class FeatureGeneratorExplainer(Experiment):
             self.risk_predictor.to(self.device)
             self.risk_predictor.eval()
             if self.data=='mimic':
-                signals_to_analyze = range(0,47)
+                signals_to_analyze = range(0, self.timeseries_feature_size)
             elif self.data=='simulation':
                 signals_to_analyze = range(0,3)
             elif self.data=='ghg':
@@ -340,7 +340,6 @@ class FeatureGeneratorExplainer(Experiment):
             else:
                 for sub_ind, subject in enumerate(samples_to_analyse):
                     self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data)
-
 
     def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic'):
         """ Plot importance score across all baseline methods
@@ -771,7 +770,6 @@ class FeatureGeneratorExplainer(Experiment):
                 print('AFO: 1:', np.mean(abs(np.array(mse_vec_su)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_su)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_su)[:,2])))
                 print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_sens)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:,2])))
 
-
     def train(self, n_epochs, n_features):
         for feature_to_predict in range(0,n_features):#(n_features):
             print('**** training to sample feature: ', feature_to_predict, n_epochs)
@@ -970,7 +968,6 @@ class FeatureGeneratorExplainer(Experiment):
         sen_dist = np.sort(np.array(sen_df[['top1', 'top2', 'top3']]).reshape(-1, ))
 
 
-        # color_map = plt.get_cmap("tab20")(np.linspace(0, 1, 28))
         fcc_top = self._create_pairs(self._find_count(fcc_dist))[0:6]
         occ_top = self._create_pairs(self._find_count(occ_dist))[0:6]
         sen_top = self._create_pairs(self._find_count(sen_dist))[0:6]
@@ -987,15 +984,10 @@ class FeatureGeneratorExplainer(Experiment):
         ax3.tick_params(labelsize=20)
         plt.subplots_adjust(hspace=0.3)
         f.set_figheight(12)
-        f.set_figwidth(15)#(10)
+        f.set_figwidth(15)
         plt.savefig('./examples/distributions/top_%s'%(intervention_list[intervention_ID]), dpi=300, bbox_inches='tight')
 
 
-        # for rank in range(3):
-        #     ind = argmax(fcc_dist)
-        #     fcc_x[rank] = intervention_list[ind]
-        #     fcc_y = fcc_dist[ind]
-        #     fcc_
         f, (ax1,ax2,ax3) = plt.subplots(3, sharex=True)
         ax1.bar(self.feature_map, self._find_count(fcc_dist))
         ax2.bar(self.feature_map, self._find_count(occ_dist))
@@ -1006,7 +998,6 @@ class FeatureGeneratorExplainer(Experiment):
         f.set_figheight(10)
         f.set_figwidth(20)
         plt.savefig('./examples/distributions/%s'%(intervention_list[intervention_ID]))
-        # plt.show()
 
     def _create_pairs(self, a):
         l=[]
@@ -1023,40 +1014,25 @@ class FeatureGeneratorExplainer(Experiment):
 
     def _find_closest(self, arr, target):
         n = len(arr)
-        # Corner cases
-        if (target <= arr[0]):
+        if target <= arr[0]:
             return arr[0]
-        if (target >= arr[n - 1]):
+        if target >= arr[n - 1]:
             return arr[n - 1]
-
-        # Doing binary search
-        i = 0;
-        j = n;
+        i = 0
+        j = n
         mid = 0
-        while (i < j):
+        while i < j:
             mid = (i + j) // 2
-            if (arr[mid] == target):
+            if arr[mid] == target:
                 return arr[mid]
-            # If target is less than array
-            # element, then search in left
-            if (target < arr[mid]):
-                # If target is greater than previous
-                # to mid, return closest of two
-                if (mid > 0 and target > arr[mid - 1]):
+            if target < arr[mid]:
+                if mid > 0 and target > arr[mid - 1]:
                     return self._get_closest(arr[mid - 1], arr[mid], target)
-
-                    # Repeat for left half
                 j = mid
-
-                # If target is greater than mid
             else:
-                if (mid < n - 1 and target < arr[mid + 1]):
+                if mid < n - 1 and target < arr[mid + 1]:
                     return self._get_closest(arr[mid], arr[mid + 1], target)
-
-                    # update i
                 i = mid + 1
-
-        # Only single element left after search
         return arr[mid]
 
     def _get_closest(self,val1, val2, target):

@@ -53,7 +53,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size),non_lin)
+                                                 torch.nn.Linear(200, self.prediction_size), non_lin)
 
         else:
             if self.data=='mimic' or self.data=='ghg':
@@ -67,8 +67,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size),non_lin)
-
+                                                 torch.nn.Linear(200, self.prediction_size), non_lin)
 
     def forward(self, x, past=None):
         if self.hist:
@@ -188,21 +187,21 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
 
 def test_feature_generator(model, test_loader, feature_to_predict, historical=False):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    data=model.data
-
+    data = model.data
     model.eval()
+    _, n_features, signel_len = next(iter(test_loader))[0].shape
     test_loss = 0
-    if data=='mimic':
-        tvec=[24]
+    if data == 'mimic':
+        tvec = [24]
     else:
-        num=1
+        num = 1
+        tvec = [int(tt) for tt in np.logspace(1.0,np.log10(signel_len), num=num)]
     for i, (signals, labels) in enumerate(test_loader):
-        tvec = [int(tt) for tt in np.logspace(1.0,np.log10(signals.shape[2]),num=num)]
         if historical:
             for t in tvec:
                 label = signals[:, feature_to_predict, t:t+model.prediction_size].contiguous().view(-1, model.prediction_size)
                 signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
-                signal = signal.contiguous().view(-1, signals.shape[1] - 1)
+                signal = signal.contiguous().view(-1, n_features - 1)
                 signal = torch.Tensor(signal.float()).to(device)
                 past = signals[:, :, :t]
                 prediction, mus = model(signal, past)
@@ -211,7 +210,7 @@ def test_feature_generator(model, test_loader, feature_to_predict, historical=Fa
         else:
             original = signals[:, feature_to_predict, :].contiguous().view(-1, 1)
             signal = torch.cat((signals[:, :feature_to_predict, :], signals[:, feature_to_predict + 1:, :]), 1).permute(0, 2,1)
-            signal = signal.contiguous().view(-1, signals.shape[1] - 1)
+            signal = signal.contiguous().view(-1, n_features - 1)
             signal = torch.Tensor(signal.float()).to(device)
             prediction, mus = model(signal)
             loss = torch.nn.MSELoss()(prediction, original.to(device))

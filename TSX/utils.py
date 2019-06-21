@@ -3,7 +3,7 @@ import os
 import torch
 import torch.utils.data as utils
 from torch.utils.data import DataLoader
-from sklearn.metrics import f1_score, recall_score, precision_score, roc_auc_score
+from sklearn.metrics import precision_score, roc_auc_score
 from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import pickle as pkl
@@ -15,14 +15,11 @@ warnings.filterwarnings("ignore")
 
 def evaluate(labels, predicted_label, predicted_probability):
     labels_array = np.array(labels.cpu())
-    prediction_prob_array = np.array(predicted_probability.view(len(labels), -1).detach().cpu())
     prediction_array = np.array(predicted_label.cpu())
-    
-    if len(np.unique(labels_array))<2:
-        auc=0
+    if len(np.unique(labels_array)) < 2:
+        auc = 0
     else:
         auc = roc_auc_score(np.array(labels.cpu()), np.array(predicted_probability.view(len(labels), -1).detach().cpu()))
-    # recall = recall_score(labels_array, prediction_array)
     recall = torch.matmul(labels, predicted_label).item()
     precision = precision_score(labels_array, prediction_array)
     correct_label = torch.eq(labels, predicted_label).sum()
@@ -38,7 +35,6 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
     model.eval()
     for i, (x, y) in enumerate(test_loader):
         x, y = torch.Tensor(x.float()).to(device), torch.Tensor(y.float()).to(device)
-        # out = model(x.mean(dim=2).reshape((len(y),-1)))
         out = model(x)
         y = y.view(y.shape[0],)
         prediction = (out > 0.5).view(len(y), ).float()
@@ -52,7 +48,8 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
         total += len(x)
     return recall_test, precision_test, auc_test / count, correct_label, loss
 
-def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss(), verbose=True):
+
+def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss()):
     model = model.to(device)
     model.train()
     recall_train, precision_train, auc_train, correct_label, epoch_loss = 0, 0, 0, 0, 0
@@ -60,11 +57,9 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
     for i, (signals, labels) in enumerate(train_loader):
         optimizer.zero_grad()
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        # loss_criterion = torch.nn.BCELoss(weight=8*labels+1)
         labels = labels.view(labels.shape[0],)
         risks = model(signals)
         predicted_label = (risks > 0.5).view(len(labels), ).float()
-        #print(labels.shape,predicted_label.shape,risks.shape)
         auc, recall, precision, correct = evaluate(labels, predicted_label, risks)
         correct_label += correct
         auc_train = + auc
@@ -101,21 +96,21 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
 
     # Save model and results
     if not os.path.exists(os.path.join("./ckpt/",data)):
-        os.mkdir(os.path.join("./ckpt/",data))
+        os.mkdir(os.path.join("./ckpt/", data))
     torch.save(model.state_dict(), './ckpt/' + data + '/'+ str(experiment) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig(os.path.join('./plots',data,'train_loss.png'))
+    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, regress=True,data='mimic'):
+
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='simulation'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
-    parameters = model.parameters()
     loss_criterion = torch.nn.BCELoss()
     for epoch in range(n_epochs):
         model.train()
@@ -123,16 +118,12 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
             num=5
-            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
-                #print(t)
+            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
                 optimizer.zero_grad()
-                #print(labels.shape, signals.shape)
                 predictions = model(signals[:,:,:t+1])
-                #print(predictions.shape)
 
                 predicted_label = (predictions > 0.5).float()
                 labels_th = (labels[:,t]>0.5).float()
-                #print(labels.shape,predicted_label.shape,predictions.shape)
                 auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
                 correct_label_train += correct
                 auc_train += auc
@@ -150,7 +141,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         train_loss_trend.append(epoch_loss/((i+1)*num))
         test_loss_trend.append(test_loss)
 
-        if epoch % 10 ==0:
+        if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
             print('Training ===>loss: ', epoch_loss,
                   ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset)*num)),
@@ -163,45 +154,40 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
     print('Test loss: ', test_loss)
 
     # Save model and results
-    if not os.path.exists(os.path.join("./ckpt/",data)):
-        os.mkdir(os.path.join("./ckpt/",data))
+    if not os.path.exists(os.path.join("./ckpt/", data)):
+        os.mkdir(os.path.join("./ckpt/", data))
     torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig(os.path.join('./plots',data,'train_loss.png'))
+    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
-def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='ghg'):
+
+def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='ghg'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
-    parameters = model.parameters()
     loss_criterion = torch.nn.MSELoss()
     print('loss function: MSE')
     for epoch in range(n_epochs):
         model.train()
         epoch_loss = 0
-        num=10
+        num = 10
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
-                #print(t)
+            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
                 optimizer.zero_grad()
-                #print(labels.shape, signals.shape)
-                predictions = model(signals[:,:,:t+1])
-                #print(predictions.shape)
+                predictions = model(signals[:, :, :t+1])
 
                 reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
                 epoch_loss += reconstruction_loss.item()
                 reconstruction_loss.backward()
                 optimizer.step()
 
-
         test_loss = test_model_rt_rg(model,valid_loader)
-
         train_loss_trend.append(epoch_loss/(num*(i+1)))
         test_loss_trend.append(test_loss)
 
@@ -229,7 +215,6 @@ def test_model_rt(model,test_loader):
     correct_label_test = 0
     recall_test, precision_test, auc_test = 0, 0, 0
     count = 0
-    total = 0
     test_loss = 0
     for i, (signals,labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
@@ -251,13 +236,10 @@ def test_model_rt(model,test_loader):
     test_loss = test_loss/((i+1)*num)
     return test_loss, recall_test, precision_test, auc_test, correct_label_test 
 
+
 def test_model_rt_rg(model,test_loader):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
-    correct_label_test = 0
-    recall_test, precision_test, auc_test = 0, 0, 0
-    count = 0
-    total = 0
     test_loss = 0
     num=10
     for i, (signals,labels) in enumerate(test_loader):
@@ -324,7 +306,7 @@ def test_reconstruction(model, valid_loader, device):
 
 
 def load_data(batch_size, path='./data_generator/data', *argv):
-    if 'generator_data' in argv:
+    if 'class_conditional' in argv:
         p_data = NormalPatientData(path)
     else:
         p_data = PatientData(path)
@@ -346,6 +328,7 @@ def load_data(batch_size, path='./data_generator/data', *argv):
           '(Average missing in test: %.2f)' % (np.mean(p_data.test_missing)))
     return p_data, train_loader, valid_loader, test_loader
 
+
 def load_ghg_data(batch_size, path='./data_generator/data'):
     p_data = GHGData(path)
     print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
@@ -361,6 +344,7 @@ def load_ghg_data(batch_size, path='./data_generator/data'):
     print('Valid set: ', p_data.train_data.shape)
     print('Test set: ', p_data.test_data.shape)
     return p_data, train_loader, valid_loader, test_loader
+
 
 def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data'):
     with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
