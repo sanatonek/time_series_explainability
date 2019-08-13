@@ -30,7 +30,8 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
            'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose','Temp']
 
 #simulation plot configs
-feature_map_simulation = ['var 0', 'var 1', 'var 2']
+feature_map_simulation = ['feature 1', 'feature 2', 'feature 3']
+#feature_map_simulation = ['feature 1', 'feature 2']
 
 simulation_color_map = ['#e6194B', '#469990', '#000000','#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabebe',  '#e6beff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#3cb44b','#ffe119']
 
@@ -166,7 +167,7 @@ class FeatureGeneratorExplainer(Experiment):
         :param experiment: Experiment name
         """
         super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader)
-        self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
+        self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional,non_linearity=torch.nn.Tanh()).to(self.device)
 
         if data == 'mimic':
             self.timeseries_feature_size = feature_size - 4
@@ -248,8 +249,11 @@ class FeatureGeneratorExplainer(Experiment):
                 #For simulated data this is the last entry - end of 48 hours that's the actual outcome
                 label = np.array([x[1][-1] for x in testset])
                 #print(label)
-                high_risk = np.where(label==1)[0]
-                samples_to_analyse = np.random.choice(high_risk, 10, replace=False)
+                high_risk = np.arange(label.shape[0])
+                samples_to_analyse = np.arange(200,2000) #np.random.choice(high_risk, 2000, replace=False)
+                #samples_to_analyse = np.arange(37,47) #np.random.choice(high_risk, 2000, replace=False)
+                gt_test_sub = gt_importance[samples_to_analyse]
+                #samples_to_analyse = np.arange(len(label))
             else:
                 if self.data=='mimic':
                     samples_to_analyse = [4387, 481]
@@ -313,6 +317,8 @@ class FeatureGeneratorExplainer(Experiment):
                             out[s, 0].backward(retain_graph=True)
                             sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:].cpu().detach().numpy()[:,0]
                             signal_t.grad.data.zero_()
+                        if t%10==0:
+                            print('sens %', t)
                     self.risk_predictor.eval()
 
 
@@ -339,9 +345,9 @@ class FeatureGeneratorExplainer(Experiment):
                 self.replace_and_predict(signals_to_analyze,sensitivity_analysis,data=self.data,tvec=tvec)
             else:
                 for sub_ind, subject in enumerate(samples_to_analyse):
-                    self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data)
+                    self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data,gt_importance=gt_importance)
 
-    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic'):
+    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic',gt_importance=None):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
         :param signals_to_analyze: list of signals to include in importance analysis
@@ -359,6 +365,7 @@ class FeatureGeneratorExplainer(Experiment):
         print('Subject ID: ', subject)
         if data=='mimic':
             print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
+        color_map = simulation_color_map
 
         importance = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
         mean_predicted_risk = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
@@ -411,166 +418,178 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-            if retain_style:
-                f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
-                orders = np.argsort(importance, axis=0)
-                # Plot the original signals
-                for i, ref_ind in enumerate(signals_to_analyze):
-                    c = color_map[ref_ind]
-                    ax1.plot(np.array(signals[ref_ind, 1:] / max(abs(signals[ref_ind, 1:]))), linewidth=3, color=c,
+        with open('./examples/'+data+'/results_'+ str(subject)+'.pkl','wb') as f:
+            pkl.dump({'FFC': importance, 'Suresh_et_al': importance_occ, 'AFO': importance_occ_aug, 'Sens': sensitivity_analysis_importance, 'gt': gt_importance[subject]},f,protocol=pkl.HIGHEST_PROTOCOL)
+
+        #return
+
+        if retain_style:
+            f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
+            orders = np.argsort(importance, axis=0)
+            # Plot the original signals
+            for i, ref_ind in enumerate(signals_to_analyze):
+                c = color_map[ref_ind]
+                ax1.plot(np.array(signals[ref_ind, 1:] / max(abs(signals[ref_ind, 1:]))), linewidth=3, color=c,
+                         label='%s' % (self.feature_map[ref_ind]))
+
+            for imps in orders[-3:, :]:
+                for time in range(len(imps)):
+                    imp = importance[imps[time], time]
+                    texts = self.feature_map[imps[time]]
+                    ax2.text(time, imp, texts)
+                ax2.set_ylim(0, np.max(importance))
+                ax2.set_xlim(0, 48)
+
+            orders = np.argsort(importance_occ_aug, axis=0)
+            for imps in orders[-3:, :]:
+                for time in range(len(imps)):
+                    imp = importance_occ_aug[imps[time], time]
+                    texts = self.feature_map[imps[time]]
+                    ax3.text(time, imp, texts)
+                ax3.set_ylim(0, np.max(importance_occ_aug))
+                ax3.set_xlim(0, 48)
+
+            orders = np.argsort(importance_occ, axis=0)
+            for imps in orders[-3:, :]:
+                for time in range(len(imps)):
+                    imp = importance_occ[imps[time], time]
+                    texts = self.feature_map[imps[time]]
+                    ax4.text(time, imp, texts)
+                ax4.set_ylim(0, np.max(importance_occ))
+                ax4.set_xlim(0, 48)
+
+            ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
+            ax2.set_title('FFC', fontweight='bold', fontsize=34)
+            ax3.set_title('AFO', fontweight='bold', fontsize=34)
+            ax4.set_title('Suresh et. al', fontweight='bold', fontsize=34)
+            f.set_figheight(25)
+            f.set_figwidth(30)
+            plt.show()
+
+        else:
+            f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
+            t = np.arange(signals.shape[1]-1)
+            ## Pick the most influential signals and plot their importance over time
+            max_imp_FCC.sort(key=lambda pair: pair[1], reverse=True)
+            max_imp_occ.sort(key=lambda pair: pair[1], reverse=True)
+            max_imp_occ_aug.sort(key=lambda pair: pair[1], reverse=True)
+            max_imp_sen.sort(key=lambda pair: pair[1], reverse=True)
+
+            n_feats_to_plot = min(self.timeseries_feature_size, n_important_features)
+            if hasattr(self.patient_data, 'test_intervention'):
+                f_color = ['g', 'b', 'r', 'c', 'm', 'y', 'k']
+                for int_ind, intervention in enumerate(self.patient_data.test_intervention[subject, :, :]):
+                    if sum(intervention) != 0:
+                        switch_point = []
+                        intervention = intervention[1:]
+                        for i in range(1, len(intervention)):
+                            if intervention[i] != intervention[i - 1]:
+                                switch_point.append(i)
+                        if len(switch_point) % 2 == 1:
+                            switch_point.append(len(intervention) - 1)
+                        for count in range(int(len(switch_point) / 2)):
+                            if count == 0:
+                                ax1.axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
+                                            facecolor=f_color[int_ind % len(f_color)], alpha=0.2,
+                                            label='%s' % (intervention_list[int_ind]))
+                            else:
+                                ax1.axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
+                                            facecolor=f_color[int_ind % len(f_color)], alpha=0.2)
+
+            markers = ['*', 'D', 'X', 'o', '8', 'v', '+']
+            l_style = ['-.', '--', ':']
+            important_signals = []
+
+            # FCC
+            for ind, sig in max_imp_FCC[0:n_feats_to_plot]:
+                ref_ind = signals_to_analyze[ind]
+                if ref_ind not in important_signals:
+                    important_signals.append(ref_ind)
+                c = color_map[ref_ind]
+                ax2.errorbar(t, importance[ind, :], yerr=std_predicted_risk[ind, :],
+                             marker=markers[list(important_signals).index(ref_ind) % len(markers)],
+                             markersize=9, markeredgecolor='k', linewidth=5,
+                             linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
                              label='%s' % (self.feature_map[ref_ind]))
 
-                for imps in orders[-3:, :]:
-                    for time in range(len(imps)):
-                        imp = importance[imps[time], time]
-                        texts = self.feature_map[imps[time]]
-                        ax2.text(time, imp, texts)
-                    ax2.set_ylim(0, np.max(importance))
-                    ax2.set_xlim(0, 48)
-
-                orders = np.argsort(importance_occ_aug, axis=0)
-                for imps in orders[-3:, :]:
-                    for time in range(len(imps)):
-                        imp = importance_occ_aug[imps[time], time]
-                        texts = self.feature_map[imps[time]]
-                        ax3.text(time, imp, texts)
-                    ax3.set_ylim(0, np.max(importance_occ_aug))
-                    ax3.set_xlim(0, 48)
-
-                orders = np.argsort(importance_occ, axis=0)
-                for imps in orders[-3:, :]:
-                    for time in range(len(imps)):
-                        imp = importance_occ[imps[time], time]
-                        texts = self.feature_map[imps[time]]
-                        ax4.text(time, imp, texts)
-                    ax4.set_ylim(0, np.max(importance_occ))
-                    ax4.set_xlim(0, 48)
-
-                ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
-                ax2.set_title('FFC', fontweight='bold', fontsize=34)
-                ax3.set_title('AFO', fontweight='bold', fontsize=34)
-                ax4.set_title('Suresh et. al', fontweight='bold', fontsize=34)
-                f.set_figheight(25)
-                f.set_figwidth(30)
-                plt.show()
-
-            else:
-                f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
-                t = np.arange(signals.shape[1]-1)
-                ## Pick the most influential signals and plot their importance over time
-                max_imp_FCC.sort(key=lambda pair: pair[1], reverse=True)
-                max_imp_occ.sort(key=lambda pair: pair[1], reverse=True)
-                max_imp_occ_aug.sort(key=lambda pair: pair[1], reverse=True)
-                max_imp_sen.sort(key=lambda pair: pair[1], reverse=True)
-
-                n_feats_to_plot = min(self.timeseries_feature_size, n_important_features)
-                if hasattr(self.patient_data, 'test_intervention'):
-                    f_color = ['g', 'b', 'r', 'c', 'm', 'y', 'k']
-                    for int_ind, intervention in enumerate(self.patient_data.test_intervention[subject, :, :]):
-                        if sum(intervention) != 0:
-                            switch_point = []
-                            intervention = intervention[1:]
-                            for i in range(1, len(intervention)):
-                                if intervention[i] != intervention[i - 1]:
-                                    switch_point.append(i)
-                            if len(switch_point) % 2 == 1:
-                                switch_point.append(len(intervention) - 1)
-                            for count in range(int(len(switch_point) / 2)):
-                                if count == 0:
-                                    ax1.axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
-                                                facecolor=f_color[int_ind % len(f_color)], alpha=0.2,
-                                                label='%s' % (intervention_list[int_ind]))
-                                else:
-                                    ax1.axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
-                                                facecolor=f_color[int_ind % len(f_color)], alpha=0.2)
-
-                markers = ['*', 'D', 'X', 'o', '8', 'v', '+']
-                l_style = ['-.', '--', ':']
-                important_signals = []
-
-                # FCC
-                for ind, sig in max_imp_FCC[0:n_feats_to_plot]:
-                    ref_ind = signals_to_analyze[ind]
-                    if ref_ind not in important_signals:
-                        important_signals.append(ref_ind)
-                    c = color_map[ref_ind]
-                    ax2.errorbar(t, importance[ind, :], yerr=std_predicted_risk[ind, :],
-                                 marker=markers[list(important_signals).index(ref_ind) % len(markers)],
-                                 markersize=9, markeredgecolor='k', linewidth=3,
-                                 linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
-                                 label='%s' % (self.feature_map[ref_ind]))
-
-                # Augmented feature occlusion
-                for ind, sig in max_imp_occ_aug[0:n_feats_to_plot]:
-                    ref_ind = signals_to_analyze[ind]
-                    if ref_ind not in important_signals:
-                        important_signals.append(ref_ind)
-                    c = color_map[ref_ind]
-                    ax3.errorbar(t, importance_occ_aug[ind, :], yerr=std_predicted_risk_occ_aug[ind, :],
-                                 marker=markers[list(important_signals).index(ref_ind) % len(markers)], linewidth=3,
-                                 linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
-                                 markersize=9, markeredgecolor='k', color=c, label='%s' % (self.feature_map[ref_ind]))
-
-                # Feature occlusion
-                for ind, sig in max_imp_occ[0:n_feats_to_plot]:
-                    ref_ind = signals_to_analyze[ind]
-                    if ref_ind not in important_signals:
-                        important_signals.append(ref_ind)
-                    c = color_map[ref_ind]
-                    ax4.errorbar(t, importance_occ[ind, :], yerr=std_predicted_risk_occ[ind, :],
-                                 marker=markers[list(important_signals).index(ref_ind) % len(markers)],
-                                 linewidth=3, linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
-                                 markersize=9, markeredgecolor='k',
-                                 color=c, label='%s' % (self.feature_map[ref_ind]))
-
-                # Sensitivity analysis
-                for ind, sig in max_imp_sen[0:n_feats_to_plot]:
-                    ref_ind = signals_to_analyze[ind]
-                    if ref_ind not in important_signals:
-                        important_signals.append(ref_ind)
-                    c = color_map[ref_ind]
-                    ax5.plot(abs(sensitivity_analysis_importance[ind, :-1]), linewidth=3,
+            # Augmented feature occlusion
+            for ind, sig in max_imp_occ_aug[0:n_feats_to_plot]:
+                ref_ind = signals_to_analyze[ind]
+                if ref_ind not in important_signals:
+                    important_signals.append(ref_ind)
+                c = color_map[ref_ind]
+                ax3.errorbar(t, importance_occ_aug[ind, :], yerr=std_predicted_risk_occ_aug[ind, :],
+                             marker=markers[list(important_signals).index(ref_ind) % len(markers)], linewidth=5,
                              linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+                             markersize=9, markeredgecolor='k', color=c, label='%s' % (self.feature_map[ref_ind]))
+
+            # Feature occlusion
+            for ind, sig in max_imp_occ[0:n_feats_to_plot]:
+                ref_ind = signals_to_analyze[ind]
+                if ref_ind not in important_signals:
+                    important_signals.append(ref_ind)
+                c = color_map[ref_ind]
+                ax4.errorbar(t, importance_occ[ind, :], yerr=std_predicted_risk_occ[ind, :],
+                             marker=markers[list(important_signals).index(ref_ind) % len(markers)],
+                             linewidth=5, linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+                             markersize=9, markeredgecolor='k',
                              color=c, label='%s' % (self.feature_map[ref_ind]))
 
-                # Plot the original signals
-                important_signals = np.unique(important_signals)
-                for i, ref_ind in enumerate(important_signals):
-                    c = color_map[ref_ind]
-                    ax1.plot(np.array(signals[ref_ind, 1:] / max(abs(signals[ref_ind, 1:]))), linewidth=3,
-                             linestyle=l_style[i % len(l_style)], color=c,
-                             label='%s' % (self.feature_map[ref_ind]))
-                ax1.plot(np.array(label), '-', linewidth=6, label='Risk score')
-                ax1.grid()
-                ax1.tick_params(axis='both', labelsize=26)
-                ax2.grid()
-                ax2.tick_params(axis='both', labelsize=26)
-                ax3.grid()
-                ax3.tick_params(axis='both', labelsize=26)
-                ax4.grid()
-                ax4.tick_params(axis='both', labelsize=26)
-                ax5.grid()
-                ax5.tick_params(axis='both', labelsize=26)
-                ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
-                ax2.set_title('FFC', fontweight='bold', fontsize=34)
-                ax3.set_title('AFO', fontweight='bold', fontsize=34)
-                ax4.set_title('Suresh et. al', fontweight='bold', fontsize=34)
-                ax5.set_title('Sensitivity analysis', fontweight='bold', fontsize=34)
-                ax5.set_xlabel('time', fontweight='bold', fontsize=24)
-                ax1.set_ylabel('signal value', fontweight='bold',fontsize=18)
-                ax2.set_ylabel('importance score', fontweight='bold', fontsize=18)
-                ax3.set_ylabel('importance score', fontweight='bold', fontsize=18)
-                ax4.set_ylabel('importance score', fontweight='bold', fontsize=18)
-                ax5.set_ylabel('importance score', fontweight='bold', fontsize=18)
-                f.set_figheight(25)
-                f.set_figwidth(30)
-                plt.subplots_adjust(hspace=0.5)
-                plt.savefig(os.path.join('./examples',data,'feature_%d.pdf' %(subject)), dpi=300, orientation='landscape',
-                            bbox_inches='tight')
-                fig_legend = plt.figure(figsize=(13, 1.2))
-                handles, labels = ax1.get_legend_handles_labels()
-                plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-                fig_legend.savefig(os.path.join('./examples',data,'legend_%d.pdf' %(subject)), dpi=300, bbox_inches='tight')
+            # Sensitivity analysis
+            for ind, sig in max_imp_sen[0:n_feats_to_plot]:
+                ref_ind = signals_to_analyze[ind]
+                if ref_ind not in important_signals:
+                    important_signals.append(ref_ind)
+                c = color_map[ref_ind]
+                ax5.plot(abs(sensitivity_analysis_importance[ind, :-1]), linewidth=5,
+                         linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+                         color=c, label='%s' % (self.feature_map[ref_ind]))
+
+            # Plot the original signals
+            important_signals = np.unique(important_signals)
+            for i, ref_ind in enumerate(important_signals):
+                c = color_map[ref_ind]
+                #ax1.plot(np.array(signals[ref_ind, 1:] / max(abs(signals[ref_ind, 1:]))), linewidth=5,
+                #         linestyle=l_style[i % len(l_style)], color=c,
+                #         label='%s' % (self.feature_map[ref_ind]))
+                ax1.plot(np.array(signals[ref_ind, 1:]), linewidth=5,
+                         linestyle=l_style[i % len(l_style)], color=c,
+                         label='%s' % (self.feature_map[ref_ind]))
+
+            #ax1.plot(np.array(label), '-', linewidth=6, label='Risk score')
+            ax1.grid()
+            ax1.tick_params(axis='both', labelsize=26)
+            ax2.grid()
+            #ax2.set_ylim([0,0.6])
+            ax2.tick_params(axis='both', labelsize=26)
+            ax3.grid()
+            #ax3.set_ylim([0,0.6])
+            ax3.tick_params(axis='both', labelsize=26)
+            ax4.grid()
+            ax4.tick_params(axis='both', labelsize=26)
+            #ax4.set_ylim([0,0.6])
+            ax5.grid()
+            ax5.tick_params(axis='both', labelsize=26)
+            ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
+            ax2.set_title('FFC', fontweight='bold', fontsize=34)
+            ax3.set_title('AFO', fontweight='bold', fontsize=34)
+            ax4.set_title('Suresh et. al', fontweight='bold', fontsize=34)
+            ax5.set_title('Sensitivity analysis', fontweight='bold', fontsize=34)
+            ax5.set_xlabel('time', fontweight='bold', fontsize=24)
+            ax1.set_ylabel('signal value', fontweight='bold',fontsize=18)
+            ax2.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            ax3.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            ax4.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            ax5.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            f.set_figheight(25)
+            f.set_figwidth(30)
+            plt.subplots_adjust(hspace=0.5)
+            plt.savefig(os.path.join('./examples',data,'feature_%d.pdf' %(subject)), dpi=300, orientation='landscape',
+                        bbox_inches='tight')
+            fig_legend = plt.figure(figsize=(13, 1.2))
+            handles, labels = ax1.get_legend_handles_labels()
+            plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
+            fig_legend.savefig(os.path.join('./examples',data,'legend_%d.pdf' %(subject)), dpi=300, bbox_inches='tight')
 
     def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3,data='ghg',tvec=None):
         mse_vec=[]
@@ -793,7 +812,7 @@ class FeatureGeneratorExplainer(Experiment):
                 if not learned_risk:
                     risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
                 else:
-                    risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t + 1)).item()
+                    risk = self.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t)).item()
             else:
                 risk = self.risk_predictor(signal[:,0:t+self.generator.prediction_size].view(1, signal.shape[0], t+self.generator.prediction_size)).item()
                 # risk = self.risk_predictor(signal.view(1, signal.shape[0], signal.shape[1])).item()

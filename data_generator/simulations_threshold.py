@@ -67,15 +67,21 @@ def main(n_samples, plot, Tt=80):
     x_test_flat = scaler.transform(np.reshape(x_test,[x_test.shape[0],-1]))
     x_test_n = np.reshape(x_test_flat,x_test.shape)
 
-    kappa=1.5
+    kappa=1.8
     y_train = []
+    ground_truth_importance_train=[]
+    ground_truth_importance_test=[]
+    
     for i in range(n_train):
+        gt_t = np.zeros((Tt))
         y1 = np.random.choice([0,1],1,replace=False,p=[3/4,1/4])
         if y1:
             nts = 1+np.random.poisson(0.5,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
             x_train_n[i,0,t] = x_train_n[i,0,t] + kappa
+            gt_t[t] = 1
         y_train.append(y1)
+        ground_truth_importance_train.append(gt_t)
         
         y2 = np.random.choice([0,1],1,replace=False)
         if y2:
@@ -91,12 +97,15 @@ def main(n_samples, plot, Tt=80):
 
     y_test = []
     for i in range(x_test_n.shape[0]):
+        gt_t = np.zeros((Tt))
         y1 = np.random.choice([0,1],1,replace=False,p=[3/4,1/4])
         if y1:
             nts = 1+np.random.poisson(0.5,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
             x_test_n[i,0,t] = x_test_n[i,0,t] + kappa
+            gt_t[t] = 1
         y_test.append(y1)
+        ground_truth_importance_test.append(gt_t)
         
         y2 = np.random.choice([0,1],1,replace=False)
         if y2:
@@ -112,19 +121,8 @@ def main(n_samples, plot, Tt=80):
 
     y_train = np.array(y_train)
     y_test = np.array(y_test)
-        
-    ground_truth_importance_train=[]
-    for n,x in enumerate(x_train_n):
-        gt_t=np.zeros(x.shape[1])
-        ground_truth_importance_train.append(np.array(gt_t))
 
     ground_truth_importance_train = np.array(ground_truth_importance_train)
-
-    ground_truth_importance_test=[]
-    for n,x in enumerate(x_test_n):
-        gt_t=np.zeros(x.shape[1])
-        ground_truth_importance_test.append(np.array(gt_t))
-
     ground_truth_importance_test = np.array(ground_truth_importance_test)
  
     if plot:

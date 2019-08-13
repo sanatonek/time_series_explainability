@@ -104,7 +104,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='simulation'):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device='cuda',experiment='', data='simulation'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
@@ -123,7 +123,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, exper
                 predictions = model(signals[:,:,:t+1])
 
                 predicted_label = (predictions > 0.5).float()
-                labels_th = (labels[:,t]>0.5).float()
+                labels_th = labels.view(labels.shape[0],)
                 auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
                 correct_label_train += correct
                 auc_train += auc
@@ -131,7 +131,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, exper
                 precision_train += precision
                 count += 1
 
-                reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
+                reconstruction_loss = loss_criterion(predictions, labels_th)
                 epoch_loss += reconstruction_loss.item()
                 reconstruction_loss.backward()
                 optimizer.step()
@@ -163,7 +163,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, exper
     plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
 
-def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='ghg'):
+def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs,  experiment, data='ghg'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
@@ -181,7 +181,6 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, ex
             for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:, :, :t+1])
-
                 reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
                 epoch_loss += reconstruction_loss.item()
                 reconstruction_loss.backward()
@@ -223,14 +222,14 @@ def test_model_rt(model,test_loader):
         for t in [24]:
             prediction = model(signals[:,:,:t+1])
             predicted_label = (prediction > 0.5).float()
-            labels_th = (labels[:,t] > 0.5).float()
+            labels_th = labels.view(labels.shape[0],)
             auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))
             correct_label_test += correct
             auc_test += auc
             recall_test +=  recall
             precision_test +=  precision
             count +=  1
-            loss = torch.nn.BCELoss()(prediction, labels[:,t].to(device))
+            loss = torch.nn.BCELoss()(prediction, labels_th)
             test_loss += loss.item()
 
     test_loss = test_loss/((i+1)*num)

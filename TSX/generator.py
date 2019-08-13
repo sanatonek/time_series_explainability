@@ -32,6 +32,7 @@ class FeatureGenerator(torch.nn.Module):
         non_lin = kwargs["non_linearity"] if "non_linearity" in kwargs.keys() else torch.nn.ReLU()
         self.data=kwargs['data'] if 'data' in kwargs.keys() else 'mimic'
 
+        print('generator data ', self.data)
         if self.hist:
             self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
             # f_size is the size of the input to the regressor, it equals the hidden size of
@@ -53,7 +54,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size), non_lin)
+                                                 torch.nn.Linear(200, self.prediction_size), torch.nn.Sigmoid())
 
         else:
             if self.data=='mimic' or self.data=='ghg':
@@ -67,7 +68,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size), non_lin)
+                                                 torch.nn.Linear(200, self.prediction_size), torch.nn.Sigmoid())
 
     def forward(self, x, past=None):
         if self.hist:
@@ -103,7 +104,7 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     if data=='mimic':
         num = 1
     else:
-        num = 1
+        num = 3
 
     for epoch in range(n_epochs + 1):
         generator_model.train()
