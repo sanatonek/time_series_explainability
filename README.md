@@ -15,7 +15,8 @@ python3 data_generator/data_preprocess.py
 # Simulated dataset:
 
 ## Model training
-Once the data is ready, train models using TSX/main.py
+First train the predictor model to explain
 ```
-python3 -m TSX.main --model <name of the model to train> --train
+python3 -m TSX.main --model risk_predictor --train
 ```
+Then run other explainer classes on the trained model
