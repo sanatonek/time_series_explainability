@@ -215,7 +215,7 @@ class BaselineExplainer(Experiment):
         test_signals = torch.stack(([x[0] for x in testset])).to(self.device)
         matrix_test_dataset = test_signals.mean(dim=2).cpu().numpy()
         for test_sample in MIMIC_TEST_SAMPLES:
-            exp = self.explainer.explain_instance(matrix_test_dataset[test_sample], self.predictor_wrapper, num_features=4)
+            exp = self.explainer.explain_instance(matrix_test_dataset[test_sample], self.predictor_wrapper, num_features=4, top_labels=2)
             print("Most important features for sample %d: "%(test_sample), exp.as_list())
 
     def train(self, n_epochs, learn_rt=False):
@@ -293,7 +293,7 @@ class FeatureGeneratorExplainer(Experiment):
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
         """
         if train:
-            self.train(n_features=self.feature_size, n_epochs=n_epochs)
+           self.train(n_features=self.timeseries_feature_size, n_epochs=n_epochs)
         else:
             ckpt_path = os.path.join('./ckpt',self.data)
             if self.historical:
@@ -849,7 +849,7 @@ class FeatureGeneratorExplainer(Experiment):
                 print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_sens)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:,2])))
 
     def train(self, n_epochs, n_features):
-        for feature_to_predict in range(0,n_features):#(n_features):
+        for feature_to_predict in range(0,n_features):
             print('**** training to sample feature: ', feature_to_predict)
             #self.generator = FeatureGenerator(self.feature_size, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size,conditional=True,data=self.data).to(self.device)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, n_epochs=n_epochs, historical=self.historical,path=os.path.join('./ckpt',self.data))
@@ -1033,7 +1033,8 @@ class FeatureGeneratorExplainer(Experiment):
                 #         plt.axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1], alpha=0.2)
                 # plt.plot(signals[subject,0,1:])
                 # plt.show()
-            print(df)
+            if not os.path.exists('./interventions'):
+                os.mkdir("./interventions")
             df.to_pickle("./interventions/int_%d.pkl"%(intervention_ID))
 
     def plot_summary_stat(self, intervention_ID=1):
@@ -1063,7 +1064,9 @@ class FeatureGeneratorExplainer(Experiment):
         plt.subplots_adjust(hspace=0.3)
         f.set_figheight(12)
         f.set_figwidth(15)
-        plt.savefig('./examples/distributions/top_%s'%(intervention_list[intervention_ID]), dpi=300, bbox_inches='tight')
+        if not os.path.exists('./plots/distributions'):
+            os.mkdir('./plots/distributions')
+        plt.savefig('./plots/distributions/top_%s'%(intervention_list[intervention_ID]), dpi=300, bbox_inches='tight')
 
 
         f, (ax1,ax2,ax3) = plt.subplots(3, sharex=True)
@@ -1075,7 +1078,7 @@ class FeatureGeneratorExplainer(Experiment):
         ax3.set_title('sensitivity analysis importance distribution for %s'%(intervention_list[intervention_ID]), fontsize=20)
         f.set_figheight(10)
         f.set_figwidth(20)
-        plt.savefig('./examples/distributions/%s'%(intervention_list[intervention_ID]))
+        plt.savefig('./plots/distributions/%s'%(intervention_list[intervention_ID]))
 
     def _create_pairs(self, a):
         l=[]
