@@ -107,6 +107,7 @@ class NormalPatientData(PatientData):
         if transform == "normalize":
             self.normalize()
 
+
 class GHGData():
     """Dataset of GHG time series
     Args:

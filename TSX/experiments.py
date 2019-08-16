@@ -10,6 +10,10 @@ import numpy as np
 import pickle as pkl
 import pandas as pd
 import matplotlib.image as mpimg
+import json
+
+import lime
+import lime.lime_tabular
 
 #generic plot configs
 line_styles_map=['-','--','-.',':','-','--','-.',':','-','--','-.',':','-','--','-.',':']
@@ -33,6 +37,8 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
 feature_map_simulation = ['var 0', 'var 1', 'var 2']
 
 simulation_color_map = ['#e6194B', '#469990', '#000000','#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabebe',  '#e6beff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#3cb44b','#ffe119']
+
+MIMIC_TEST_SAMPLES = [4387, 481]
 
 #ghg plot configs
 feature_map_ghg = [str(i+1) for i in range(15)]
@@ -88,7 +94,7 @@ class Experiment(ABC):
                 train_model_rt_rg(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device, self.experiment,data=self.data)
 
 
-class Baseline(Experiment):
+class Baseline(Experiment): # TODO: Add checkpoint point and experiment name as attributes of the base class
     """ Baseline mortality prediction using a logistic regressions model
     """
     def __init__(self,  train_loader, valid_loader, test_loader, feature_size, experiment='baseline',data='mimic'):
@@ -149,6 +155,78 @@ class EncoderPredictor(Experiment):
                                                self.experiment,data=self.data)
 
 
+class BaselineExplainer(Experiment):
+    """ Baseline explainability methods
+    """
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, data_class, experiment='baseline_explainer', data='mimic', baseline_method='lime'):
+        super(BaselineExplainer, self).__init__(train_loader, valid_loader, test_loader, data=data)
+        self.experiment = experiment
+        self.data_class = data_class
+        self.ckpt_path = os.path.join('./ckpt/', self.data)
+        self.baseline_method = baseline_method
+        self.input_size = feature_size
+        if data == 'mimic':
+            self.timeseries_feature_size = feature_size - 4
+        else:
+            self.timeseries_feature_size = feature_size
+
+        # Build the risk predictor and load checkpoint
+        with open('config.json') as config_file:
+            configs = json.load(config_file)[data]['risk_predictor']
+        if self.data == 'simulation':
+            if not self.learned_risk:
+                self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
+            else:
+                self.risk_predictor = EncoderRNN(configs['feature_size'], hidden_size=configs['encoding_size'],
+                                                 rnn=configs['rnn_type'], regres=True, return_all=False, data=data)
+            self.feature_map = feature_map_simulation
+        else:
+            if self.data == 'mimic':
+                self.risk_predictor = EncoderRNN(self.input_size, hidden_size=configs['encoding_size'],
+                                                 rnn=configs['rnn_type'], regres=True, data=data)
+                self.feature_map = feature_map_mimic
+                self.risk_predictor = self.risk_predictor.to(self.device)
+            elif self.data == 'ghg':
+                self.risk_predictor = EncoderRNN(self.input_size, hidden_size=configs['encoding_size'],
+                                                 rnn=configs['rnn_type'], regres=True, data=data)
+                self.feature_map = feature_map_ghg
+                self.risk_predictor = self.risk_predictor.to(self.device)
+        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor.pt')))
+        self.risk_predictor.to(self.device)
+        self.risk_predictor.eval()
+
+    def predictor_wrapper(self, sample):
+        """
+        In order to use the lime explainer library we need to go back and forth between numpy library (compatible with Lime)
+        and torch (Compatible with the predictor model). This wrapper helps with this
+        :param sample: input sample for the predictor (type: numpy array)
+        :return: one-hot model output (type: numpy array)
+        """
+        torch_in = torch.Tensor(sample).reshape(len(sample),-1,1)
+        torch_in.to(self.device)
+        out = self.risk_predictor(torch_in)
+        one_hot_out = np.concatenate((out.detach().cpu().numpy(), out.detach().cpu().numpy()), axis=1)
+        one_hot_out[:,1] = 1-one_hot_out[:,0]
+        return one_hot_out
+
+    def run(self, train, n_epochs=60):
+        if train:
+            self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
+        testset = list(self.test_loader.dataset)
+        test_signals = torch.stack(([x[0] for x in testset])).to(self.device)
+        matrix_test_dataset = test_signals.mean(dim=2).cpu().numpy()
+        for test_sample in MIMIC_TEST_SAMPLES:
+            exp = self.explainer.explain_instance(matrix_test_dataset[test_sample], self.predictor_wrapper, num_features=4)
+            print("Most important features for sample %d: "%(test_sample), exp.as_list())
+
+    def train(self, n_epochs, learn_rt=False):
+        trainset = list(self.train_loader.dataset)
+        signals = torch.stack(([x[0] for x in trainset])).to(self.device)
+        matrix_train_dataset = signals.mean(dim=2).cpu().numpy()
+        if self.baseline_method == 'lime':
+            self.explainer = lime.lime_tabular.LimeTabularExplainer(matrix_train_dataset, feature_names=self.feature_map+['gender', 'age', 'ethnicity', 'first_icu_stay'], discretize_continuous=True)
+
+
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
     """
@@ -165,7 +243,7 @@ class FeatureGeneratorExplainer(Experiment):
         :param simulation: (boolean) If True, run experiment on simulated data
         :param experiment: Experiment name
         """
-        super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader)
+        super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader, data)
         self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
 
         if data == 'mimic':
@@ -181,7 +259,7 @@ class FeatureGeneratorExplainer(Experiment):
         self.simulation = self.data=='simulation'
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
-        self.data = data
+        # self.data = data
 
         #this is used to see fhe difference between true risk vs learned risk for simulations
         self.learned_risk = True
@@ -194,6 +272,7 @@ class FeatureGeneratorExplainer(Experiment):
             self.feature_dist_0=self.feature_dist
             self.feature_dist_1=self.feature_dist
 
+        # TODO: instead of hard coding read from json
         if self.data=='simulation':
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
@@ -252,7 +331,7 @@ class FeatureGeneratorExplainer(Experiment):
                 samples_to_analyse = np.random.choice(high_risk, 10, replace=False)
             else:
                 if self.data=='mimic':
-                    samples_to_analyse = [4387, 481]
+                    samples_to_analyse = MIMIC_TEST_SAMPLES
                 elif self.data=='ghg':
                     label = np.array([x[1][-1] for x in testset])
                     high_risk = np.arange(label.shape[0])
