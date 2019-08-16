@@ -1,6 +1,6 @@
 from TSX.utils import load_data, load_simulated_data, load_ghg_data
 from TSX.models import DeepKnn
-from TSX.experiments import Baseline, EncoderPredictor, FeatureGeneratorExplainer
+from TSX.experiments import Baseline, EncoderPredictor, FeatureGeneratorExplainer, BaselineExplainer
 
 import torch
 import os
@@ -20,38 +20,35 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
 def main(experiment, train, uncertainty_score, data):
     print('********** Experiment with the %s data **********' %(experiment))
     with open('config.json') as config_file:
-        configs = json.load(config_file)[data]
-    encoding_size = configs[experiment]['encoding_size']
-    n_epochs = configs[experiment]['n_epochs']
-    batch_size = configs[experiment]['batch_size']
-    historical = configs[experiment]['historical'] == 1
-    rnn_type = configs[experiment]['rnn_type']
+        configs = json.load(config_file)[data][experiment]
 
     if data == 'mimic':
-        p_data, train_loader, valid_loader, test_loader = load_data(batch_size=batch_size,
-                                                                    path='./data_generator/data_before')
+        p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
+                                                                    path='./data')
         feature_size = p_data.feature_size
     elif data == 'ghg':
-        p_data, train_loader, valid_loader, test_loader = load_ghg_data(batch_size)
+        p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'])
         feature_size = p_data.feature_size
     elif data == 'simulation':
-        p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=batch_size,
+        p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
                                                                               path='./data_generator/data/simulated_data')
         feature_size = p_data.shape[1]
 
     if experiment == 'baseline':
         exp = Baseline(train_loader, valid_loader, test_loader, p_data.feature_size)
     elif experiment == 'risk_predictor':
-        exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, encoding_size, rnn_type=rnn_type, data=data)
+        exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, configs['encoding_size'], rnn_type=configs['rnn_type'], data=data)
     elif experiment == 'feature_generator_explainer':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                        generator_hidden_size=encoding_size, prediction_size=1, historical=historical, data=data)
+                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), data=data)
+    elif experiment == 'lime_explainer':
+        exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
-    exp.run(train=train, n_epochs=n_epochs)
+    exp.run(train=train, n_epochs=configs['n_epochs'])
 
     # For MIMIC experiment, extract population level importance for interventions
     print('********** Extracting population level intervention statistics **********')
-    if data == 'mimic':
+    if data == 'mimic' and experiment == 'feature_generator_explainer':
         for id in range(len(intervention_list)):
             if not os.path.exists("./interventions/int_%d.pkl" % (id)):
                 exp.summary_stat(id)

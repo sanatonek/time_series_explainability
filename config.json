@@ -13,6 +13,10 @@
         "n_epochs" : 60,
         "historical": 1,
         "rnn_type" : "GRU"
+    },
+    "lime_explainer":{
+        "batch_size" : 100,
+        "n_epochs" : 20
     }
   },
   "mimic": {
@@ -29,6 +33,10 @@
         "n_epochs" : 80,
         "historical": 1,
         "rnn_type" : "GRU"
+    },
+    "lime_explainer":{
+        "batch_size" : 100,
+        "n_epochs" : 20
     }
   },
   "ghg": {
@@ -45,6 +53,10 @@
         "n_epochs" : 60,
         "historical": 1,
         "rnn_type" : "GRU"
+    },
+    "lime_explainer":{
+        "batch_size" : 100,
+        "n_epochs" : 20
     }
   }
 }
