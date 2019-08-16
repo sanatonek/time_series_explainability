@@ -210,8 +210,7 @@ class BaselineExplainer(Experiment):
         return one_hot_out
 
     def run(self, train, n_epochs=60):
-        if train:
-            self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
+        self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
         testset = list(self.test_loader.dataset)
         test_signals = torch.stack(([x[0] for x in testset])).to(self.device)
         matrix_test_dataset = test_signals.mean(dim=2).cpu().numpy()
@@ -851,7 +850,7 @@ class FeatureGeneratorExplainer(Experiment):
 
     def train(self, n_epochs, n_features):
         for feature_to_predict in range(0,n_features):#(n_features):
-            print('**** training to sample feature: ', feature_to_predict, n_epochs)
+            print('**** training to sample feature: ', feature_to_predict)
             #self.generator = FeatureGenerator(self.feature_size, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size,conditional=True,data=self.data).to(self.device)
             train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, n_epochs=n_epochs, historical=self.historical,path=os.path.join('./ckpt',self.data))
 
