@@ -69,7 +69,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  #torch.nn.Dropout(0.5),
                                                  torch.nn.Linear(200, self.prediction_size), non_lin)
 
-    def forward(self, x, past=None):
+    def forward(self, x, past, sig_ind):
         if self.hist:
             past = past.permute(2, 0, 1)
             prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
@@ -81,6 +81,23 @@ class FeatureGenerator(torch.nn.Module):
         mu = self.predictor(x)
         reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
         return reparam_samples, mu
+
+
+class CarryForwardGenerator(torch.nn.Module):
+    def __init__(self, feature_size, prediction_size=1, seed=random.seed('2019')):
+        """ Carries on the last observation to the nest
+        :param
+        """
+        super(CarryForwardGenerator, self).__init__()
+        self.seed = seed
+        self.feature_size = feature_size
+        self.prediction_size = prediction_size
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    def forward(self, x_T, x_past, sig_ind):
+        mu = x_past[:,sig_ind,-1]
+        next_obs = mu + torch.randn_like(mu).to(self.device)*0.1
+        return next_obs, mu
 
 
 def train_feature_generator(generator_model, train_loader, valid_loader, feature_to_predict=1, path='./ckpt/', n_epochs=30, historical=False, **kwargs):

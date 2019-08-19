@@ -343,3 +343,4 @@ class RiskPredictor(nn.Module):
         risk = nn.Sigmoid()(self.net(x))
         return risk
 
+
