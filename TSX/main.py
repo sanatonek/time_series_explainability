@@ -40,19 +40,19 @@ def main(experiment, train, uncertainty_score, data):
         exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, configs['encoding_size'], rnn_type=configs['rnn_type'], data=data)
     elif experiment == 'feature_generator_explainer':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), data=data)
+                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), generator_type='carry_forward_generator' ,data=data)
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
     exp.run(train=train, n_epochs=configs['n_epochs'])
 
     # For MIMIC experiment, extract population level importance for interventions
-    print('********** Extracting population level intervention statistics **********')
-    if data == 'mimic' and experiment == 'feature_generator_explainer':
-        for id in range(len(intervention_list)):
-            if not os.path.exists("./interventions/int_%d.pkl" % (id)):
-                exp.summary_stat(id)
-            exp.plot_summary_stat(id)
+    # print('********** Extracting population level intervention statistics **********')
+    # if data == 'mimic' and experiment == 'feature_generator_explainer':
+    #     for id in range(len(intervention_list)):
+    #         if not os.path.exists("./interventions/int_%d.pkl" % (id)):
+    #             exp.summary_stat(id)
+    #         exp.plot_summary_stat(id)
 
     if uncertainty_score:
         # Evaluate output uncertainty using deep KNN method

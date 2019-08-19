@@ -3,7 +3,7 @@ import os,sys,glob
 from abc import ABC, abstractmethod
 from TSX.utils import train_reconstruction, test_reconstruction, train_model, train_model_rt, train_model_rt_rg, test, test_model_rt_rg, logistic
 from TSX.models import EncoderRNN, RiskPredictor, LR, RnnVAE
-from TSX.generator import FeatureGenerator, test_feature_generator, train_feature_generator
+from TSX.generator import FeatureGenerator, test_feature_generator, train_feature_generator, CarryForwardGenerator
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
@@ -229,7 +229,7 @@ class BaselineExplainer(Experiment):
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, experiment='feature_generator_explainer', data='mimic', conditional=True):
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, generator_type='RNN_generator', experiment='feature_generator_explainer', data='mimic', conditional=True):
         """
         :param train_loader:
         :param valid_loader:
@@ -243,7 +243,11 @@ class FeatureGeneratorExplainer(Experiment):
         :param experiment: Experiment name
         """
         super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader, data)
-        self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
+        self.generator_type = generator_type
+        if self.generator_type == 'RNN_generator':
+            self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
+        elif self.generator_type == 'carry_forward_generator':
+            self.generator = CarryForwardGenerator(feature_size).to(self.device)
 
         if data == 'mimic':
             self.timeseries_feature_size = feature_size - 4
@@ -258,7 +262,6 @@ class FeatureGeneratorExplainer(Experiment):
         self.simulation = self.data=='simulation'
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
-        # self.data = data
 
         #this is used to see fhe difference between true risk vs learned risk for simulations
         self.learned_risk = True
@@ -292,7 +295,7 @@ class FeatureGeneratorExplainer(Experiment):
         """ Run feature generator experiment
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
         """
-        if train:
+        if train and self.generator_type!='carry_forward_generator':
            self.train(n_features=self.timeseries_feature_size, n_epochs=n_epochs)
         else:
             ckpt_path = os.path.join('./ckpt',self.data)
@@ -414,7 +417,7 @@ class FeatureGeneratorExplainer(Experiment):
                 mse_vec_sens=[]
 
                 # Replace and Predict Experiment
-                self.replace_and_predict(signals_to_analyze,sensitivity_analysis,data=self.data,tvec=tvec)
+                self.replace_and_predict(signals_to_analyze, sensitivity_analysis, data=self.data, tvec=tvec)
             else:
                 for sub_ind, subject in enumerate(samples_to_analyse):
                     self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data)
@@ -451,26 +454,27 @@ class FeatureGeneratorExplainer(Experiment):
         max_imp_sen = []
 
         for i, sig_ind in enumerate(signals_to_analyze):
-            if self.historical:
-                if data=='mimic':
-                    self.generator.load_state_dict(
-                    torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (feature_map_mimic[sig_ind]))))
-                elif data=='simulation':
-                    self.generator.load_state_dict(
-                    torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
-                elif data=='ghg':
-                    self.generator.load_state_dict(
-                    torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
-            else:
-                if data=='mimic':
-                    self.generator.load_state_dict(
-                    torch.load(os.path.join('.ckpt',data,'%s_generator_nohist.pt' % (feature_map_mimic[sig_ind]))))
-                elif data=='simulation':
-                    self.generator.load_state_dict(
-                    torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
-                elif data=='ghg':
-                    self.generator.load_state_dict(
-                    torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
+            if not self.generator_type=='carry_forward_generator':
+                if self.historical:
+                    if data=='mimic':
+                        self.generator.load_state_dict(
+                        torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (feature_map_mimic[sig_ind]))))
+                    elif data=='simulation':
+                        self.generator.load_state_dict(
+                        torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                    elif data=='ghg':
+                        self.generator.load_state_dict(
+                        torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                else:
+                    if data=='mimic':
+                        self.generator.load_state_dict(
+                        torch.load(os.path.join('.ckpt',data,'%s_generator_nohist.pt' % (feature_map_mimic[sig_ind]))))
+                    elif data=='simulation':
+                        self.generator.load_state_dict(
+                        torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
+                    elif data=='ghg':
+                        self.generator.load_state_dict(
+                        torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
 
             label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
                 signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)
@@ -563,7 +567,7 @@ class FeatureGeneratorExplainer(Experiment):
                                                 facecolor=f_color[int_ind % len(f_color)], alpha=0.2)
 
                 markers = ['*', 'D', 'X', 'o', '8', 'v', '+']
-                l_style = ['-.', '--', ':']
+                l_style = ['solid']#'-.', '--', ':']
                 important_signals = []
 
                 # FCC
@@ -630,7 +634,7 @@ class FeatureGeneratorExplainer(Experiment):
                 ax5.grid()
                 ax5.tick_params(axis='both', labelsize=26)
                 ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
-                ax2.set_title('FFC', fontweight='bold', fontsize=34)
+                ax2.set_title('FFC', fontweight='bold', fontsize=34) # TODO change the title depending on the type of generator is being used
                 ax3.set_title('AFO', fontweight='bold', fontsize=34)
                 ax4.set_title('Suresh et. al', fontweight='bold', fontsize=34)
                 ax5.set_title('Sensitivity analysis', fontweight='bold', fontsize=34)
@@ -643,14 +647,14 @@ class FeatureGeneratorExplainer(Experiment):
                 f.set_figheight(25)
                 f.set_figwidth(30)
                 plt.subplots_adjust(hspace=0.5)
-                plt.savefig(os.path.join('./examples',data,'feature_%d.pdf' %(subject)), dpi=300, orientation='landscape',
+                plt.savefig(os.path.join('./examples',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape',
                             bbox_inches='tight')
                 fig_legend = plt.figure(figsize=(13, 1.2))
                 handles, labels = ax1.get_legend_handles_labels()
                 plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-                fig_legend.savefig(os.path.join('./examples',data,'legend_%d.pdf' %(subject)), dpi=300, bbox_inches='tight')
+                fig_legend.savefig(os.path.join('./examples',data,'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
 
-    def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3,data='ghg',tvec=None):
+    def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3, data='ghg', tvec=None):
         mse_vec=[]
         mse_vec_occ=[]
         mse_vec_su=[]
@@ -695,14 +699,13 @@ class FeatureGeneratorExplainer(Experiment):
             legend_elements=[]
 
             ckpt_path='./ckpt/' + data + '/'
-            print(data)
-            #for i, sig_ind in enumerate(range(0,self.feature_size)):
-            for i, sig_ind in enumerate(range(0,3)):
+            for i, sig_ind in enumerate(range(0,self.feature_size)):
                 print('loading feature from:', ckpt_path)
-                if self.historical:
-                    self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator.pt'%(sig_ind))))
-                else:
-                    self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator_nohist.pt'%(sig_ind))))
+                if not self.generator_type=='carry_forward_generator':
+                    if self.historical:
+                        self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator_%s.pt'%(sig_ind, self.generator_type))))
+                    else:
+                        self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator_%s_nohist.pt'%(sig_ind, self.generator_type))))
 
                 label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode='generator',tvec=tvec)
                 _, importance_occ[i, :], mean_predicted_risk_occ[i,:], std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode="feature_occlusion",tvec=tvec)
@@ -733,7 +736,7 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_total_su.sort(key=lambda pair: pair[1], reverse=True)
             max_imp_total_sens.sort(key=lambda pair: pair[1], reverse=True)
 
-            n_feats_to_plot = min(self.feature_size,3)
+            n_feats_to_plot = min(self.feature_size, n_important_features)
             ms=4;lw=3;mec='k'
 
             top_3_vec=[]
@@ -892,7 +895,7 @@ class FeatureGeneratorExplainer(Experiment):
                     else:
                         prediction = torch.Tensor(np.array(np.random.choice(feature_dist_1)).reshape(-1,)).to(self.device)
                 elif mode=="generator" or mode=="combined":
-                    prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t))
+                    prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t), sig_ind)
                     if mode=="combined":
                         if self.risk_predictor(signal[:,0:t].view(1, signal.shape[0], t)).item() > 0.5:
                             prediction = torch.Tensor(self._find_closest(feature_dist_0, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
