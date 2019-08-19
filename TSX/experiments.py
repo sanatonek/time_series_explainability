@@ -458,7 +458,7 @@ class FeatureGeneratorExplainer(Experiment):
                 if self.historical:
                     if data=='mimic':
                         self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (feature_map_mimic[sig_ind]))))
+                        torch.load(os.path.join('./ckpt',data,'%s_generator_%s.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
                     elif data=='simulation':
                         self.generator.load_state_dict(
                         torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
@@ -468,7 +468,7 @@ class FeatureGeneratorExplainer(Experiment):
                 else:
                     if data=='mimic':
                         self.generator.load_state_dict(
-                        torch.load(os.path.join('.ckpt',data,'%s_generator_nohist.pt' % (feature_map_mimic[sig_ind]))))
+                        torch.load(os.path.join('.ckpt',data,'%s_generator_%s_nohist.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
                     elif data=='simulation':
                         self.generator.load_state_dict(
                         torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
@@ -930,9 +930,9 @@ class FeatureGeneratorExplainer(Experiment):
         fp = [[]]*8
         for i,sig in enumerate(range(20,28)):
             if self.historical:
-                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator.pt' % (sig))))
+                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator_%s.pt' % (sig, self.generator_type))))
             else:
-                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator_nohist.pt'%(sig))))
+                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator_%s_nohist.pt'%(sig, self.generator_type))))
             for signals,label in list(self.test_loader.dataset):
                 pred, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals,
                                                                                                           sig_ind=sig)

@@ -69,7 +69,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  #torch.nn.Dropout(0.5),
                                                  torch.nn.Linear(200, self.prediction_size), non_lin)
 
-    def forward(self, x, past, sig_ind):
+    def forward(self, x, past, sig_ind=0):
         if self.hist:
             past = past.permute(2, 0, 1)
             prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
@@ -108,7 +108,7 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     data=generator_model.data
 
     # Overwrite default learning parameters if values are passed
-    default_params = {'lr':0.0001, 'weight_decay':1e-3}
+    default_params = {'lr':0.0001, 'weight_decay':1e-3, 'generator_type':'RNN_generator'}
     for k,v in kwargs.items():
         if k in default_params.keys():
             default_params[k] = v
@@ -175,12 +175,12 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
         os.mkdir(path)
     if historical:
         if data=='mimic':
-            torch.save(generator_model.state_dict(), os.path.join(path,'%s_generator.pt'%(feature_map_mimic[feature_to_predict])))
+            torch.save(generator_model.state_dict(), os.path.join(path,'%s_generator_%s.pt'%(feature_map_mimic[feature_to_predict], default_params['generator_type'])))
         else:
             torch.save(generator_model.state_dict(), os.path.join(path,'%d_generator.pt'%(feature_to_predict)))
     else:
         if data=='mimic':
-            torch.save(generator_model.state_dict(),  os.path.join(path,'%s_generator_nohist.pt'%(feature_map_mimic[feature_to_predict])))
+            torch.save(generator_model.state_dict(),  os.path.join(path,'%s_generator_%s_nohist.pt'%(feature_map_mimic[feature_to_predict], default_params['generator_type'])))
         else:
             torch.save(generator_model.state_dict(),  os.path.join(path,'%d_generator_nohist.pt'%(feature_to_predict)))
 
@@ -195,7 +195,7 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     if not os.path.exists('./plots'):
         os.mkdir('./plots')
     if data=='mimic':
-        plt.savefig('./plots/%s_generator_loss.png'%(feature_map_mimic[feature_to_predict]))
+        plt.savefig('./plots/%s_generator_loss_%s.png'%(feature_map_mimic[feature_to_predict], default_params['generator_type']))
     else:
         if not os.path.exists('./plots/'+ data):
             os.mkdir('./plots/'+ data)

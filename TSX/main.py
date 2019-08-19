@@ -17,7 +17,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'Glucose', 'Temp']
 
 
-def main(experiment, train, uncertainty_score, data):
+def main(experiment, train, uncertainty_score, data, generator_type):
     print('********** Experiment with the %s data **********' %(experiment))
     with open('config.json') as config_file:
         configs = json.load(config_file)[data][experiment]
@@ -40,7 +40,7 @@ def main(experiment, train, uncertainty_score, data):
         exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, configs['encoding_size'], rnn_type=configs['rnn_type'], data=data)
     elif experiment == 'feature_generator_explainer':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), generator_type='carry_forward_generator' ,data=data)
+                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), generator_type=generator_type ,data=data)
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
@@ -71,7 +71,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train an ICU mortality prediction model')
     parser.add_argument('--model', type=str, default='feature_generator_explainer', help='Prediction model')
     parser.add_argument('--data', type=str, default='mimic')
+    parser.add_argument('--generator', type=str, default='RNN_generator')
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--uncertainty', action='store_true')
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty, data=args.data)
+    main(args.model, train=args.train, uncertainty_score=args.uncertainty, data=args.data, generator_type=args.generator)
