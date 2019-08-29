@@ -4,6 +4,8 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
+from pydlm import dlm, autoReg
+
 feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN',
            'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate' ,
            'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose','Temp']
@@ -47,13 +49,13 @@ class FeatureGenerator(torch.nn.Module):
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size))
+                                                 torch.nn.Linear(200, self.prediction_size*2))
             else:
                 self.predictor = torch.nn.Sequential(torch.nn.Linear(f_size, 200),
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size), non_lin)
+                                                 torch.nn.Linear(200, self.prediction_size*2), non_lin)
 
         else:
             if self.data=='mimic' or self.data=='ghg':
@@ -61,13 +63,13 @@ class FeatureGenerator(torch.nn.Module):
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size))
+                                                 torch.nn.Linear(200, self.prediction_size*2))
             else:
                 self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1, 200),
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size), non_lin)
+                                                 torch.nn.Linear(200, self.prediction_size*2), non_lin)
 
     def forward(self, x, past, sig_ind=0):
         if self.hist:
@@ -78,8 +80,10 @@ class FeatureGenerator(torch.nn.Module):
                 x = torch.cat((encoding.view(encoding.size(1),-1), x), 1)
             else:
                 x = encoding.view(encoding.size(1),-1)
-        mu = self.predictor(x)
-        reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
+        mu_std = self.predictor(x)
+        mu = mu_std[:,0:mu_std.shape[1]//2]
+        std = mu_std[:, mu_std.shape[1]//2:]
+        reparam_samples = mu + std#torch.randn_like(mu).to(self.device)*0.1
         return reparam_samples, mu
 
 
@@ -111,30 +115,37 @@ class JointFeatureGenerator(torch.nn.Module):
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.feature_size))
+                                                 torch.nn.Linear(200, self.feature_size*2))
         else:
             self.predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 200),
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.feature_size), non_lin)
+                                                 torch.nn.Linear(200, self.feature_size*2), non_lin)
 
     def forward(self, x, past, sig_ind=0):
         past = past.permute(2, 0, 1)
         prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
         all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
         x = encoding.view(encoding.size(1),-1)
-        mu = self.predictor(x)[:,sig_ind]
-        reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
-        return reparam_samples, mu
+        mu_std = self.predictor(x)
+        mu = mu_std[:,:mu_std.shape[1]//2]
+        std = mu_std[:, mu_std.shape[1] // 2:]
+        # std = torch.diag(mu_std[:, mu_std.shape[1]//2:])
+        reparam_samples = mu + std#torch.randn_like(mu).to(self.device)*0.1
+        return reparam_samples[:,sig_ind], mu[:,sig_ind]
 
     def forward_joint(self, past):
         past = past.permute(2, 0, 1)
         prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
         all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
         x = encoding.view(encoding.size(1),-1)
-        mu = self.predictor(x)
-        reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
+        mu_std = self.predictor(x)
+        mu = mu_std[:,0:mu_std.shape[1]//2]
+        std = mu_std[:, mu_std.shape[1]//2:]
+        # TODO use the covariance matrix for reparam trick
+        cov = std.unsqueeze(2).expand(*std.size(), std.size(1)) * torch.eye(std.size(1)).to(self.device)
+        reparam_samples = mu + std#torch.randn_like(mu).to(self.device)*0.1
         return reparam_samples
 
 
