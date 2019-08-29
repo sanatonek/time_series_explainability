@@ -40,7 +40,8 @@ def main(experiment, train, uncertainty_score, data, generator_type):
         exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, configs['encoding_size'], rnn_type=configs['rnn_type'], data=data)
     elif experiment == 'feature_generator_explainer':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), generator_type=generator_type ,data=data)
+                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1),
+                                        generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type)
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 

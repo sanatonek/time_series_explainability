@@ -3,7 +3,7 @@ import os,sys,glob
 from abc import ABC, abstractmethod
 from TSX.utils import train_reconstruction, test_reconstruction, train_model, train_model_rt, train_model_rt_rg, test, test_model_rt_rg, logistic
 from TSX.models import EncoderRNN, RiskPredictor, LR, RnnVAE
-from TSX.generator import FeatureGenerator, test_feature_generator, train_feature_generator, CarryForwardGenerator
+from TSX.generator import FeatureGenerator, train_joint_feature_generator, train_feature_generator, CarryForwardGenerator, DLMGenerator, JointFeatureGenerator
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
@@ -248,6 +248,12 @@ class FeatureGeneratorExplainer(Experiment):
             self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
         elif self.generator_type == 'carry_forward_generator':
             self.generator = CarryForwardGenerator(feature_size).to(self.device)
+        elif self.generator_type == 'joint_RNN_generator':
+            self.generator = JointFeatureGenerator(feature_size).to(self.device) # TODO setup the right encoding size
+        elif self.generator_type == 'dlm_joint_generator':
+            self.generator = DLMGenerator(feature_size).to(self.device) # TODO setup the right encoding size
+        else:
+            raise RuntimeError('Undefined generator!')
 
         if data == 'mimic':
             self.timeseries_feature_size = feature_size - 4
@@ -324,7 +330,7 @@ class FeatureGeneratorExplainer(Experiment):
                     th = pkl.load(f)
 
                 with open(os.path.join('./data_generator/data/simulated_data/gt_test.pkl'), 'rb') as f:
-                    gt_importance = pkl.load(f)
+                    gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
 
                 #For simulated data this is the last entry - end of 48 hours that's the actual outcome
                 label = np.array([x[1][-1] for x in testset])
@@ -452,29 +458,33 @@ class FeatureGeneratorExplainer(Experiment):
         max_imp_occ = []
         max_imp_occ_aug = []
         max_imp_sen = []
-
+        # TODO for joint models avoid iteratig over all samples
         for i, sig_ind in enumerate(signals_to_analyze):
             if not self.generator_type=='carry_forward_generator':
-                if self.historical:
-                    if data=='mimic':
-                        self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_generator_%s.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
-                    elif data=='simulation':
-                        self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
-                    elif data=='ghg':
-                        self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                if 'joint' in self.generator_type:
+                    self.generator.load_state_dict(
+                        torch.load(os.path.join('./ckpt/%s/%s.pt'%(self.data, self.generator_type))))
                 else:
-                    if data=='mimic':
-                        self.generator.load_state_dict(
-                        torch.load(os.path.join('.ckpt',data,'%s_generator_%s_nohist.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
-                    elif data=='simulation':
-                        self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
-                    elif data=='ghg':
-                        self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
+                    if self.historical:
+                        if data=='mimic':
+                            self.generator.load_state_dict(
+                            torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
+                        elif data=='simulation':
+                            self.generator.load_state_dict(
+                            torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                        elif data=='ghg':
+                            self.generator.load_state_dict(
+                            torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                    else:
+                        if data=='mimic':
+                            self.generator.load_state_dict(
+                            torch.load(os.path.join('.ckpt',data,'%s_%s_nohist.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
+                        elif data=='simulation':
+                            self.generator.load_state_dict(
+                            torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
+                        elif data=='ghg':
+                            self.generator.load_state_dict(
+                            torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
 
             label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
                 signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)
@@ -570,6 +580,7 @@ class FeatureGeneratorExplainer(Experiment):
                 l_style = ['solid']#'-.', '--', ':']
                 important_signals = []
 
+                # TODO Remove first important assignments for FFC, becuase poor quality of the generator results in different scaling
                 # FCC
                 for ind, sig in max_imp_FCC[0:n_feats_to_plot]:
                     ref_ind = signals_to_analyze[ind]
@@ -652,7 +663,7 @@ class FeatureGeneratorExplainer(Experiment):
                 fig_legend = plt.figure(figsize=(13, 1.2))
                 handles, labels = ax1.get_legend_handles_labels()
                 plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-                fig_legend.savefig(os.path.join('./examples',data,'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
+                fig_legend.savefig(os.path.join('./examples', data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
 
     def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3, data='ghg', tvec=None):
         mse_vec=[]
@@ -702,10 +713,13 @@ class FeatureGeneratorExplainer(Experiment):
             for i, sig_ind in enumerate(range(0,self.feature_size)):
                 print('loading feature from:', ckpt_path)
                 if not self.generator_type=='carry_forward_generator':
-                    if self.historical:
-                        self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator_%s.pt'%(sig_ind, self.generator_type))))
+                    if 'joint' in self.generator_type:
+                        self.generator.load_state_dict(torch.load(os.path.join(ckpt_path, '%s.pt'%self.generator_type)))
                     else:
-                        self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_generator_%s_nohist.pt'%(sig_ind, self.generator_type))))
+                        if self.historical:
+                            self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_%s.pt'%(sig_ind, self.generator_type))))
+                        else:
+                            self.generator.load_state_dict(torch.load(os.path.join(ckpt_path,'%d_%s_nohist.pt'%(sig_ind, self.generator_type))))
 
                 label, importance[i,:], mean_predicted_risk[i,:], std_predicted_risk[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode='generator',tvec=tvec)
                 _, importance_occ[i, :], mean_predicted_risk_occ[i,:], std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind, n_samples=10, mode="feature_occlusion",tvec=tvec)
@@ -852,10 +866,12 @@ class FeatureGeneratorExplainer(Experiment):
                 print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:,0])), '2nd:', np.mean(abs(np.array(mse_vec_sens)[:,1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:,2])))
 
     def train(self, n_epochs, n_features):
-        for feature_to_predict in range(0,n_features):
-            print('**** training to sample feature: ', feature_to_predict)
-            #self.generator = FeatureGenerator(self.feature_size, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size,conditional=True,data=self.data).to(self.device)
-            train_feature_generator(self.generator, self.train_loader, self.valid_loader, feature_to_predict, n_epochs=n_epochs, historical=self.historical,path=os.path.join('./ckpt',self.data))
+        if 'joint' in self.generator_type:
+            train_joint_feature_generator(self.generator, self.train_loader, self.valid_loader, generator_type=self.generator_type , n_epochs=n_epochs)
+        else:
+            for feature_to_predict in range(0,n_features):
+                print('**** training to sample feature: ', feature_to_predict)
+                train_feature_generator(self.generator, self.train_loader, self.valid_loader, self.generator_type, feature_to_predict, n_epochs=n_epochs, historical=self.historical)
 
     def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True,tvec=None):
         self.generator.eval()
@@ -930,9 +946,9 @@ class FeatureGeneratorExplainer(Experiment):
         fp = [[]]*8
         for i,sig in enumerate(range(20,28)):
             if self.historical:
-                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator_%s.pt' % (sig, self.generator_type))))
+                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_%s.pt' % (sig, self.generator_type))))
             else:
-                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_generator_%s_nohist.pt'%(sig, self.generator_type))))
+                self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_%s_nohist.pt'%(sig, self.generator_type))))
             for signals,label in list(self.test_loader.dataset):
                 pred, importance, mean_predicted_risk, std_predicted_risk = self._get_feature_importance(signals,
                                                                                                           sig_ind=sig)

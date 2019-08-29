@@ -83,6 +83,96 @@ class FeatureGenerator(torch.nn.Module):
         return reparam_samples, mu
 
 
+class JointFeatureGenerator(torch.nn.Module):
+    def __init__(self, feature_size, hidden_size=100, prediction_size=1, seed=random.seed('2019'), **kwargs):
+        """ Conditional generator model to predict future observations
+        :param feature_size: Number of features in the input
+        :param hist: (boolean) If True, use previous observations in the time series to generate next observation.
+                            If False, generate the sample given other dimensions at that time point
+        :param hidden_size: Size of hidden units for the recurrent structure
+        :param prediction_size: Number of time steps to generate
+        :param conditional: (boolean) If True, use both other observations at time t as well as the history to
+                            generate future observations
+        :param seed: Random seed
+        """
+        super(JointFeatureGenerator, self).__init__()
+        self.seed = seed
+        self.feature_size = feature_size
+        self.hidden_size = hidden_size
+        self.prediction_size = prediction_size
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        non_lin = kwargs["non_linearity"] if "non_linearity" in kwargs.keys() else torch.nn.ReLU()
+        self.data=kwargs['data'] if 'data' in kwargs.keys() else 'mimic'
+
+        self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
+
+        if self.data=='mimic' or self.data=='ghg':
+            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 200),
+                                                 non_lin,
+                                                 torch.nn.BatchNorm1d(num_features=200),
+                                                 #torch.nn.Dropout(0.5),
+                                                 torch.nn.Linear(200, self.feature_size))
+        else:
+            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 200),
+                                                 non_lin,
+                                                 torch.nn.BatchNorm1d(num_features=200),
+                                                 #torch.nn.Dropout(0.5),
+                                                 torch.nn.Linear(200, self.feature_size), non_lin)
+
+    def forward(self, x, past, sig_ind=0):
+        past = past.permute(2, 0, 1)
+        prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
+        all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
+        x = encoding.view(encoding.size(1),-1)
+        mu = self.predictor(x)[:,sig_ind]
+        reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
+        return reparam_samples, mu
+
+    def forward_joint(self, past):
+        past = past.permute(2, 0, 1)
+        prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
+        all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
+        x = encoding.view(encoding.size(1),-1)
+        mu = self.predictor(x)
+        reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
+        return reparam_samples
+
+
+class DLMGenerator(torch.nn.Module):
+    def __init__(self, feature_size, hidden_size=800, prediction_size=1, seed=random.seed('2019'), **kwargs):
+        """ Dynamic Linear Model for generating future observations in patient records
+        """
+        super(DLMGenerator, self).__init__()
+        self.seed = seed
+        self.feature_size = feature_size
+        self.hidden_size = hidden_size
+        self.prediction_size = prediction_size
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.theta = torch.randn(self.feature_size*self.feature_size).to(self.device)
+        # non_lin = kwargs["non_linearity"] if "non_linearity" in kwargs.keys() else torch.nn.ReLU()
+        self.data = kwargs['data'] if 'data' in kwargs.keys() else 'mimic'
+
+        self.transition = torch.nn.Sequential(torch.nn.Linear(self.feature_size*self.feature_size, self.feature_size*self.feature_size))
+                                             # torch.nn.BatchNorm1d(num_features=hidden_size),
+                                             # non_lin,
+                                             # torch.nn.Dropout(0.5),
+                                             # torch.nn.Linear(hidden_size, self.feature_size*self.feature_size))
+
+    def forward(self, x, past, sig_ind=0):
+        self.theta = self.transition(self.theta.view(1,-1)).view(self.feature_size, self.feature_size) + torch.randn_like(self.theta).to(self.device)*0.01
+        prev_state = past[:,:,-1].to(self.device)
+        next_state = torch.matmul(prev_state, self.theta)
+        mu = next_state[:,sig_ind]
+        reparam_samples = mu + torch.randn_like(mu).to(self.device)*0.1
+        return reparam_samples, mu
+
+    def forward_joint(self,past):
+        self.theta = self.transition(self.theta.view(1,-1)) + torch.randn_like(self.theta).to(self.device)*0.01
+        prev_state = past[:,:,-1].to(self.device)
+        next_state = torch.matmul(prev_state, self.theta.view(self.feature_size, self.feature_size)) + torch.randn_like(prev_state).to(self.device)*0.01
+        return next_state
+
+
 class CarryForwardGenerator(torch.nn.Module):
     def __init__(self, feature_size, prediction_size=1, seed=random.seed('2019')):
         """ Carries on the last observation to the nest
@@ -100,7 +190,7 @@ class CarryForwardGenerator(torch.nn.Module):
         return next_obs, mu
 
 
-def train_feature_generator(generator_model, train_loader, valid_loader, feature_to_predict=1, path='./ckpt/', n_epochs=30, historical=False, **kwargs):
+def train_feature_generator(generator_model, train_loader, valid_loader, generator_type, feature_to_predict=1, n_epochs=30, historical=False, **kwargs):
     train_loss_trend = []
     test_loss_trend = []
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -171,18 +261,14 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     print('***** Training feature %d *****'%(feature_to_predict))
     print('Test loss: ', test_loss)
     # Save model and results
-    if not os.path.exists(path):
-        os.mkdir(path)
+    if not os.path.exists('./ckpt'):
+        os.mkdir('./ckpt')
+    if not os.path.exists(os.path.join('./ckpt',data)):
+        os.mkdir(os.path.join('./ckpt',data))
     if historical:
-        if data=='mimic':
-            torch.save(generator_model.state_dict(), os.path.join(path,'%s_generator_%s.pt'%(feature_map_mimic[feature_to_predict], default_params['generator_type'])))
-        else:
-            torch.save(generator_model.state_dict(), os.path.join(path,'%d_generator.pt'%(feature_to_predict)))
+        torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
     else:
-        if data=='mimic':
-            torch.save(generator_model.state_dict(),  os.path.join(path,'%s_generator_%s_nohist.pt'%(feature_map_mimic[feature_to_predict], default_params['generator_type'])))
-        else:
-            torch.save(generator_model.state_dict(),  os.path.join(path,'%d_generator_nohist.pt'%(feature_to_predict)))
+        torch.save(generator_model.state_dict(),  os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
 
     plt.figure(feature_to_predict)
     ax = plt.gca()
@@ -194,12 +280,9 @@ def train_feature_generator(generator_model, train_loader, valid_loader, feature
     plt.legend()
     if not os.path.exists('./plots'):
         os.mkdir('./plots')
-    if data=='mimic':
-        plt.savefig('./plots/%s_generator_loss_%s.png'%(feature_map_mimic[feature_to_predict], default_params['generator_type']))
-    else:
-        if not os.path.exists('./plots/'+ data):
-            os.mkdir('./plots/'+ data)
-        plt.savefig('./plots/%s/%d_generator_loss.png'%(data,feature_to_predict))
+    if not os.path.exists('./plots/'+ data):
+        os.mkdir('./plots/' + data)
+    plt.savefig('./plots/%s/%s_%s_loss.png'%(data, feature_map_mimic[feature_to_predict], generator_type))
 
 
 def test_feature_generator(model, test_loader, feature_to_predict, historical=False):
@@ -236,3 +319,93 @@ def test_feature_generator(model, test_loader, feature_to_predict, historical=Fa
         test_loss = test_loss/((i+1)*len(tvec))
     return test_loss
 
+
+def train_joint_feature_generator(generator_model, train_loader, valid_loader, generator_type, feature_to_predict=1, n_epochs=30, **kwargs):
+    train_loss_trend = []
+    test_loss_trend = []
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    generator_model.to(device)
+    data = generator_model.data
+    generator_model.train()
+
+    # Overwrite default learning parameters if values are passed
+    default_params = {'lr':0.0001, 'weight_decay':1e-3}
+    for k,v in kwargs.items():
+        if k in default_params.keys():
+            default_params[k] = v
+
+    parameters = generator_model.parameters()
+    optimizer = torch.optim.Adam(parameters, lr=default_params['lr'], weight_decay=default_params['weight_decay'])
+    loss_criterion = torch.nn.MSELoss()
+
+    if data=='mimic':
+        num = 1
+    else:
+        num = 1
+
+    for epoch in range(n_epochs + 1):
+        generator_model.train()
+        epoch_loss = 0
+        for i, (signals, _) in enumerate(train_loader):
+            # for t in [np.random.randint(low=24, high=45)]:
+            for t in [int(tt) for tt in np.logspace(1.2, np.log10(signals.shape[2]), num=num)]:
+                label = signals[:, :, t:t + generator_model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
+                optimizer.zero_grad()
+                prediction = generator_model.forward_joint(signals[:, :, :t])
+                reconstruction_loss = loss_criterion(prediction, label.to(device))
+                epoch_loss = epoch_loss + reconstruction_loss.item()
+                reconstruction_loss.backward(retain_graph=True)
+                optimizer.step()
+
+        test_loss = test_joint_feature_generator(generator_model, valid_loader)
+        # train_loss_trend.append(epoch_loss / ((i + 1) * num))
+        train_loss = test_joint_feature_generator(generator_model, train_loader)
+        train_loss_trend.append(train_loss)
+
+        test_loss_trend.append(test_loss)
+        if epoch % 10 == 0:
+            print('\nEpoch %d' % (epoch))
+            print('Training ===>loss: ', train_loss)
+            print('Test ===>loss: ', test_loss)
+    print('***** Joint generator test loss *****', test_loss)
+    # Save model and results
+    if not os.path.exists('./ckpt'):
+        os.mkdir('./ckpt')
+    if not os.path.exists('./ckpt'+ data):
+        os.mkdir('./ckpt' + data)
+    torch.save(generator_model.state_dict(), './ckpt/%s/%s.pt'%(data, generator_type))
+
+    plt.figure(feature_to_predict)
+    ax = plt.gca()
+    plt.plot(train_loss_trend, label='Train loss:Feature %d'%(feature_to_predict+1))
+    plt.plot(test_loss_trend, label='Validation loss: Feature %d'%(feature_to_predict+1))
+    ax.xaxis.set_tick_params(labelsize=12)
+    ax.yaxis.set_tick_params(labelsize=12)
+    plt.title('Generator Loss', fontweight='bold', fontsize=12)
+    plt.legend()
+    if not os.path.exists('./plots'):
+        os.mkdir('./plots')
+    if not os.path.exists('./plots/'+ data):
+        os.mkdir('./plots/' + data)
+    plt.savefig('./plots/%s/generator_loss_%s.png'%(data, generator_type))
+
+
+def test_joint_feature_generator(model, test_loader):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    data = model.data
+    model.eval()
+    _, n_features, signel_len = next(iter(test_loader))[0].shape
+    test_loss = 0
+    if data == 'mimic':
+        tvec = [24]
+    else:
+        num = 1
+        tvec = [int(tt) for tt in np.logspace(1.0,np.log10(signel_len), num=num)]
+    for i, (signals, labels) in enumerate(test_loader):
+        for t in tvec:
+            label = signals[:, :, t:t+model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
+            prediction = model.forward_joint(signals[:, :, :t])
+            loss = torch.nn.MSELoss()(prediction, label.to(device))
+            test_loss = + loss.item()
+
+    return test_loss
