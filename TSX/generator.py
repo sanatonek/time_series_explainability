@@ -83,7 +83,7 @@ class FeatureGenerator(torch.nn.Module):
         mu_std = self.predictor(x)
         mu = mu_std[:,0:mu_std.shape[1]//2]
         std = mu_std[:, mu_std.shape[1]//2:]
-        reparam_samples = mu + std#torch.randn_like(mu).to(self.device)*0.1
+        reparam_samples = mu + std*torch.randn_like(mu).to(self.device)
         return reparam_samples, mu
 
 
@@ -145,7 +145,7 @@ class JointFeatureGenerator(torch.nn.Module):
         std = mu_std[:, mu_std.shape[1]//2:]
         # TODO use the covariance matrix for reparam trick
         cov = std.unsqueeze(2).expand(*std.size(), std.size(1)) * torch.eye(std.size(1)).to(self.device)
-        reparam_samples = mu + std#torch.randn_like(mu).to(self.device)*0.1
+        reparam_samples = mu + std*torch.randn_like(mu).to(self.device)
         return reparam_samples
 
 
