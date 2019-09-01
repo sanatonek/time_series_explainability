@@ -108,12 +108,11 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='simulation'):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
     loss_criterion = torch.nn.BCELoss()
     for epoch in range(n_epochs):
@@ -121,7 +120,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, exper
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            num=5
+            num=3
             for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])

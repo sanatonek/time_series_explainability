@@ -128,7 +128,7 @@ class EncoderPredictor(Experiment):
 
     def run(self, train,n_epochs=60):
         if train:
-            self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
+            self.train(n_epochs=n_epochs, learn_rt=self.data!='mimc')
         else:
             if os.path.exists('./ckpt/' + self.data + '/' + str(self.experiment) + '.pt'):
                 self.model.load_state_dict(torch.load(os.path.join('./ckpt/' + self.data, str(self.experiment) + '.pt')))
@@ -150,8 +150,13 @@ class EncoderPredictor(Experiment):
             _, _, auc_test, correct_label, test_loss = test(self.test_loader, self.model, self.device)
             print('\nFinal performance on held out test set ===> AUC: ', auc_test)
         else:
-            #only for ghg data
-            train_model_rt_rg(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
+            if self.data=='simulation':
+                print('training rt')
+                train_model_rt(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
+                                            self.experiment, data=self.data)
+            else:
+                #only for ghg data
+                train_model_rt_rg(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
                                                self.experiment,data=self.data)
 
 
