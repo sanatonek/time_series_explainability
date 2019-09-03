@@ -23,7 +23,7 @@
     "feature_generator_explainer": {
         "encoding_size" : 80,
         "batch_size" : 100,
-        "n_epochs" : 150,
+        "n_epochs" : 200,
         "historical": 1,
         "rnn_type" : "GRU"
     },

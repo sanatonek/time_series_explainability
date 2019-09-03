@@ -88,7 +88,7 @@ class FeatureGenerator(torch.nn.Module):
 
 
 class JointFeatureGenerator(torch.nn.Module):
-    def __init__(self, feature_size, hidden_size=100, prediction_size=1, seed=random.seed('2019'), **kwargs):
+    def __init__(self, feature_size, latent_size=100, prediction_size=1, seed=random.seed('2019'), **kwargs):
         """ Conditional generator model to predict future observations
         :param feature_size: Number of features in the input
         :param hist: (boolean) If True, use previous observations in the time series to generate next observation.
@@ -102,51 +102,90 @@ class JointFeatureGenerator(torch.nn.Module):
         super(JointFeatureGenerator, self).__init__()
         self.seed = seed
         self.feature_size = feature_size
-        self.hidden_size = hidden_size
+        self.hidden_size = feature_size*2
+        self.latent_size = latent_size
         self.prediction_size = prediction_size
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         non_lin = kwargs["non_linearity"] if "non_linearity" in kwargs.keys() else torch.nn.ReLU()
         self.data=kwargs['data'] if 'data' in kwargs.keys() else 'mimic'
 
-        self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
+        # Generates the parameters of the distribution
+        self.rnn = torch.nn.GRU(self.feature_size, 62)#self.hidden_size)
+        for layer_p in self.rnn._all_weights:
+            for p in layer_p:
+                if 'weight' in p:
+                    torch.nn.init.normal(self.rnn.__getattr__(p), 0.0, 0.02)
 
         if self.data=='mimic' or self.data=='ghg':
-            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 200),
+            self.dist_predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 100),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=200),
+                                                 torch.nn.BatchNorm1d(num_features=100),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.feature_size*2))
+                                                 torch.nn.Linear(100, self.latent_size*2))
         else:
-            self.predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 200),
+            self.dist_predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 100),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=200),
+                                                 torch.nn.BatchNorm1d(num_features=100),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.feature_size*2), non_lin)
+                                                 torch.nn.Linear(100, self.latent_size*2), non_lin)
+
+        self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 100),#+self.hidden_size, 100),
+                                                 non_lin,
+                                                 torch.nn.BatchNorm1d(num_features=100),
+                                                 torch.nn.Linear(100, self.feature_size*self.feature_size))
+        self.mean_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 100),#+self.hidden_size, 100),
+                                                 non_lin,
+                                                 torch.nn.BatchNorm1d(num_features=100),
+                                                 torch.nn.Linear(100, self.feature_size))
 
     def forward(self, x, past, sig_ind=0):
+        mean, covariance = self.likelihood_distribution(past)
+        likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean, covariance_matrix=covariance)
+        # TODO we need to condition on other variables here
+        return likelihood.rsample()
+
+    def likelihood_distribution(self, past):
         past = past.permute(2, 0, 1)
-        prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
-        all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
-        x = encoding.view(encoding.size(1),-1)
-        mu_std = self.predictor(x)
+        all_encoding, encoding = self.rnn(past.to(self.device))
+        H = encoding.view(encoding.size(1),-1)
+        # Find the distribution of the latent variable Z
+        mu_std = self.dist_predictor(H)
         mu = mu_std[:,:mu_std.shape[1]//2]
-        std = mu_std[:, mu_std.shape[1] // 2:]
-        # std = torch.diag(mu_std[:, mu_std.shape[1]//2:])
-        reparam_samples = mu + std#torch.randn_like(mu).to(self.device)*0.1
-        return reparam_samples[:,sig_ind], mu[:,sig_ind]
+        std = mu_std[:, mu_std.shape[1]//2:]
+        # sample Z from the distribution
+        Z = mu + std*torch.randn_like(mu).to(self.device)
+        # Z_H = torch.cat((Z, H), 1)
+        # Generate the distribution P(X|H,Z)
+        mean = self.mean_generator(Z)
+        cov_noise = (torch.eye(self.feature_size).unsqueeze(0).repeat(len(Z), 1, 1) * 1e-5).to(self.device)
+        A = self.cov_generator(Z).view(-1, self.feature_size, self.feature_size)
+        covariance = torch.bmm(A, torch.transpose(A, 1, 2)) + cov_noise
+        # cov_params = torch.nn.ReLU()(self.cov_generator(Z_H).view(-1,self.feature_size, self.feature_size)) + cov_noise
+        # chol = torch.tril(cov_params)
+        # covariance = torch.bmm(chol, torch.transpose(chol, 1, 2))
+        # for i in range(len(covariance)):
+        #     try:
+        #         torch.cholesky(covariance[i])
+        #     except:
+        #         print(np.linalg.eigvals(covariance[i].detach().cpu().numpy()))
+        #         import sys
+        #         sys.exit()
+        return mean, covariance
 
     def forward_joint(self, past):
-        past = past.permute(2, 0, 1)
-        prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
-        all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
-        x = encoding.view(encoding.size(1),-1)
-        mu_std = self.predictor(x)
-        mu = mu_std[:,0:mu_std.shape[1]//2]
-        std = mu_std[:, mu_std.shape[1]//2:]
-        # TODO use the covariance matrix for reparam trick
-        cov = std.unsqueeze(2).expand(*std.size(), std.size(1)) * torch.eye(std.size(1)).to(self.device)
-        reparam_samples = mu + std*torch.randn_like(mu).to(self.device)
-        return reparam_samples
+        mean, covariance = self.likelihood_distribution(past)
+        likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean, covariance_matrix=covariance)
+        return likelihood.rsample()
+        # past = past.permute(2, 0, 1)
+        # prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
+        # all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
+        # x = encoding.view(encoding.size(1),-1)
+        # mu_std = self.predictor(x)
+        # mu = mu_std[:,0:mu_std.shape[1]//2]
+        # std = mu_std[:, mu_std.shape[1]//2:]
+        # cov = std.unsqueeze(2).expand(*std.size(), std.size(1)) * torch.eye(std.size(1)).to(self.device)
+        # reparam_samples = mu + std*torch.randn_like(mu).to(self.device)
+        # return reparam_samples
 
 
 class DLMGenerator(torch.nn.Module):
