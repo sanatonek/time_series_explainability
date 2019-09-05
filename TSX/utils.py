@@ -350,14 +350,22 @@ def load_ghg_data(batch_size, path='./data_generator/data'):
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data'):
-    with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+def load_simulated_data(batch_size=100, path='./data/simulated_data', type='state'):
+    if type=='state':
+        with open('./data/simulated_data/state_dataset_importance_train.pkl', 'rb') as f:
+            importance_score_train = pkl.load(f)
+        with open('./data/simulated_data/state_dataset_importance_test.pkl', 'rb') as f:
+            importance_score_train_test = pkl.load(f)
+        file_name = 'state_dataset_'
+    else:
+        file_name = ''
+    with open(os.path.join(path, file_name+'x_train.pkl'), 'rb') as f:
         x_train = pkl.load(f)
-    with open(os.path.join(path, 'y_train.pkl'), 'rb') as f:
+    with open(os.path.join(path, file_name+'y_train.pkl'), 'rb') as f:
         y_train = pkl.load(f)
-    with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+    with open(os.path.join(path, file_name+'x_test.pkl'), 'rb') as f:
         x_test = pkl.load(f)
-    with open(os.path.join(path, 'y_test.pkl'), 'rb') as f:
+    with open(os.path.join(path, file_name+'y_test.pkl'), 'rb') as f:
         y_test = pkl.load(f)
 
     n_train = int(0.8 * len(x_train))
@@ -390,3 +398,4 @@ def top_risk_change(exp):
         span.append((i, max(risk) - min(risk)))
     span.sort(key=lambda pair:pair[1], reverse=True)
     print([x[0] for x in span[0:300]])
+

@@ -1,6 +1,7 @@
 import numpy as np
 import pickle
 import argparse
+import os
 
 SIG_NUM = 3
 STATE_NUM = 1
@@ -22,7 +23,6 @@ def init_distribution_params():
         c[imp_feature,correlated_feature[i]] = 10
         c[correlated_feature[i], imp_feature] = 10
         c = c + np.eye(SIG_NUM)*1e-3
-        print(c)
         covariance.append(c)
     covariance = np.array(covariance)
     mean = []
@@ -35,7 +35,7 @@ def init_distribution_params():
 
 def next_state(previous_state, t):
     timing_factor = 1./(1+np.exp(-t/100))
-    params = [(abs(p-0.2)+timing_factor)/2. for p in previous_state]
+    params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
     #params = [abs(p - 0.2) for p in previous_state]
     next = np.random.binomial(1, params)
     return next
@@ -72,7 +72,7 @@ def create_signal(sig_len):
     signal = np.array(signal)
     y = np.array(y)
     importance = np.array(importance)
-    return signal, y, states, importance
+    return signal.T, y, states, importance
 
 
 def logit(x):
@@ -94,12 +94,21 @@ def create_dataset(count, signal_len):
     labels = np.array(labels)
     importance_score = np.array(importance_score)
     states = np.array(states)
-    with open('./data/state_dataset_signals.pkl', 'wb') as f:
-        pickle.dump(dataset, f)
-    with open('./data/state_dataset_labels.pkl', 'wb') as f:
-        pickle.dump(labels, f)
-    with open('./data/state_dataset_importance.pkl', 'wb') as f:
-        pickle.dump(importance_score, f)
+    n_train= int(len(dataset)*0.8)
+    if not os.path.exists('./data/simulated_data'):
+        os.mkdir('./data/simulated_data')
+    with open('./data/simulated_data/state_dataset_x_train.pkl', 'wb') as f:
+        pickle.dump(dataset[:n_train], f)
+    with open('./data/simulated_data/state_dataset_x_test.pkl', 'wb') as f:
+        pickle.dump(dataset[n_train:], f)
+    with open('./data/simulated_data/state_dataset_y_train.pkl', 'wb') as f:
+        pickle.dump(labels[:n_train], f)
+    with open('./data/simulated_data/state_dataset_y_test.pkl', 'wb') as f:
+        pickle.dump(labels[n_train:], f)
+    with open('./data/simulated_data/state_dataset_importance_train.pkl', 'wb') as f:
+        pickle.dump(importance_score[:n_train], f)
+    with open('./data/simulated_data/state_dataset_importance_test.pkl', 'wb') as f:
+        pickle.dump(importance_score[n_train:], f)
     return dataset, labels, states
 
 

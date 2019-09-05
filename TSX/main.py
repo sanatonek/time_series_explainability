@@ -31,7 +31,7 @@ def main(experiment, train, uncertainty_score, data, generator_type):
         feature_size = p_data.feature_size
     elif data == 'simulation':
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
-                                                                              path='./data_generator/data/simulated_data')
+                                                                              path='./data/simulated_data')
         feature_size = p_data.shape[1]
 
     if experiment == 'baseline':
