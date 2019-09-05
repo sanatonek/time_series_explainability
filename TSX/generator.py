@@ -140,8 +140,16 @@ class JointFeatureGenerator(torch.nn.Module):
 
     def forward(self, x, past, sig_ind=0):
         mean, covariance = self.likelihood_distribution(past)
-        likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean, covariance_matrix=covariance)
-        # TODO we need to condition on other variables here
+        margianl_cov = torch.cat(([covariance[:, :, 0:sig_ind], covariance[:, :, sig_ind + 1:]]), 2)
+        margianl_cov = torch.cat(([margianl_cov[:, 0:sig_ind, :], margianl_cov[:, sig_ind + 1:, :]]), 1)
+        cov_i_i = torch.cat((covariance[:, sig_ind, :sig_ind], covariance[:, sig_ind, sig_ind + 1:]), 1).view(len(covariance), 1, -1)
+        mean_i = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1)
+        mean_cond = mean[:, sig_ind] + torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
+                                                 (x - mean_i).unsqueeze(-1))
+        covariance_cond = covariance[:, sig_ind, sig_ind] - torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
+                                                                      torch.transpose(cov_i_i, 1, 2))
+        likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond,
+                                                                                covariance_matrix=covariance_cond)
         return likelihood.rsample()
 
     def likelihood_distribution(self, past):
@@ -160,32 +168,12 @@ class JointFeatureGenerator(torch.nn.Module):
         cov_noise = (torch.eye(self.feature_size).unsqueeze(0).repeat(len(Z), 1, 1) * 1e-5).to(self.device)
         A = self.cov_generator(Z).view(-1, self.feature_size, self.feature_size)
         covariance = torch.bmm(A, torch.transpose(A, 1, 2)) + cov_noise
-        # cov_params = torch.nn.ReLU()(self.cov_generator(Z_H).view(-1,self.feature_size, self.feature_size)) + cov_noise
-        # chol = torch.tril(cov_params)
-        # covariance = torch.bmm(chol, torch.transpose(chol, 1, 2))
-        # for i in range(len(covariance)):
-        #     try:
-        #         torch.cholesky(covariance[i])
-        #     except:
-        #         print(np.linalg.eigvals(covariance[i].detach().cpu().numpy()))
-        #         import sys
-        #         sys.exit()
         return mean, covariance
 
     def forward_joint(self, past):
         mean, covariance = self.likelihood_distribution(past)
         likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean, covariance_matrix=covariance)
         return likelihood.rsample()
-        # past = past.permute(2, 0, 1)
-        # prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
-        # all_encoding, encoding = self.rnn(past.to(self.device), prev_state)
-        # x = encoding.view(encoding.size(1),-1)
-        # mu_std = self.predictor(x)
-        # mu = mu_std[:,0:mu_std.shape[1]//2]
-        # std = mu_std[:, mu_std.shape[1]//2:]
-        # cov = std.unsqueeze(2).expand(*std.size(), std.size(1)) * torch.eye(std.size(1)).to(self.device)
-        # reparam_samples = mu + std*torch.randn_like(mu).to(self.device)
-        # return reparam_samples
 
 
 class DLMGenerator(torch.nn.Module):
@@ -315,10 +303,13 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
         os.mkdir('./ckpt')
     if not os.path.exists(os.path.join('./ckpt',data)):
         os.mkdir(os.path.join('./ckpt',data))
-    if historical:
-        torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
+    if data == 'mimic':
+        if historical:
+            torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
+        else:
+            torch.save(generator_model.state_dict(),  os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
     else:
-        torch.save(generator_model.state_dict(),  os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
+        torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, 'feature_%d_%s.pt' %(feature_to_predict, generator_type)))
 
     plt.figure(feature_to_predict)
     ax = plt.gca()
@@ -326,13 +317,18 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
     plt.plot(test_loss_trend, label='Validation loss: Feature %d'%(feature_to_predict+1))
     ax.xaxis.set_tick_params(labelsize=12)
     ax.yaxis.set_tick_params(labelsize=12)
-    plt.title('%s Generator Loss'%(feature_map_mimic[feature_to_predict]),fontweight='bold',fontsize=12)
-    plt.legend()
     if not os.path.exists('./plots'):
         os.mkdir('./plots')
     if not os.path.exists('./plots/'+ data):
         os.mkdir('./plots/' + data)
-    plt.savefig('./plots/%s/%s_%s_loss.png'%(data, feature_map_mimic[feature_to_predict], generator_type))
+    if data == 'mimic':
+        plt.title('%s Generator Loss'%(feature_map_mimic[feature_to_predict]),fontweight='bold',fontsize=12)
+        plt.legend()
+        plt.savefig('./plots/%s/%s_%s_loss.png'%(data, feature_map_mimic[feature_to_predict], generator_type))
+    else:
+        plt.title('feature %d Generator Loss'%(feature_to_predict),fontweight='bold',fontsize=12)
+        plt.legend()
+        plt.savefig('./plots/%s/feature_%d_%s_loss.png'%(data, feature_to_predict, generator_type))
 
 
 def test_feature_generator(model, test_loader, feature_to_predict, historical=False):

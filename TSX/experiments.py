@@ -269,11 +269,11 @@ class FeatureGeneratorExplainer(Experiment):
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
 
-        #this is used to see fhe difference between true risk vs learned risk for simulations
+        #this is used to see the difference between true risk vs learned risk for simulations
         self.learned_risk = True
         trainset = list(self.train_loader.dataset)
         self.feature_dist = torch.stack([x[0] for x in trainset])
-        if self.data == 'mimic' or self.data == 'simulation':
+        if self.data == 'mimic':
             self.feature_dist_0 = torch.stack([x[0] for x in trainset if x[1]==0])
             self.feature_dist_1 = torch.stack([x[0] for x in trainset if x[1]==1])
         else:
