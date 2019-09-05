@@ -36,7 +36,7 @@ def init_distribution_params():
 def next_state(previous_state, t):
     timing_factor = 1./(1+np.exp(-t/100))
     params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
-    #params = [abs(p - 0.2) for p in previous_state]
+    # params = [abs(p - 0.1) for p in previous_state]
     next = np.random.binomial(1, params)
     return next
 
@@ -79,6 +79,31 @@ def logit(x):
     return 1./(1+np.exp(-1*x[imp_feature]))
 
 
+def normalize(train_data, test_data, config='mean_normalized'):
+    """ Calculate the mean and std of each feature from the training set
+    """
+    feature_size = train_data.shape[1]
+    len_of_stay = train_data.shape[2]
+    d = [x.T for x in train_data]
+    d = np.stack(d, axis=0)
+    if config=='mean_normalized':
+        feature_means = np.tile(np.mean(d.reshape(-1, feature_size), axis=0), (len_of_stay, 1)).T
+        feature_std = np.tile(np.std(d.reshape(-1, feature_size), axis=0), (len_of_stay, 1)).T
+        np.seterr(divide='ignore', invalid='ignore')
+        train_data_n = np.array(
+            [np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std) for
+            x in train_data])
+        test_data_n = np.array(
+            [np.where(feature_std == 0, (x - feature_means), (x - feature_means) / feature_std) for
+            x in test_data])
+    elif config=='zero_to_one':
+        feature_max = np.tile(np.max(d.reshape(-1, feature_size), axis=0), (len_of_stay, 1)).T
+        feature_min = np.tile(np.min(d.reshape(-1, feature_size), axis=0), (len_of_stay, 1)).T
+        train_data_n = np.array([(x - feature_min)/(feature_max - feature_min) for x in train_data])
+        test_data_n = np.array([(x - feature_min) / (feature_max - feature_min) for x in test_data])
+    return train_data_n, test_data_n
+
+
 def create_dataset(count, signal_len):
     dataset = []
     labels = []
@@ -95,12 +120,15 @@ def create_dataset(count, signal_len):
     importance_score = np.array(importance_score)
     states = np.array(states)
     n_train= int(len(dataset)*0.8)
+    train_data = dataset[:n_train]
+    test_data = dataset[n_train:]
+    train_data_n, test_data_n = normalize(train_data, test_data)
     if not os.path.exists('./data/simulated_data'):
         os.mkdir('./data/simulated_data')
     with open('./data/simulated_data/state_dataset_x_train.pkl', 'wb') as f:
-        pickle.dump(dataset[:n_train], f)
+        pickle.dump(train_data_n, f)
     with open('./data/simulated_data/state_dataset_x_test.pkl', 'wb') as f:
-        pickle.dump(dataset[n_train:], f)
+        pickle.dump(test_data_n, f)
     with open('./data/simulated_data/state_dataset_y_train.pkl', 'wb') as f:
         pickle.dump(labels[:n_train], f)
     with open('./data/simulated_data/state_dataset_y_test.pkl', 'wb') as f:
