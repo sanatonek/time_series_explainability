@@ -110,7 +110,7 @@ class JointFeatureGenerator(torch.nn.Module):
         self.data=kwargs['data'] if 'data' in kwargs.keys() else 'mimic'
 
         # Generates the parameters of the distribution
-        self.rnn = torch.nn.GRU(self.feature_size, 62)#self.hidden_size)
+        self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
         for layer_p in self.rnn._all_weights:
             for p in layer_p:
                 if 'weight' in p:
@@ -150,7 +150,7 @@ class JointFeatureGenerator(torch.nn.Module):
                                                                       torch.transpose(cov_i_i, 1, 2))
         likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond,
                                                                                 covariance_matrix=covariance_cond)
-        return likelihood.rsample()
+        return likelihood.rsample(), mean[:,sig_ind]
 
     def likelihood_distribution(self, past):
         past = past.permute(2, 0, 1)

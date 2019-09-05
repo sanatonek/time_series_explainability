@@ -249,7 +249,7 @@ class FeatureGeneratorExplainer(Experiment):
         elif self.generator_type == 'carry_forward_generator':
             self.generator = CarryForwardGenerator(feature_size).to(self.device)
         elif self.generator_type == 'joint_RNN_generator':
-            self.generator = JointFeatureGenerator(feature_size).to(self.device) # TODO setup the right encoding size
+            self.generator = JointFeatureGenerator(feature_size, data=data).to(self.device) # TODO setup the right encoding size
         elif self.generator_type == 'dlm_joint_generator':
             self.generator = DLMGenerator(feature_size).to(self.device) # TODO setup the right encoding size
         else:
