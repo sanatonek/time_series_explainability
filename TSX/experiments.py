@@ -34,7 +34,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
            'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose','Temp']
 
 #simulation plot configs
-feature_map_simulation = ['var 0', 'var 1', 'var 2']
+feature_map_simulation = ['feature 0', 'feature 1', 'feature 2']
 
 simulation_color_map = ['#e6194B', '#469990', '#000000','#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabebe',  '#e6beff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#3cb44b','#ffe119']
 
@@ -290,7 +290,7 @@ class FeatureGeneratorExplainer(Experiment):
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
-                self.risk_predictor = EncoderRNN(feature_size,hidden_size=5,rnn='GRU',regres=True, return_all=False,data=data)
+                self.risk_predictor = EncoderRNN(feature_size,hidden_size=10,rnn='GRU',regres=True, return_all=False,data=data)
             self.feature_map = feature_map_simulation
         else:
             if self.data=='mimic':
@@ -476,10 +476,10 @@ class FeatureGeneratorExplainer(Experiment):
                             torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
                         elif data=='simulation':
                             self.generator.load_state_dict(
-                            torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                            torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind), self.generator_type))))
                         elif data=='ghg':
                             self.generator.load_state_dict(
-                            torch.load(os.path.join('./ckpt',data,'%s_generator.pt' % (str(sig_ind)))))
+                            torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind),self.generator_type))))
                     else:
                         if data=='mimic':
                             self.generator.load_state_dict(

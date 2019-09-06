@@ -5,12 +5,13 @@
         "batch_size" : 100,
         "n_epochs" : 400,
         "historical": 1,
-        "rnn_type" : "GRU"
+        "rnn_type" : "GRU",
+	"non_linearity":"torch.nn.Tanh()"
     },
     "risk_predictor":{
-        "encoding_size" : 5,
+        "encoding_size" : 10,
         "batch_size" : 100,
-        "n_epochs" : 60,
+        "n_epochs" : 50,
         "historical": 1,
         "rnn_type" : "GRU"
     },

@@ -52,10 +52,10 @@ class FeatureGenerator(torch.nn.Module):
                                                  torch.nn.Linear(200, self.prediction_size*2))
             else:
                 self.predictor = torch.nn.Sequential(torch.nn.Linear(f_size, 200),
-                                                 non_lin,
+                                                 torch.nn.Tanh(),
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size*2), non_lin)
+                                                 torch.nn.Linear(200, self.prediction_size*2))
 
         else:
             if self.data=='mimic' or self.data=='ghg':
@@ -66,10 +66,10 @@ class FeatureGenerator(torch.nn.Module):
                                                  torch.nn.Linear(200, self.prediction_size*2))
             else:
                 self.predictor = torch.nn.Sequential(torch.nn.Linear(self.feature_size-1, 200),
-                                                 non_lin,
+                                                 torch.nn.Tanh(),
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size*2), non_lin)
+                                                 torch.nn.Linear(200, self.prediction_size*2))
 
     def forward(self, x, past, sig_ind=0):
         if self.hist:
@@ -234,6 +234,10 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     generator_model.to(device)
     data=generator_model.data
+    if data=='mimic':
+        feature_map = feature_map_mimic
+    elif data=='simulation':
+        feature_map = ['0','1','2']
 
     # Overwrite default learning parameters if values are passed
     default_params = {'lr':0.0001, 'weight_decay':1e-3, 'generator_type':'RNN_generator'}
@@ -303,13 +307,10 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
         os.mkdir('./ckpt')
     if not os.path.exists(os.path.join('./ckpt',data)):
         os.mkdir(os.path.join('./ckpt',data))
-    if data == 'mimic':
-        if historical:
-            torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
-        else:
-            torch.save(generator_model.state_dict(),  os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map_mimic[feature_to_predict], generator_type)))
+    if historical:
+        torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map[feature_to_predict], generator_type)))
     else:
-        torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, 'feature_%d_%s.pt' %(feature_to_predict, generator_type)))
+        torch.save(generator_model.state_dict(),  os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map[feature_to_predict], generator_type)))
 
     plt.figure(feature_to_predict)
     ax = plt.gca()
