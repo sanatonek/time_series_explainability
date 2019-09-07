@@ -121,7 +121,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
             num=3
-            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
+            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])
 

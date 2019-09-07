@@ -1,7 +1,7 @@
 {
   "simulation": {
     "feature_generator_explainer": {
-        "encoding_size" : 20,
+        "encoding_size" : 50,
         "batch_size" : 100,
         "n_epochs" : 400,
         "historical": 1,
@@ -11,7 +11,7 @@
     "risk_predictor":{
         "encoding_size" : 10,
         "batch_size" : 100,
-        "n_epochs" : 50,
+        "n_epochs" : 200,
         "historical": 1,
         "rnn_type" : "GRU"
     },

@@ -331,11 +331,15 @@ class FeatureGeneratorExplainer(Experiment):
 
             testset = list(self.test_loader.dataset)
             if self.data=='simulation':
-                with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
-                    th = pkl.load(f)
+                if spike_data==1:
+                    with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
+                        th = pkl.load(f)
 
-                with open(os.path.join('./data_generator/data/simulated_data/gt_test.pkl'), 'rb') as f:
-                    gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+                    with open(os.path.join('./data_generator/data/simulated_data/gt_test.pkl'), 'rb') as f:
+                        gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+                else:
+                    with open(os.path.join('./data/simulated_data/state_dataset_importance_testi.pkl'),'rb') as f:
+                        gt_importance = pkl.load(f)
 
                 #For simulated data this is the last entry - end of 48 hours that's the actual outcome
                 label = np.array([x[1][-1] for x in testset])

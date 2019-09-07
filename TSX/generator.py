@@ -55,7 +55,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  torch.nn.Tanh(),
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size*2))
+                                                 torch.nn.Linear(200, self.prediction_size*2),torch.nn.Sigmoid())
 
         else:
             if self.data=='mimic' or self.data=='ghg':
@@ -69,7 +69,7 @@ class FeatureGenerator(torch.nn.Module):
                                                  torch.nn.Tanh(),
                                                  torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.prediction_size*2))
+                                                 torch.nn.Linear(200, self.prediction_size*2),torch.nn.Sigmoid())
 
     def forward(self, x, past, sig_ind=0):
         if self.hist:
@@ -106,7 +106,7 @@ class JointFeatureGenerator(torch.nn.Module):
         self.latent_size = latent_size
         self.prediction_size = prediction_size
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        non_lin = kwargs["non_linearity"] if "non_linearity" in kwargs.keys() else torch.nn.ReLU()
+        non_lin = kwargs["non_linearity"] if "non_linearity" in kwargs.keys() else torch.nn.Tanh()
         self.data=kwargs['data'] if 'data' in kwargs.keys() else 'mimic'
 
         # Generates the parameters of the distribution
@@ -123,20 +123,20 @@ class JointFeatureGenerator(torch.nn.Module):
                                                  #torch.nn.Dropout(0.5),
                                                  torch.nn.Linear(100, self.latent_size*2))
         else:
-            self.dist_predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 100),
+            self.dist_predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 200),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=100),
+                                                 torch.nn.BatchNorm1d(num_features=200),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(100, self.latent_size*2), non_lin)
+                                                 torch.nn.Linear(200, self.latent_size*2), non_lin)
 
-        self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 100),#+self.hidden_size, 100),
+        self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 200),#+self.hidden_size, 100),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=100),
-                                                 torch.nn.Linear(100, self.feature_size*self.feature_size))
-        self.mean_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 100),#+self.hidden_size, 100),
+                                                 torch.nn.BatchNorm1d(num_features=200),
+                                                 torch.nn.Linear(200, self.feature_size*self.feature_size),torch.nn.Sigmoid())
+        self.mean_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 200),#+self.hidden_size, 100),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=100),
-                                                 torch.nn.Linear(100, self.feature_size))
+                                                 torch.nn.BatchNorm1d(num_features=200),
+                                                 torch.nn.Linear(200, self.feature_size))
 
     def forward(self, x, past, sig_ind=0):
         mean, covariance = self.likelihood_distribution(past)
