@@ -7,76 +7,110 @@ SIG_NUM = 3
 STATE_NUM = 1
 P_S0 = [0.5]
 
-correlated_feature = [2, 1] # Features that re correlated with the important feature in each state
-imp_feature = 0  # Feature that is always set as important
-scale = [30, 10]  # Scaling factor for distribution mean in each state
+correlated_feature = [2, 0] # Features that re correlated with the important feature in each state
 
+imp_feature = [1,2]  # Feature that is always set as important
+scale = [[0.5, 2.0, 1.0],[-.5, -1.0,-2]]  # Scaling factor for distribution mean in each state
+trans_mat = np.array([[0.9,0.1],[0.1,0.9]])
+#print(trans_mat.shape)
 
 def init_distribution_params():
     # Covariance matrix is constant across states but distribution means change based on the state value
     state_count = np.power(2,STATE_NUM)
-    corr = abs(np.random.randn(SIG_NUM))*20
-    cov = np.diag(corr)
+    #corr = abs(np.random.randn(SIG_NUM))
+    cov = np.eye(SIG_NUM)*1
     covariance = []
     for i in range(state_count):
         c = cov.copy()
-        c[imp_feature,correlated_feature[i]] = 10
-        c[correlated_feature[i], imp_feature] = 10
+        c[imp_feature[i],correlated_feature[i]] = 0.3
+        c[correlated_feature[i], imp_feature[i]] = 0.3
         c = c + np.eye(SIG_NUM)*1e-3
+        #print(c)
         covariance.append(c)
     covariance = np.array(covariance)
     mean = []
     for i in range(state_count):
-        m = (np.random.randn(SIG_NUM)+1.)*scale[i]
+        #m = (np.random.randn(SIG_NUM))*scale[i]
+        m = scale[i]
         mean.append(m)
+        #print(m)
     mean = np.array(mean)
     return mean, covariance
 
 
 def next_state(previous_state, t):
-    timing_factor = 1./(1+np.exp(-t/100))
-    params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
-    # params = [abs(p - 0.1) for p in previous_state]
-    next = np.random.binomial(1, params)
+    #params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
+    #print(params,previous_state)
+    #params = [abs(p - 0.1) for p in previous_state]
+    params = [abs(p) for p in trans_mat[previous_state,1-previous_state]]
+    #print('previous', previous_state)
+    #params = [1-decay(t)[previous_state[0]]]
+    #print('transition probability',params)
+    next = np.random.binomial(1,params)
     return next
 
 
-def state_decoder(state_one_hot):
-    base = 1
-    state = 0
-    for digit in state_one_hot:
-        state = state + base*digit
-        base = base * 2
-    return state
+#def state_decoder(state_one_hot):
+#    base = 1
+#    state = 0
+#    for digit in state_one_hot:
+#        state = state + base*digit
+#        base = base * 2
+#    return state
 
+def state_decoder(previous,next):
+    return int(next*(1-previous)+(1-next)*(previous))
 
-def create_signal(sig_len):
-    mean, cov = init_distribution_params()
+def create_signal(sig_len,mean,cov):
     signal = []
     states = []
     y = []
     importance = []
+    y_logits=[]
 
     previous = np.random.binomial(1, P_S0)
+    delta_state=0
+    state_n=None
     for i in range(sig_len):
-        next = next_state(previous, i)
-        state_n = state_decoder(next)
-        imp_sig = [1, 0, 0]
+        #next = next_state(previous, i)
+        
+        next = next_state(previous, delta_state)
+        state_n = state_decoder(previous,next)
+
+        if state_n==previous:
+            delta_state+=1
+        else:
+            delta_state=0
+
+        #if state_n!=previous:
+        imp_sig = [0, 0, 0]
+        imp_sig[imp_feature[state_n]]=1
         imp_sig[correlated_feature[state_n]] = 1
-        importance.append(np.zeros(SIG_NUM) if previous==next else imp_sig)
+        #else:
+        #    imp_sig = [0, 0, 0]
+
+        importance.append(imp_sig)
         sample = np.random.multivariate_normal(mean[state_n], cov[state_n])
         previous = next
         signal.append(sample)
-        y.append(np.random.binomial(1, logit(sample)))
+        y_logit = logit(sample[imp_feature[state_n]])
+        y_label = np.random.binomial(1,y_logit)
+
+        #print('previous state:',previous,'next state probability:', next, 'delta_state:',delta_state,'current state:',state_n, 'mean:', mean[state_n], 'cov:', cov[state_n],'ylogit', y_logit)
+
+        y.append(y_label)
+        y_logits.append(y_logit)
         states.append(state_n)
     signal = np.array(signal)
     y = np.array(y)
     importance = np.array(importance)
-    return signal.T, y, states, importance
+    return signal.T, y, states, importance, y_logits
 
+def decay(x):
+    return [0.9*(1-0.1)**x,0.9*(1-0.1)**x]
 
 def logit(x):
-    return 1./(1+np.exp(-1*x[imp_feature]))
+    return 1./(1+np.exp(-(x)/1))
 
 
 def normalize(train_data, test_data, config='mean_normalized'):
@@ -109,20 +143,26 @@ def create_dataset(count, signal_len):
     labels = []
     importance_score = []
     states = []
+    label_logits=[]
+    mean, cov = init_distribution_params()
     for num in range(count):
-        sig, y, state, importance = create_signal(signal_len)
+        sig, y, state, importance,y_logits = create_signal(signal_len,mean,cov)
         dataset.append(sig)
         labels.append(y)
         importance_score.append(importance)
         states.append(state)
+        label_logits.append(y_logits)
     dataset = np.array(dataset)
     labels = np.array(labels)
     importance_score = np.array(importance_score)
     states = np.array(states)
+    label_logits = np.array(label_logits)
     n_train= int(len(dataset)*0.8)
     train_data = dataset[:n_train]
     test_data = dataset[n_train:]
-    train_data_n, test_data_n = normalize(train_data, test_data)
+    #train_data_n, test_data_n = normalize(train_data, test_data)
+    train_data_n= train_data
+    test_data_n = test_data
     if not os.path.exists('./data/simulated_data'):
         os.mkdir('./data/simulated_data')
     with open('./data/simulated_data/state_dataset_x_train.pkl', 'wb') as f:
@@ -137,6 +177,11 @@ def create_dataset(count, signal_len):
         pickle.dump(importance_score[:n_train], f)
     with open('./data/simulated_data/state_dataset_importance_test.pkl', 'wb') as f:
         pickle.dump(importance_score[n_train:], f)
+    with open('./data/simulated_data/state_dataset_logits_train.pkl', 'wb') as f:
+        pickle.dump(label_logits[:n_train], f)
+    with open('./data/simulated_data/state_dataset_logits_test.pkl', 'wb') as f:
+        pickle.dump(label_logits[n_train:], f)
+
     return dataset, labels, states
 
 

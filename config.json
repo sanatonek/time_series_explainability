@@ -1,17 +1,17 @@
 {
   "simulation": {
     "feature_generator_explainer": {
-        "encoding_size" : 50,
+        "encoding_size" : 100,
         "batch_size" : 100,
-        "n_epochs" : 400,
+        "n_epochs" : 800,
         "historical": 1,
         "rnn_type" : "GRU",
 	"non_linearity":"torch.nn.Tanh()"
     },
     "risk_predictor":{
-        "encoding_size" : 10,
+        "encoding_size" : 100,
         "batch_size" : 100,
-        "n_epochs" : 200,
+        "n_epochs" : 140,
         "historical": 1,
         "rnn_type" : "GRU"
     },

@@ -251,6 +251,7 @@ class FeatureGeneratorExplainer(Experiment):
         self.generator_type = generator_type
         if self.generator_type == 'RNN_generator':
             self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
+            self.conditional=conditional
         elif self.generator_type == 'carry_forward_generator':
             self.generator = CarryForwardGenerator(feature_size).to(self.device)
         elif self.generator_type == 'joint_RNN_generator':
@@ -274,6 +275,8 @@ class FeatureGeneratorExplainer(Experiment):
         self.spike_data=0
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
+        if self.generator_type!='RNN_generator':
+            self.conditional=None
 
         #this is used to see the difference between true risk vs learned risk for simulations
         self.learned_risk = True
@@ -291,7 +294,7 @@ class FeatureGeneratorExplainer(Experiment):
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
-                self.risk_predictor = EncoderRNN(feature_size,hidden_size=10,rnn='GRU',regres=True, return_all=False,data=data)
+                self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
             self.feature_map = feature_map_simulation
         else:
             if self.data=='mimic':
@@ -346,7 +349,8 @@ class FeatureGeneratorExplainer(Experiment):
                 label = np.array([x[1][-1] for x in testset])
                 #print(label)
                 high_risk = np.where(label==1)[0]
-                samples_to_analyse = np.random.choice(high_risk, 10, replace=False)
+                #samples_to_analyse = np.random.choice(high_risk, 10, replace=False)
+                samples_to_analyse = [101, 48, 88, 192, 143, 166, 18, 58, 172, 132]
             else:
                 if self.data=='mimic':
                     samples_to_analyse = MIMIC_TEST_SAMPLES
@@ -369,7 +373,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                 tvec = [int(x) for x in np.linspace(1,signal.shape[2]-1,5)]
             else:
-                tvec = list(range(1,signal.shape[2]))
+                tvec = list(range(1,signal.shape[2]+1))
                 signal_scaled = signal
 
             nt = len(tvec)
@@ -470,6 +474,10 @@ class FeatureGeneratorExplainer(Experiment):
         max_imp_sen = []
         # TODO for joint models avoid iteratig over all samples
         for i, sig_ind in enumerate(signals_to_analyze):
+            state = np.zeros((signals.shape[1]-1))
+            #print(gt_importance.shape)
+            state[gt_importance[sig_ind,1:,1]==1] = 1
+
             if not self.generator_type=='carry_forward_generator':
                 if 'joint' in self.generator_type:
                     self.generator.load_state_dict(
@@ -514,9 +522,9 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
         with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
-            pkl.dump({'FFC': importance, 'Suresh_et_al':importance_occ, 'AFO': importance_occ_aug, 'Sens': sensitivity_analysis_importance, 'gt': gt_importance[subject]},f,protocol=pkl.HIGHEST_PROTOCOL)
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'gt': gt_importance[subject]},f,protocol=pkl.HIGHEST_PROTOCOL)
 
-        return
+        #return
 
         f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
         t = np.arange(signals.shape[1]-1)
@@ -553,6 +561,8 @@ class FeatureGeneratorExplainer(Experiment):
 
         # TODO Remove first important assignments for FFC, becuase poor quality of the generator results in different scaling
         # FCC
+
+
         for ind, sig in max_imp_FCC[0:n_feats_to_plot]:
             ref_ind = signals_to_analyze[ind]
             if ref_ind not in important_signals:
@@ -563,6 +573,9 @@ class FeatureGeneratorExplainer(Experiment):
                          markersize=9, markeredgecolor='k', linewidth=3,
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
                          label='%s' % (self.feature_map[ref_ind]))
+        for ttt in t:
+            if state[ttt]==1:
+                ax1.axvspan(ttt,ttt+1)
 
         # Augmented feature occlusion
         for ind, sig in max_imp_occ_aug[0:n_feats_to_plot]:
@@ -601,9 +614,13 @@ class FeatureGeneratorExplainer(Experiment):
         important_signals = np.unique(important_signals)
         for i, ref_ind in enumerate(important_signals):
             c = color_map[ref_ind]
-            ax1.plot(np.array(signals[ref_ind, 1:] / max(abs(signals[ref_ind, 1:]))), linewidth=3,
+            #ax1.plot(np.array(signals[ref_ind, 1:] / max(abs(signals[ref_ind, 1:]))), linewidth=3,
+            #         linestyle=l_style[i % len(l_style)], color=c,
+            #         label='%s' % (self.feature_map[ref_ind]))
+            ax1.plot(np.array(signals[ref_ind, 1:]), linewidth=3,
                      linestyle=l_style[i % len(l_style)], color=c,
                      label='%s' % (self.feature_map[ref_ind]))
+
         ax1.plot(np.array(label), '-', linewidth=6, label='Risk score')
         ax1.grid()
         ax1.tick_params(axis='both', labelsize=26)
@@ -842,6 +859,7 @@ class FeatureGeneratorExplainer(Experiment):
         else:
             for feature_to_predict in range(0,n_features):
                 print('**** training to sample feature: ', feature_to_predict)
+                self.generator = FeatureGenerator(self.feature_size, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size,data=self.data,conditional=self.conditional).to(self.device)
                 train_feature_generator(self.generator, self.train_loader, self.valid_loader, self.generator_type, feature_to_predict, n_epochs=n_epochs, historical=self.historical)
 
     def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True,tvec=None):
@@ -875,7 +893,7 @@ class FeatureGeneratorExplainer(Experiment):
                 # else use the generator model to estimate the value
                 if mode=="feature_occlusion":
                     # prediction = torch.Tensor(np.array(np.random.uniform(low=-2*self.patient_data.feature_std[sig_ind,0], high=2*self.patient_data.feature_std[sig_ind,0])).reshape(-1)).to(self.device)
-                    prediction = torch.Tensor(np.array([np.random.randn()]).reshape(-1)).to(self.device)
+                    prediction = torch.Tensor(np.array([np.random.uniform(-1,1)]).reshape(-1)).to(self.device)
                 elif mode=="augmented_feature_occlusion":
                     if self.risk_predictor(signal[:,0:t].view(1, signal.shape[0], t)).item() > 0.5:
                         prediction = torch.Tensor(np.array(np.random.choice(feature_dist_0)).reshape(-1,)).to(self.device)
@@ -903,6 +921,7 @@ class FeatureGeneratorExplainer(Experiment):
                 predicted_risks.append(predicted_risk)
             risks.append(risk)
             predicted_risks = np.array(predicted_risks)
+            #print(predicted_risks.shape)
             mean_imp = np.mean(predicted_risks,0)
             std_imp = np.std(predicted_risks, 0)
             mean_predicted_risk.append(mean_imp)
