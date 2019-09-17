@@ -123,20 +123,20 @@ class JointFeatureGenerator(torch.nn.Module):
                                                  #torch.nn.Dropout(0.5),
                                                  torch.nn.Linear(100, self.latent_size*2))
         else:
-            self.dist_predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 200),
+            self.dist_predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 10),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=200),
+                                                 torch.nn.BatchNorm1d(num_features=10),
                                                  #torch.nn.Dropout(0.5),
-                                                 torch.nn.Linear(200, self.latent_size*2), non_lin)
+                                                 torch.nn.Linear(10, self.latent_size*2), non_lin)
 
-        self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 200),#+self.hidden_size, 100),
+        self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 10),#+self.hidden_size, 100),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=200),
-                                                 torch.nn.Linear(200, self.feature_size*self.feature_size),torch.nn.Sigmoid())
-        self.mean_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 200),#+self.hidden_size, 100),
+                                                 torch.nn.BatchNorm1d(num_features=10),
+                                                 torch.nn.Linear(10, self.feature_size*self.feature_size),torch.nn.ReLU())
+        self.mean_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 10),#+self.hidden_size, 100),
                                                  non_lin,
-                                                 torch.nn.BatchNorm1d(num_features=200),
-                                                 torch.nn.Linear(200, self.feature_size))
+                                                 torch.nn.BatchNorm1d(num_features=10),
+                                                 torch.nn.Linear(10, self.feature_size))
 
     def forward(self, x, past, sig_ind=0):
         mean, covariance = self.likelihood_distribution(past)
@@ -227,16 +227,13 @@ class CarryForwardGenerator(torch.nn.Module):
         next_obs = mu + torch.randn_like(mu).to(self.device)*0.1
         return next_obs, mu
 
-def save_ckpt(generator_model, generator_type, feature_to_predict, data,historical,feature_map):
+def save_ckpt(generator_model, fname, data):
     # Save model and results
     if not os.path.exists('./ckpt'):
         os.mkdir('./ckpt')
     if not os.path.exists(os.path.join('./ckpt',data)):
         os.mkdir(os.path.join('./ckpt',data))
-    if historical:
-        torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map[feature_to_predict], generator_type)))
-    else:
-        torch.save(generator_model.state_dict(),  os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map[feature_to_predict], generator_type)))
+    torch.save(generator_model.state_dict(), fname)
 
 
 
@@ -305,10 +302,15 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
             train_loss_trend.append(epoch_loss/(i+1))
 
         test_loss_trend.append(test_loss)
+        if historical:
+            fname=os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map[feature_to_predict], generator_type))
+        else:
+            fname=os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map[feature_to_predict], generator_type))
+
         if test_loss<best_loss:
             best_loss = test_loss
             best_epoch = epoch
-            save_ckpt(generator_model, generator_type, feature_to_predict,data,historical, feature_map)
+            save_ckpt(generator_model, fname,data)
             print('saved ckpt:', epoch)
 
         if epoch % 10 == 0:
@@ -382,7 +384,7 @@ def test_feature_generator(model, test_loader, feature_to_predict, historical=Fa
             signal = torch.Tensor(signal.float()).to(device)
             prediction, mus = model(signal)
             loss = torch.nn.MSELoss()(prediction, original.to(device))
-            test_loss = + loss.item()
+            test_loss += loss.item()
     if historical:
         test_loss = test_loss/((i+1)*len(tvec))
     return test_loss
@@ -395,6 +397,10 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
     generator_model.to(device)
     data = generator_model.data
     generator_model.train()
+    if data=='mimic':
+        feature_map = feature_map_mimic
+    elif data=='simulation':
+        feature_map = ['0','1','2']
 
     # Overwrite default learning parameters if values are passed
     default_params = {'lr':0.0001, 'weight_decay':1e-3}
@@ -409,14 +415,18 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
     if data=='mimic':
         num = 1
     else:
-        num = 1
+        num = 3
+
+    best_loss = 1000000
+    
+    fname=os.path.join('./ckpt', data, '%s.pt'%(generator_type))
 
     for epoch in range(n_epochs + 1):
         generator_model.train()
         epoch_loss = 0
         for i, (signals, _) in enumerate(train_loader):
             # for t in [np.random.randint(low=24, high=45)]:
-            for t in [int(tt) for tt in np.logspace(1.2, np.log10(signals.shape[2]), num=num)]:
+            for t in [int(tt) for tt in np.logspace(1.2, np.log10(signals.shape[2]-1), num=num)]:
                 label = signals[:, :, t:t + generator_model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
                 optimizer.zero_grad()
                 prediction = generator_model.forward_joint(signals[:, :, :t])
@@ -431,22 +441,32 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
         train_loss_trend.append(train_loss)
 
         test_loss_trend.append(test_loss)
+        if test_loss<best_loss:
+            best_loss = test_loss
+            best_epoch = epoch
+            print('saving ckpt')
+            save_ckpt(generator_model, fname, data)
+
         if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
             print('Training ===>loss: ', train_loss)
             print('Test ===>loss: ', test_loss)
     print('***** Joint generator test loss *****', test_loss)
+    #save_ckpt(generator_model,fname,data)
+
+    '''
     # Save model and results
     if not os.path.exists('./ckpt'):
         os.mkdir('./ckpt')
     if not os.path.exists('./ckpt'+ data):
         os.mkdir('./ckpt' + data)
     torch.save(generator_model.state_dict(), './ckpt/%s/%s.pt'%(data, generator_type))
+    '''
 
     plt.figure(feature_to_predict)
     ax = plt.gca()
-    plt.plot(train_loss_trend, label='Train loss:Feature %d'%(feature_to_predict+1))
-    plt.plot(test_loss_trend, label='Validation loss: Feature %d'%(feature_to_predict+1))
+    plt.plot(train_loss_trend[:best_epoch], label='Train loss:Feature %d'%(feature_to_predict+1))
+    plt.plot(test_loss_trend[:best_epoch], label='Validation loss: Feature %d'%(feature_to_predict+1))
     ax.xaxis.set_tick_params(labelsize=12)
     ax.yaxis.set_tick_params(labelsize=12)
     plt.title('Generator Loss', fontweight='bold', fontsize=12)
@@ -474,6 +494,6 @@ def test_joint_feature_generator(model, test_loader):
             label = signals[:, :, t:t+model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
             prediction = model.forward_joint(signals[:, :, :t])
             loss = torch.nn.MSELoss()(prediction, label.to(device))
-            test_loss = + loss.item()
+            test_loss += loss.item()
 
-    return test_loss
+    return test_loss/(i+1)

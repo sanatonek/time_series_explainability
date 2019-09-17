@@ -11,7 +11,7 @@ correlated_feature = [2, 0] # Features that re correlated with the important fea
 
 imp_feature = [1,2]  # Feature that is always set as important
 scale = [[0.5, 2.0, 1.0],[-.5, -1.0,-2]]  # Scaling factor for distribution mean in each state
-trans_mat = np.array([[0.9,0.1],[0.1,0.9]])
+trans_mat = np.array([[0.1,0.9],[0.1,0.9]])
 #print(trans_mat.shape)
 
 def init_distribution_params():
@@ -37,14 +37,20 @@ def init_distribution_params():
     mean = np.array(mean)
     return mean, covariance
 
-
 def next_state(previous_state, t):
     #params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
     #print(params,previous_state)
     #params = [abs(p - 0.1) for p in previous_state]
-    params = [abs(p) for p in trans_mat[previous_state,1-previous_state]]
+    #print(previous_state)
+    #params = [abs(p) for p in trans_mat[int(previous_state),1-int(previous_state)]]
+    #params = trans_mat[int(previous_state),1-int(previous_state)]
+    if previous_state==1:
+        params = 0.9
+    else:
+        params = 0.1
+    #params = 0.2
     #print('previous', previous_state)
-    #params = [1-decay(t)[previous_state[0]]]
+    params = 1-decay(t)[0]
     #print('transition probability',params)
     next = np.random.binomial(1,params)
     return next
@@ -68,14 +74,15 @@ def create_signal(sig_len,mean,cov):
     importance = []
     y_logits=[]
 
-    previous = np.random.binomial(1, P_S0)
+    previous = np.random.binomial(1, P_S0)[0]
     delta_state=0
     state_n=None
     for i in range(sig_len):
         #next = next_state(previous, i)
         
         next = next_state(previous, delta_state)
-        state_n = state_decoder(previous,next)
+        #state_n = state_decoder(previous,next)
+        state_n = next
 
         if state_n==previous:
             delta_state+=1
@@ -91,7 +98,7 @@ def create_signal(sig_len,mean,cov):
 
         importance.append(imp_sig)
         sample = np.random.multivariate_normal(mean[state_n], cov[state_n])
-        previous = next
+        previous = state_n
         signal.append(sample)
         y_logit = logit(sample[imp_feature[state_n]])
         y_label = np.random.binomial(1,y_logit)
@@ -181,6 +188,11 @@ def create_dataset(count, signal_len):
         pickle.dump(label_logits[:n_train], f)
     with open('./data/simulated_data/state_dataset_logits_test.pkl', 'wb') as f:
         pickle.dump(label_logits[n_train:], f)
+    with open('./data/simulated_data/state_dataset_states_train.pkl', 'wb') as f:
+        pickle.dump(states[:n_train], f)
+    with open('./data/simulated_data/state_dataset_states_test.pkl', 'wb') as f:
+        pickle.dump(states[n_train:], f)
+
 
     return dataset, labels, states
 

@@ -342,7 +342,7 @@ class FeatureGeneratorExplainer(Experiment):
                     with open(os.path.join('./data_generator/data/simulated_data/gt_test.pkl'), 'rb') as f:
                         gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
                 else:
-                    with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
+                    with open(os.path.join('./data/simulated_data/state_dataset_states_test.pkl'),'rb') as f:
                         gt_importance = pkl.load(f)
 
                 #For simulated data this is the last entry - end of 48 hours that's the actual outcome
@@ -440,9 +440,9 @@ class FeatureGeneratorExplainer(Experiment):
                 self.replace_and_predict(signals_to_analyze, sensitivity_analysis, data=self.data, tvec=tvec)
             else:
                 for sub_ind, subject in enumerate(samples_to_analyse):
-                    self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data,gt_importance=gt_importance)
+                    self.plot_baseline(subject, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data,gt_importance_subj=gt_importance[subject,:])
 
-    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic',gt_importance=None):
+    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic',gt_importance_subj=None):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
         :param signals_to_analyze: list of signals to include in importance analysis
@@ -474,9 +474,9 @@ class FeatureGeneratorExplainer(Experiment):
         max_imp_sen = []
         # TODO for joint models avoid iteratig over all samples
         for i, sig_ind in enumerate(signals_to_analyze):
-            state = np.zeros((signals.shape[1]-1))
+            #state = np.zeros((signals.shape[1]-1))
             #print(gt_importance.shape)
-            state[gt_importance[sig_ind,1:,1]==1] = 1
+            #state[gt_importance[sig_ind,1:,1]==1] = 1
 
             if not self.generator_type=='carry_forward_generator':
                 if 'joint' in self.generator_type:
@@ -522,7 +522,7 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
         with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
-            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'gt': gt_importance[subject]},f,protocol=pkl.HIGHEST_PROTOCOL)
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'gt': gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
 
         #return
 
@@ -574,8 +574,28 @@ class FeatureGeneratorExplainer(Experiment):
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
                          label='%s' % (self.feature_map[ref_ind]))
         for ttt in t:
-            if state[ttt]==1:
-                ax1.axvspan(ttt,ttt+1)
+            if gt_importance_subj[ttt]==1:
+                ax1.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+            else:
+                ax1.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
+
+        for ttt in t:
+            if gt_importance_subj[ttt]==1:
+                ax2.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+            else:
+                ax2.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
+
+        for ttt in t:
+            if gt_importance_subj[ttt]==1:
+                ax3.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+            else:
+                ax3.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
+
+        for ttt in t:
+            if gt_importance_subj[ttt]==1:
+                ax4.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+            else:
+                ax4.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
 
         # Augmented feature occlusion
         for ind, sig in max_imp_occ_aug[0:n_feats_to_plot]:
