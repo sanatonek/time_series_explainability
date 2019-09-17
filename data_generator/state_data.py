@@ -45,12 +45,12 @@ def next_state(previous_state, t):
     #params = [abs(p) for p in trans_mat[int(previous_state),1-int(previous_state)]]
     #params = trans_mat[int(previous_state),1-int(previous_state)]
     if previous_state==1:
-        params = 0.9
+        params = 0.95
     else:
-        params = 0.1
+        params = 0.05
     #params = 0.2
     #print('previous', previous_state)
-    params = 1-decay(t)[0]
+    #params = 1-decay(t)[0]
     #print('transition probability',params)
     next = np.random.binomial(1,params)
     return next
@@ -199,7 +199,7 @@ def create_dataset(count, signal_len):
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--signal_len', type=int, default=200, help='Length of the signal to generate')
+    parser.add_argument('--signal_len', type=int, default=100, help='Length of the signal to generate')
     parser.add_argument('--signal_num', type=int, default=1000, help='Number of the signals to generate')
     parser.add_argument('--plot', action='store_true')
     args = parser.parse_args()
