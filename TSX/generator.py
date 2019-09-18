@@ -71,7 +71,18 @@ class FeatureGenerator(torch.nn.Module):
                                                  #torch.nn.Dropout(0.5),
                                                  torch.nn.Linear(50, self.prediction_size*2))
 
-    def forward(self, x, past, sig_ind=0):
+    def forward(self, x, past, sig_ind=0, *args):
+        """
+        Sample full observation at t, given past information
+        :param x: observation at time t
+        :param past: All observations upto time t
+        :param sig_ind: Index of the feature to investigate
+        :return: full sample at time t
+        """
+        if len(x.shape) is 1:
+            x = x.unsqueeze(0)
+        known_signal = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
+        x = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
         if self.hist:
             past = past.permute(2, 0, 1)
             prev_state = torch.zeros([1, past.shape[1], self.hidden_size]).to(self.device)
@@ -84,7 +95,8 @@ class FeatureGenerator(torch.nn.Module):
         mu = mu_std[:,0:mu_std.shape[1]//2]
         std = mu_std[:, mu_std.shape[1]//2:]
         reparam_samples = mu + std*torch.randn_like(mu).to(self.device)
-        return reparam_samples, mu
+        full_sample = torch.cat([known_signal[:, 0:sig_ind], reparam_samples, known_signal[:, sig_ind:]], 1)
+        return full_sample, mu
 
 
 class JointFeatureGenerator(torch.nn.Module):
@@ -138,11 +150,20 @@ class JointFeatureGenerator(torch.nn.Module):
                                                  torch.nn.BatchNorm1d(num_features=10),
                                                  torch.nn.Linear(10, self.feature_size))
 
-    def forward(self, x, past, sig_ind=0, x_ind=None, cond_one=False):
-        mean, covariance = self.likelihood_distribution(past)
-        # print(mean.shape, covariance.shape)
+    def forward(self, x, past, sig_ind=0, cond_one=False):
+        """
+        Sample full observation at t, given past information
+        :param x: observation at time t
+        :param past: All observations upto time t
+        :param sig_ind: Index of the feature to investigate
+        :param cond_one: Determines the conditioning method. If True, the joint distribution will be conditioned on only
+                        a single feature, otherwise it will be conditioned on all variables except one
+        :return: full sample at time t
+        """
+        mean, covariance = self.likelihood_distribution(past)  # P(X_t|X_0:t-1)
+
         if cond_one:
-            x_ind = x_ind.to(self.device)
+            x_ind = x[sig_ind].to(self.device)
             mean_1 = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
             cov_1_2 = torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]),
                                 1).unsqueeze(-1)
@@ -151,15 +172,16 @@ class JointFeatureGenerator(torch.nn.Module):
             cov_1_1 = torch.cat(([cov_1_1[:, :, 0:sig_ind], cov_1_1[:, :, sig_ind + 1:]]), 2)
             mean_cond = mean_1 + torch.bmm(cov_1_2, (x_ind - mean[:, sig_ind]).unsqueeze(-1)) / cov_2_2
             covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
-            # print('cov', covariance_cond.shape, 'mean', mean_cond.shape)
             likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond.squeeze(-1),
                                                                                covariance_matrix=covariance_cond)
             sample = likelihood.rsample()
-            # print(sample.shape)
-            # print(sample[:,0:sig_ind], x_ind, sample[:,sig_ind:])
             full_sample = torch.cat([sample[:,0:sig_ind], x_ind, sample[:,sig_ind:]], 1)
             return full_sample, mean[:,sig_ind]
         else:
+            if len(x.shape) is 1:
+                x = x.unsqueeze(0)
+            known_signal = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
+            x = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
             # margianl_cov = torch.cat(([covariance[:, :, 0:sig_ind], covariance[:, :, sig_ind + 1:]]), 2)
             # margianl_cov = torch.cat(([margianl_cov[:, 0:sig_ind, :], margianl_cov[:, sig_ind + 1:, :]]), 1)
             # cov_i_i = torch.cat((covariance[:, sig_ind, :sig_ind], covariance[:, sig_ind, sig_ind + 1:]), 1).view(len(covariance), 1, -1)
@@ -170,8 +192,10 @@ class JointFeatureGenerator(torch.nn.Module):
             #                                                               torch.transpose(cov_i_i, 1, 2))
             # likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond,
             #                                                                         covariance_matrix=covariance_cond)
-            # return likelihood.rsample(), mean[:,sig_ind]
-            return mean[:,sig_ind], mean[:,sig_ind]
+            # sample = likelihood.rsample()
+            # full_sample = torch.cat([x[:, 0:sig_ind], sample, x[:, sig_ind:]], 1)
+            # return full_sample, mean[:,sig_ind]
+            return torch.cat((known_signal[:, 0:sig_ind], mean[:,sig_ind].unsqueeze(-1), known_signal[:, sig_ind:]), 1), mean[:,sig_ind]
 
     def likelihood_distribution(self, past):
         past = past.permute(2, 0, 1)
@@ -248,6 +272,7 @@ class CarryForwardGenerator(torch.nn.Module):
         next_obs = mu + torch.randn_like(mu).to(self.device)*0.1
         return next_obs, mu
 
+
 def save_ckpt(generator_model, fname, data):
     # Save model and results
     if not os.path.exists('./ckpt'):
@@ -255,7 +280,6 @@ def save_ckpt(generator_model, fname, data):
     if not os.path.exists(os.path.join('./ckpt',data)):
         os.mkdir(os.path.join('./ckpt',data))
     torch.save(generator_model.state_dict(), fname)
-
 
 
 def train_feature_generator(generator_model, train_loader, valid_loader, generator_type, feature_to_predict=1, n_epochs=30, historical=False, **kwargs):
@@ -292,9 +316,9 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
                 #for t in [np.random.randint(low=24, high=45)]:
                 for t in [int(tt) for tt in np.logspace(1.2,np.log10(signals.shape[2]),num=num)]:
                     label = signals[:, feature_to_predict, t:t+generator_model.prediction_size].contiguous().view(-1, generator_model.prediction_size)
-                    signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
-                    signal = signal.contiguous().view(-1, signals.shape[1] - 1)
-                    signal = torch.Tensor(signal.float()).to(device)
+                    # signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
+                    # signal = signal.contiguous().view(-1, signals.shape[1] - 1)
+                    signal = torch.Tensor(signals[:, :, t].float()).to(device)
                     past = signals[:,:,:t]
                     optimizer.zero_grad()
                     prediction, mus = generator_model(signal, past)
@@ -305,9 +329,9 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
 
             else:
                 original = signals[:,feature_to_predict,:].contiguous().view(-1,1)
-                signal = torch.cat((signals[:,:feature_to_predict,:], signals[:,feature_to_predict+1:,:]), 1).permute(0,2,1)
-                signal = signal.contiguous().view(-1,signals.shape[1]-1)
-                signal = torch.Tensor(signal.float()).to(device)
+                # signal = torch.cat((signals[:,:feature_to_predict,:], signals[:,feature_to_predict+1:,:]), 1).permute(0,2,1)
+                # signal = signal.contiguous().view(-1,signals.shape[1]-1)
+                signal = torch.Tensor(signals[:, :, t].float()).to(device)
 
                 optimizer.zero_grad()
                 prediction, mus = generator_model(signal)
@@ -332,7 +356,7 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
             best_loss = test_loss
             best_epoch = epoch
             save_ckpt(generator_model, fname,data)
-            print('saved ckpt:', epoch)
+            print('saved ckpt:in epoch', epoch)
 
         if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
@@ -391,18 +415,18 @@ def test_feature_generator(model, test_loader, feature_to_predict, historical=Fa
         if historical:
             for t in tvec:
                 label = signals[:, feature_to_predict, t:t+model.prediction_size].contiguous().view(-1, model.prediction_size)
-                signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
-                signal = signal.contiguous().view(-1, n_features - 1)
-                signal = torch.Tensor(signal.float()).to(device)
+                # signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
+                # signal = signal.contiguous().view(-1, n_features - 1)
+                signal = torch.Tensor(signals[:, :, t].float()).to(device)
                 past = signals[:, :, :t]
                 prediction, mus = model(signal, past)
                 loss = torch.nn.MSELoss()(prediction, label.to(device))
                 test_loss = + loss.item()
         else:
             original = signals[:, feature_to_predict, :].contiguous().view(-1, 1)
-            signal = torch.cat((signals[:, :feature_to_predict, :], signals[:, feature_to_predict + 1:, :]), 1).permute(0, 2,1)
-            signal = signal.contiguous().view(-1, n_features - 1)
-            signal = torch.Tensor(signal.float()).to(device)
+            # signal = torch.cat((signals[:, :feature_to_predict, :], signals[:, feature_to_predict + 1:, :]), 1).permute(0, 2,1)
+            # signal = signal.contiguous().view(-1, n_features - 1)
+            signal = torch.Tensor(signals[:, :, t].float()).to(device)
             prediction, mus = model(signal)
             loss = torch.nn.MSELoss()(prediction, original.to(device))
             test_loss += loss.item()

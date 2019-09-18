@@ -573,26 +573,26 @@ class FeatureGeneratorExplainer(Experiment):
                          markersize=9, markeredgecolor='k', linewidth=3,
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
                          label='%s' % (self.feature_map[ref_ind]))
-        for ttt in t:
-            if gt_importance_subj[ttt+1]==1:
+        for ttt in range(1,len(t)+1):
+            if gt_importance_subj[ttt]==1:
                 ax1.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
             else:
                 ax1.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
 
         for ttt in t:
-            if gt_importance_subj[ttt+1]==1:
+            if gt_importance_subj[ttt]==1:
                 ax2.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
             else:
                 ax2.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
 
         for ttt in t:
-            if gt_importance_subj[ttt+1]==1:
+            if gt_importance_subj[ttt]==1:
                 ax3.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
             else:
                 ax3.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
 
         for ttt in t:
-            if gt_importance_subj[ttt+1]==1:
+            if gt_importance_subj[ttt]==1:
                 ax4.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
             else:
                 ax4.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
@@ -935,22 +935,15 @@ class FeatureGeneratorExplainer(Experiment):
                                                                                           0)
                 elif mode=="generator" or mode=="combined":
                     # TODO: This is an aweful way of conditioning on single variable!!!! Fix it
-                    if cond_one:
-                        predicted_signal_t, _ = self.generator(signal_known.view(1, -1),
-                                                       signal[:, 0:t].view(1, signal.size(0), t), sig_ind, signal[sig_ind, t].view(1, -1), cond_one)
-                        predicted_signal = signal[:,0:t+self.generator.prediction_size].clone()
-                        predicted_signal[:,t:t+self.generator.prediction_size] = predicted_signal_t.view(-1,1)
-                    else:
-                        prediction, _ = self.generator(signal_known.view(1,-1), signal[:, 0:t].view(1,signal.size(0),t), sig_ind)
-                        if mode=="combined":
-                            if self.risk_predictor(signal[:,0:t].view(1, signal.shape[0], t)).item() > 0.5:
-                                prediction = torch.Tensor(self._find_closest(feature_dist_0, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
-                            else:
-                                prediction = torch.Tensor(self._find_closest(feature_dist_1, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
-                            # prediction = torch.Tensor(self._find_closest(feature_dist, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
+                    predicted_signal_t, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind, cond_one)
+                    if mode=="combined":
+                        if self.risk_predictor(signal[:,0:t].view(1, signal.shape[0], t)).item() > 0.5:
+                            prediction = torch.Tensor(self._find_closest(feature_dist_0, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
+                        else:
+                            prediction = torch.Tensor(self._find_closest(feature_dist_1, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
+                    predicted_signal = signal[:,0:t+self.generator.prediction_size].clone()
+                    predicted_signal[:,t:t+self.generator.prediction_size] = predicted_signal_t.view(-1, 1)
 
-                        predicted_signal = signal[:,0:t+self.generator.prediction_size].clone()
-                        predicted_signal[:,t:t+self.generator.prediction_size] = torch.cat((signal[:sig_ind,t:t+self.generator.prediction_size], prediction.view(1,-1), signal[sig_ind+1:,t:t+self.generator.prediction_size]),0)
                 if self.simulation:
                     if not learned_risk:
                         predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
@@ -969,8 +962,6 @@ class FeatureGeneratorExplainer(Experiment):
             std_predicted_risk.append(std_imp)
             importance.append(abs(mean_imp-risk))
         return risks, importance, mean_predicted_risk, std_predicted_risk
-
-
 
     def get_stats(self):
         tp = [[]]*8
