@@ -14,6 +14,7 @@ scale = [[1.2, 1.5, 0.8],[-1.2, -0.8,-1.5]]  # Scaling factor for distribution m
 trans_mat = np.array([[0.1,0.9],[0.1,0.9]])
 #print(trans_mat.shape)
 
+
 def init_distribution_params():
     # Covariance matrix is constant across states but distribution means change based on the state value
     state_count = np.power(2,STATE_NUM)
@@ -36,6 +37,7 @@ def init_distribution_params():
         #print(m)
     mean = np.array(mean)
     return mean, covariance
+
 
 def next_state(previous_state, t):
     #params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
