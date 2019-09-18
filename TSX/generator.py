@@ -150,7 +150,7 @@ class JointFeatureGenerator(torch.nn.Module):
                                                  torch.nn.BatchNorm1d(num_features=10),
                                                  torch.nn.Linear(10, self.feature_size))
 
-    def forward(self, x, past, sig_ind=0, cond_one=False):
+    def forward(self, x, past, sig_ind, method):
         """
         Sample full observation at t, given past information
         :param x: observation at time t
@@ -161,9 +161,10 @@ class JointFeatureGenerator(torch.nn.Module):
         :return: full sample at time t
         """
         mean, covariance = self.likelihood_distribution(past)  # P(X_t|X_0:t-1)
-
-        if cond_one:
-            x_ind = x[sig_ind].to(self.device)
+        if len(x.shape) is 1:
+            x = x.unsqueeze(0)
+        if method=='c1':  # c1 method
+            x_ind = x[:, sig_ind].to(self.device).unsqueeze(-1)
             mean_1 = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
             cov_1_2 = torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]),
                                 1).unsqueeze(-1)
@@ -177,25 +178,26 @@ class JointFeatureGenerator(torch.nn.Module):
             sample = likelihood.rsample()
             full_sample = torch.cat([sample[:,0:sig_ind], x_ind, sample[:,sig_ind:]], 1)
             return full_sample, mean[:,sig_ind]
-        else:
-            if len(x.shape) is 1:
-                x = x.unsqueeze(0)
+        elif method=='m1':  # m1 method
             known_signal = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
-            x = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
-            # margianl_cov = torch.cat(([covariance[:, :, 0:sig_ind], covariance[:, :, sig_ind + 1:]]), 2)
-            # margianl_cov = torch.cat(([margianl_cov[:, 0:sig_ind, :], margianl_cov[:, sig_ind + 1:, :]]), 1)
-            # cov_i_i = torch.cat((covariance[:, sig_ind, :sig_ind], covariance[:, sig_ind, sig_ind + 1:]), 1).view(len(covariance), 1, -1)
-            # mean_i = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1)
-            # mean_cond = mean[:, sig_ind] + torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
-            #                                          (x - mean_i).unsqueeze(-1))
-            # covariance_cond = covariance[:, sig_ind, sig_ind] - torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
-            #                                                               torch.transpose(cov_i_i, 1, 2))
-            # likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond,
-            #                                                                         covariance_matrix=covariance_cond)
-            # sample = likelihood.rsample()
-            # full_sample = torch.cat([x[:, 0:sig_ind], sample, x[:, sig_ind:]], 1)
-            # return full_sample, mean[:,sig_ind]
             return torch.cat((known_signal[:, 0:sig_ind], mean[:,sig_ind].unsqueeze(-1), known_signal[:, sig_ind:]), 1), mean[:,sig_ind]
+        elif method=='inform':
+            return torch.cat((mean[:,:sig_ind], x[:, sig_ind].unsqueeze(-1), mean[:,sig_ind+1:]), 1), mean[:,sig_ind]
+        elif method=='old':
+            x = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
+            margianl_cov = torch.cat(([covariance[:, :, 0:sig_ind], covariance[:, :, sig_ind + 1:]]), 2)
+            margianl_cov = torch.cat(([margianl_cov[:, 0:sig_ind, :], margianl_cov[:, sig_ind + 1:, :]]), 1)
+            cov_i_i = torch.cat((covariance[:, sig_ind, :sig_ind], covariance[:, sig_ind, sig_ind + 1:]), 1).view(len(covariance), 1, -1)
+            mean_i = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1)
+            mean_cond = mean[:, sig_ind] + torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
+                                                     (x - mean_i).unsqueeze(-1))
+            covariance_cond = covariance[:, sig_ind, sig_ind] - torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
+                                                                          torch.transpose(cov_i_i, 1, 2))
+            likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond,
+                                                                                    covariance_matrix=covariance_cond)
+            sample = likelihood.rsample()
+            full_sample = torch.cat([x[:, 0:sig_ind], sample[0], x[:, sig_ind:]], 1)
+            return full_sample, mean[:,sig_ind]
 
     def likelihood_distribution(self, past):
         past = past.permute(2, 0, 1)

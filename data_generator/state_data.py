@@ -10,7 +10,7 @@ P_S0 = [0.5]
 correlated_feature = [2, 0] # Features that re correlated with the important feature in each state
 
 imp_feature = [1,2]  # Feature that is always set as important
-scale = [[0.5, 2.0, 1.0],[-.5, -1.0,-2]]  # Scaling factor for distribution mean in each state
+scale = [[1.2, 1.5, 0.8],[-1.2, -0.8,-1.5]]  # Scaling factor for distribution mean in each state
 trans_mat = np.array([[0.1,0.9],[0.1,0.9]])
 #print(trans_mat.shape)
 
@@ -18,7 +18,7 @@ def init_distribution_params():
     # Covariance matrix is constant across states but distribution means change based on the state value
     state_count = np.power(2,STATE_NUM)
     #corr = abs(np.random.randn(SIG_NUM))
-    cov = np.eye(SIG_NUM)*1
+    cov = np.eye(SIG_NUM)*0.8
     covariance = []
     for i in range(state_count):
         c = cov.copy()
@@ -113,11 +113,13 @@ def create_signal(sig_len,mean,cov):
     importance = np.array(importance)
     return signal.T, y, states, importance, y_logits
 
+
 def decay(x):
     return [0.9*(1-0.1)**x,0.9*(1-0.1)**x]
 
+
 def logit(x):
-    return 1./(1+np.exp(-(x)/1))
+    return 1./(1+np.exp(-2*(x)))
 
 
 def normalize(train_data, test_data, config='mean_normalized'):

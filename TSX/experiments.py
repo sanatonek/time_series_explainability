@@ -575,27 +575,27 @@ class FeatureGeneratorExplainer(Experiment):
                          label='%s' % (self.feature_map[ref_ind]))
         for ttt in range(1,len(t)+1):
             if gt_importance_subj[ttt]==1:
-                ax1.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+                ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
             else:
-                ax1.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
+                ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
-        for ttt in t:
+        for ttt in  range(1,len(t)+1):
             if gt_importance_subj[ttt]==1:
-                ax2.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+                ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
             else:
-                ax2.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
+                ax2.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
-        for ttt in t:
+        for ttt in range(1,len(t)+1):
             if gt_importance_subj[ttt]==1:
-                ax3.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+                ax3.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
             else:
-                ax3.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
+                ax3.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
-        for ttt in t:
+        for ttt in range(1,len(t)+1):
             if gt_importance_subj[ttt]==1:
-                ax4.axvspan(ttt,ttt+1,facecolor='g',alpha=0.3)
+                ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
             else:
-                ax4.axvspan(ttt,ttt+1,facecolor='y',alpha=0.3)
+                ax4.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
         # Augmented feature occlusion
         for ind, sig in max_imp_occ_aug[0:n_feats_to_plot]:
@@ -663,6 +663,10 @@ class FeatureGeneratorExplainer(Experiment):
         ax3.set_ylabel('importance score', fontweight='bold', fontsize=18)
         ax4.set_ylabel('importance score', fontweight='bold', fontsize=18)
         ax5.set_ylabel('importance score', fontweight='bold', fontsize=18)
+        ax2.set_ylim((0,0.7))
+        ax3.set_ylim((0, 0.7))
+        ax4.set_ylim((0, 0.7))
+        ax5.set_ylim((0, 0.7))
         f.set_figheight(25)
         f.set_figwidth(30)
         plt.subplots_adjust(hspace=0.5)
@@ -882,7 +886,7 @@ class FeatureGeneratorExplainer(Experiment):
                 self.generator = FeatureGenerator(self.feature_size, self.historical, hidden_size=self.generator_hidden_size, prediction_size=self.prediction_size,data=self.data,conditional=self.conditional).to(self.device)
                 train_feature_generator(self.generator, self.train_loader, self.valid_loader, self.generator_type, feature_to_predict, n_epochs=n_epochs, historical=self.historical)
 
-    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True, tvec=None, cond_one=False):
+    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True, tvec=None, method='m1'):
         self.generator.eval()
         feature_dist = np.sort(np.array(self.feature_dist[:,sig_ind,:]).reshape(-1))
         feature_dist_0 = (np.array(self.feature_dist_0[:, sig_ind, :]).reshape(-1))
@@ -913,7 +917,7 @@ class FeatureGeneratorExplainer(Experiment):
                 # else use the generator model to estimate the value
                 if mode=="feature_occlusion":
                     # prediction = torch.Tensor(np.array(np.random.uniform(low=-2*self.patient_data.feature_std[sig_ind,0], high=2*self.patient_data.feature_std[sig_ind,0])).reshape(-1)).to(self.device)
-                    prediction = torch.Tensor(np.array([np.random.uniform(-1,1)]).reshape(-1)).to(self.device)
+                    prediction = torch.Tensor(np.array([np.random.uniform(-3,3)]).reshape(-1)).to(self.device)
                     predicted_signal = signal[:, 0:t + self.generator.prediction_size].clone()
                     predicted_signal[:, t:t + self.generator.prediction_size] = torch.cat((signal[:sig_ind,
                                                                                            t:t + self.generator.prediction_size],
@@ -935,7 +939,7 @@ class FeatureGeneratorExplainer(Experiment):
                                                                                           0)
                 elif mode=="generator" or mode=="combined":
                     # TODO: This is an aweful way of conditioning on single variable!!!! Fix it
-                    predicted_signal_t, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind, cond_one)
+                    predicted_signal_t, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind, method)
                     if mode=="combined":
                         if self.risk_predictor(signal[:,0:t].view(1, signal.shape[0], t)).item() > 0.5:
                             prediction = torch.Tensor(self._find_closest(feature_dist_0, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
@@ -960,7 +964,10 @@ class FeatureGeneratorExplainer(Experiment):
             std_imp = np.std(predicted_risks, 0)
             mean_predicted_risk.append(mean_imp)
             std_predicted_risk.append(std_imp)
-            importance.append(abs(mean_imp-risk))
+            if (method=='c1' or method=='inf') and (mode=="generator" or mode=="combined"):
+                importance.append(1. - 1./(1+np.exp(-10*(abs(mean_imp - risk)-0.5)))  )
+            else:
+                importance.append(abs(mean_imp-risk))
         return risks, importance, mean_predicted_risk, std_predicted_risk
 
     def get_stats(self):
