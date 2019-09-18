@@ -398,3 +398,14 @@ def top_risk_change(exp):
     span.sort(key=lambda pair:pair[1], reverse=True)
     print([x[0] for x in span[0:300]])
 
+
+def test_cond(mean, covariance, sig_ind, x_ind):
+    mean_1 = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
+    cov_1_2 = torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]), 1).unsqueeze(-1)
+    cov_2_2 = covariance[:, sig_ind, sig_ind]
+    cov_1_1 = torch.cat(([covariance[:, 0:sig_ind, :], covariance[:, sig_ind + 1:, :]]), 1)
+    cov_1_1 = torch.cat(([cov_1_1[:, :, 0:sig_ind], cov_1_1[:, :, sig_ind + 1:]]), 2)
+    mean_cond = mean_1 + torch.bmm(cov_1_2, (x_ind - mean[:, sig_ind]).unsqueeze(-1)) / cov_2_2
+    covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
+    return mean_cond, covariance_cond
+

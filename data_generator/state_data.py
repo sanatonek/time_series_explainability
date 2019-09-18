@@ -22,8 +22,8 @@ def init_distribution_params():
     covariance = []
     for i in range(state_count):
         c = cov.copy()
-        c[imp_feature[i],correlated_feature[i]] = 0.3
-        c[correlated_feature[i], imp_feature[i]] = 0.3
+        c[imp_feature[i],correlated_feature[i]] = 0.01
+        c[correlated_feature[i], imp_feature[i]] = 0.01
         c = c + np.eye(SIG_NUM)*1e-3
         #print(c)
         covariance.append(c)

@@ -138,19 +138,40 @@ class JointFeatureGenerator(torch.nn.Module):
                                                  torch.nn.BatchNorm1d(num_features=10),
                                                  torch.nn.Linear(10, self.feature_size))
 
-    def forward(self, x, past, sig_ind=0):
+    def forward(self, x, past, sig_ind=0, x_ind=None, cond_one=False):
         mean, covariance = self.likelihood_distribution(past)
-        margianl_cov = torch.cat(([covariance[:, :, 0:sig_ind], covariance[:, :, sig_ind + 1:]]), 2)
-        margianl_cov = torch.cat(([margianl_cov[:, 0:sig_ind, :], margianl_cov[:, sig_ind + 1:, :]]), 1)
-        cov_i_i = torch.cat((covariance[:, sig_ind, :sig_ind], covariance[:, sig_ind, sig_ind + 1:]), 1).view(len(covariance), 1, -1)
-        mean_i = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1)
-        mean_cond = mean[:, sig_ind] + torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
-                                                 (x - mean_i).unsqueeze(-1))
-        covariance_cond = covariance[:, sig_ind, sig_ind] - torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
-                                                                      torch.transpose(cov_i_i, 1, 2))
-        likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond,
-                                                                                covariance_matrix=covariance_cond)
-        return likelihood.rsample(), mean[:,sig_ind]
+        # print(mean.shape, covariance.shape)
+        if cond_one:
+            x_ind = x_ind.to(self.device)
+            mean_1 = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
+            cov_1_2 = torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]),
+                                1).unsqueeze(-1)
+            cov_2_2 = covariance[:, sig_ind, sig_ind]
+            cov_1_1 = torch.cat(([covariance[:, 0:sig_ind, :], covariance[:, sig_ind + 1:, :]]), 1)
+            cov_1_1 = torch.cat(([cov_1_1[:, :, 0:sig_ind], cov_1_1[:, :, sig_ind + 1:]]), 2)
+            mean_cond = mean_1 + torch.bmm(cov_1_2, (x_ind - mean[:, sig_ind]).unsqueeze(-1)) / cov_2_2
+            covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
+            # print('cov', covariance_cond.shape, 'mean', mean_cond.shape)
+            likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond.squeeze(-1),
+                                                                               covariance_matrix=covariance_cond)
+            sample = likelihood.rsample()
+            # print(sample.shape)
+            # print(sample[:,0:sig_ind], x_ind, sample[:,sig_ind:])
+            full_sample = torch.cat([sample[:,0:sig_ind], x_ind, sample[:,sig_ind:]], 1)
+            return full_sample, mean[:,sig_ind]
+        else:
+            # margianl_cov = torch.cat(([covariance[:, :, 0:sig_ind], covariance[:, :, sig_ind + 1:]]), 2)
+            # margianl_cov = torch.cat(([margianl_cov[:, 0:sig_ind, :], margianl_cov[:, sig_ind + 1:, :]]), 1)
+            # cov_i_i = torch.cat((covariance[:, sig_ind, :sig_ind], covariance[:, sig_ind, sig_ind + 1:]), 1).view(len(covariance), 1, -1)
+            # mean_i = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1)
+            # mean_cond = mean[:, sig_ind] + torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
+            #                                          (x - mean_i).unsqueeze(-1))
+            # covariance_cond = covariance[:, sig_ind, sig_ind] - torch.bmm(torch.bmm(cov_i_i, torch.inverse(margianl_cov)),
+            #                                                               torch.transpose(cov_i_i, 1, 2))
+            # likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond,
+            #                                                                         covariance_matrix=covariance_cond)
+            # return likelihood.rsample(), mean[:,sig_ind]
+            return mean[:,sig_ind], mean[:,sig_ind]
 
     def likelihood_distribution(self, past):
         past = past.permute(2, 0, 1)
