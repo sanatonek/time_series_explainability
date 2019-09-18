@@ -33,6 +33,11 @@ def main(experiment, train, uncertainty_score, data, generator_type):
     elif data == 'ghg':
         p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'])
         feature_size = p_data.feature_size
+    elif data == 'simulation_spike':
+        p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
+                                                                              path='./data_generator/data/simulated_data',type='spike')
+        feature_size = p_data.shape[1]
+
     elif data == 'simulation':
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
                                                                               path='./data/simulated_data')
