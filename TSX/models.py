@@ -227,6 +227,7 @@ class EncoderRNN(nn.Module):
                                        nn.Linear(self.hidden_size, 1))
         elif data=='simulation':
             self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
+                                       nn.ReLU(),
                                        nn.Dropout(0.5),
                                        nn.Linear(self.hidden_size, 1),
                                        nn.Sigmoid())

@@ -18,7 +18,8 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
 
 MIMIC_TEST_SAMPLES =  [4387, 481, 546, 10]
 SIMULATION_SAMPLES = [101, 48]#, 88, 192, 143, 166, 18, 58, 172, 132]
-samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[]}
+#SIMULATION_SAMPLES = []
+samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
 
 
 def main(experiment, train, uncertainty_score, data, generator_type):
@@ -35,13 +36,19 @@ def main(experiment, train, uncertainty_score, data, generator_type):
         feature_size = p_data.feature_size
     elif data == 'simulation_spike':
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
-                                                                              path='./data_generator/data/simulated_data',type='spike')
+                                                                              path='./data_generator/data/simulated_data',data_type='spike')
         feature_size = p_data.shape[1]
 
     elif data == 'simulation':
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
                                                                               path='./data/simulated_data')
         feature_size = p_data.shape[1]
+
+    if data=='simulation_spike':
+        data='simulation'
+        spike_data=True
+    else:
+        spike_data=False
 
     if experiment == 'baseline':
         exp = Baseline(train_loader, valid_loader, test_loader, p_data.feature_size)
@@ -50,7 +57,7 @@ def main(experiment, train, uncertainty_score, data, generator_type):
     elif experiment == 'feature_generator_explainer':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
                                         generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1),
-                                        generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type)
+                                        generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type,spike_data=spike_data)
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 

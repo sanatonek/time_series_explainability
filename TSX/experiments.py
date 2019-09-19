@@ -142,7 +142,6 @@ class EncoderPredictor(Experiment):
 
     def train(self, n_epochs, learn_rt=False):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001, weight_decay=1e-3)
-
         if not learn_rt:
             train_model(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
                                             self.experiment, data=self.data)
@@ -238,7 +237,7 @@ class BaselineExplainer(Experiment):
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, generator_type='RNN_generator', experiment='feature_generator_explainer', data='mimic', conditional=True):
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, generator_type='RNN_generator', experiment='feature_generator_explainer', data='mimic', conditional=True,**kwargs):
         """
         :param train_loader:
         :param valid_loader:
@@ -276,7 +275,7 @@ class FeatureGeneratorExplainer(Experiment):
         self.experiment = experiment
         self.historical = historical
         self.simulation = self.data=='simulation'
-        self.spike_data=0
+        self.spike_data=kwargs['spike_data'] if "spike_data" in kwargs.keys() else False
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
         if self.generator_type!='RNN_generator':
@@ -298,7 +297,10 @@ class FeatureGeneratorExplainer(Experiment):
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
-                self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
+                if self.spike_data:
+                    self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
+                else:
+                    self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
             self.feature_map = feature_map_simulation
         else:
             if self.data=='mimic':
@@ -339,7 +341,7 @@ class FeatureGeneratorExplainer(Experiment):
 
             testset = list(self.test_loader.dataset)
             if self.data=='simulation':
-                if self.spike_data==1:
+                if self.spike_data==True:
                     with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
                         th = pkl.load(f)
 
