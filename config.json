@@ -6,7 +6,7 @@
         "n_epochs" : 300,
         "historical": 1,
         "rnn_type" : "GRU",
-	"non_linearity":"torch.nn.ReLU()"
+	    "non_linearity":"torch.nn.ReLU()"
     },
     "risk_predictor":{
         "encoding_size" : 100,

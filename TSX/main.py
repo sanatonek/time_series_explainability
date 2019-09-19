@@ -17,7 +17,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'Glucose', 'Temp']
 
 MIMIC_TEST_SAMPLES =  [4387, 481, 546, 10]
-SIMULATION_SAMPLES = [101, 48, 88, 192, 143, 166, 18, 58, 172, 132]
+SIMULATION_SAMPLES = [101, 48]#, 88, 192, 143, 166, 18, 58, 172, 132]
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[]}
 
 
@@ -49,13 +49,8 @@ def main(experiment, train, uncertainty_score, data, generator_type):
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
-    elif experiment == 'method_comparison':
-        exp1 = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                        generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1),
-                                        generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type)
-        exp2 = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
-
-    exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
+    #exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
+    exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
 
     # For MIMIC experiment, extract population level importance for interventions
     # print('********** Extracting population level intervention statistics **********')
