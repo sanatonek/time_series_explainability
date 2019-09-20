@@ -108,7 +108,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation'):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=3):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
@@ -120,8 +120,8 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            num=3
-            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
+            #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
+            for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2, num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])
 
@@ -139,18 +139,19 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
                 reconstruction_loss.backward()
                 optimizer.step()
 
-        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader)
+        test_num=num
+        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader,num=test_num)
 
         train_loss_trend.append(epoch_loss/((i+1)*num))
         test_loss_trend.append(test_loss)
 
         if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
-            print('Training ===>loss: ', epoch_loss,
+            print('Training ===>loss: ', epoch_loss/((i+1)*num),
                   ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset)*num)),
                   ' AUC: %.2f' % (auc_train/((i+1)*num)))
             print('Test ===>loss: ', test_loss,
-                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset))),
+                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset)*test_num)),
                   ' AUC: %.2f' % (auc_test))
 
     test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader)
@@ -212,7 +213,7 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, ex
     plt.savefig(os.path.join('./plots',data,'train_loss.png'))
 
 
-def test_model_rt(model,test_loader):
+def test_model_rt(model,test_loader,num=1):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
     correct_label_test = 0
@@ -221,9 +222,8 @@ def test_model_rt(model,test_loader):
     test_loss = 0
     for i, (signals,labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        num=1
-        #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
-        for t in [24]:
+        for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2,num=num)]:
+        #for t in [24]:
             prediction = model(signals[:,:,:t+1])
             predicted_label = (prediction > 0.5).float()
             labels_th = (labels[:,t] > 0.5).float()
@@ -237,7 +237,7 @@ def test_model_rt(model,test_loader):
             test_loss += loss.item()
 
     test_loss = test_loss/((i+1)*num)
-    return test_loss, recall_test, precision_test, auc_test, correct_label_test 
+    return test_loss, recall_test, precision_test, auc_test/((i+1)*num), correct_label_test
 
 
 def test_model_rt_rg(model,test_loader):
@@ -349,8 +349,8 @@ def load_ghg_data(batch_size, path='./data_generator/data'):
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_simulated_data(batch_size=100, path='./data/simulated_data', type='state'):
-    if type=='state':
+def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type='state'):
+    if data_type=='state':
         with open('./data/simulated_data/state_dataset_importance_train.pkl', 'rb') as f:
             importance_score_train = pkl.load(f)
         with open('./data/simulated_data/state_dataset_importance_test.pkl', 'rb') as f:

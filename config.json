@@ -20,6 +20,27 @@
         "n_epochs" : 20
     }
   },
+  "simulation_spike": {
+    "feature_generator_explainer": {
+        "encoding_size" : 50,
+        "batch_size" : 200,
+        "n_epochs" : 250,
+        "historical": 1,
+        "rnn_type" : "GRU",
+	"non_linearity":"torch.nn.TanH()"
+    },
+    "risk_predictor":{
+        "encoding_size" : 50,
+        "batch_size" : 100,
+        "n_epochs" : 30,
+        "historical": 1,
+        "rnn_type" : "GRU"
+    },
+    "lime_explainer":{
+        "batch_size" : 100,
+        "n_epochs" : 20
+    }
+  },
   "mimic": {
     "feature_generator_explainer": {
         "encoding_size" : 80,

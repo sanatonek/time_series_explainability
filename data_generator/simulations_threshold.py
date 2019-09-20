@@ -61,11 +61,15 @@ def main(n_samples, plot, Tt=80):
     x_test = signal_in[n_train:,:,:]
     thresholds_test = thresholds[n_train:]
 
-    scaler = MinMaxScaler()
-    x_train_flat = scaler.fit_transform(np.reshape(x_train,[x_train.shape[0],-1]))
-    x_train_n = np.reshape(x_train_flat,x_train.shape)
-    x_test_flat = scaler.transform(np.reshape(x_test,[x_test.shape[0],-1]))
-    x_test_n = np.reshape(x_test_flat,x_test.shape)
+    if 0:
+        scaler = MinMaxScaler()
+        x_train_flat = scaler.fit_transform(np.reshape(x_train,[x_train.shape[0],-1]))
+        x_train_n = np.reshape(x_train_flat,x_train.shape)
+        x_test_flat = scaler.transform(np.reshape(x_test,[x_test.shape[0],-1]))
+        x_test_n = np.reshape(x_test_flat,x_test.shape)
+    else:
+        x_train_n = x_train
+        x_test_n = x_test
 
     kappa=1.5
     y_train = []
@@ -74,20 +78,20 @@ def main(n_samples, plot, Tt=80):
         if y1:
             nts = 1+np.random.poisson(0.5,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
-            x_train_n[i,0,t] = x_train_n[i,0,t] + kappa
+            x_train_n[i,0,t] +=  kappa
         y_train.append(y1)
         
         y2 = np.random.choice([0,1],1,replace=False)
         if y2:
             nts = np.random.poisson(1,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
-            x_train_n[i,1,t] = x_train_n[i,1,t] + kappa
+            x_train_n[i,1,t] +=   kappa
         
         y3 = np.random.choice([0,1],1,replace=False)
         if y3:
             nts = np.random.poisson(1,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
-            x_train_n[i,2,t] = x_train_n[i,2,t] + kappa
+            x_train_n[i,2,t] +=   kappa
 
     y_test = []
     for i in range(x_test_n.shape[0]):
@@ -95,20 +99,20 @@ def main(n_samples, plot, Tt=80):
         if y1:
             nts = 1+np.random.poisson(0.5,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
-            x_test_n[i,0,t] = x_test_n[i,0,t] + kappa
+            x_test_n[i,0,t] +=  kappa
         y_test.append(y1)
         
         y2 = np.random.choice([0,1],1,replace=False)
         if y2:
             nts = np.random.poisson(1,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
-            x_test_n[i,1,t] = x_test_n[i,1,t] + kappa
+            x_test_n[i,1,t] +=  kappa
         
         y3 = np.random.choice([0,1],1,replace=False)
         if y3:
             nts = np.random.poisson(1,1)
             t = np.random.choice(list(range(Tt)),nts,replace=False)
-            x_test_n[i,2,t] = x_test_n[i,2,t] + kappa
+            x_test_n[i,2,t] +=  kappa
 
     y_train = np.array(y_train)
     y_test = np.array(y_test)
@@ -150,20 +154,23 @@ def main(n_samples, plot, Tt=80):
 def generate_sample(plot, Tt=80):
     trend_style='hill'
     noise = ts.noise.GaussianNoise(std=0.01)
-    x1 = ts.signals.NARMA(order=2,coefficients=[.5,.5,1.5,.5],seed=random.seed())
+    x1 = ts.signals.NARMA(order=12,coefficients=[.5,.5,1.5,.5],seed=random.seed())
     x1_ts = ts.TimeSeries(x1, noise_generator=noise)
     x1_sample, signals, errors = x1_ts.sample(np.array(range(Tt)))
+    x1_sample = x1_sample -1
     
     noise = ts.noise.GaussianNoise(std=0.01)
-    x2 = ts.signals.NARMA(order=2,coefficients=[.5,.5,1.5,.5],seed=random.seed())
+    x2 = ts.signals.NARMA(order=12,coefficients=[.5,.5,1.5,.5],seed=random.seed())
     x2_ts = ts.TimeSeries(x2,noise_generator=noise)
     x2_sample,signals,errors = x2_ts.sample(np.array(range(Tt)))
-    x2_sample +=x1_sample
+    print(x2_sample.shape)
+    x2_sample = x2_sample + 0.08*np.array(range(Tt)) -3
     
     noise = ts.noise.GaussianNoise(std=0.01)
-    x3 = ts.signals.NARMA(order=2,seed=random.seed())
+    x3 = ts.signals.NARMA(order=12,seed=random.seed())
     x3_ts = ts.TimeSeries(x3, noise_generator=noise)
     x3_sample, signals, errors = x3_ts.sample(np.array(range(Tt)))
+    x3_sample = x3_sample -1
     t = np.array(np.zeros(4))
     
     return np.stack([x1_sample, x2_sample, x3_sample]), t, trend_style
