@@ -230,7 +230,6 @@ class EncoderRNN(nn.Module):
                                        nn.Dropout(0.5),
                                        nn.Linear(self.hidden_size, 1),
                                        nn.Sigmoid())
- 
 
     def forward(self, input, past_state=None):
         input = input.permute(2, 0, 1).to(self.device)

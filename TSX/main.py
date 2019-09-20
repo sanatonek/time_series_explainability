@@ -49,7 +49,7 @@ def main(experiment, train, uncertainty_score, data, generator_type):
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
-    #exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
+    exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
     exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
 
     # For MIMIC experiment, extract population level importance for interventions

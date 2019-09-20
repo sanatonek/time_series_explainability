@@ -390,9 +390,9 @@ class FeatureGeneratorExplainer(Experiment):
                         signal_t = torch.Tensor(signal[:,:,:t]).to(self.device).requires_grad_()
                         out = self.risk_predictor(signal_t)
                         for s in range(len(samples_to_analyze)):
-                            out[s, 0].backward(retain_graph=True)
-                            sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:,t-1].cpu().detach().numpy()
-                            signal_t.grad.data.zero_()
+                            out[s].backward(retain_graph=True)
+                            sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:,t_ind].cpu().detach().numpy()
+                        signal_t.grad.data.zero_()
                 self.risk_predictor.eval()
             else:
                 if not self.learned_risk:
@@ -415,9 +415,9 @@ class FeatureGeneratorExplainer(Experiment):
                         signal_t = torch.Tensor(signal[:,:,:t]).to(self.device).requires_grad_()
                         out = self.risk_predictor(signal_t)
                         for s in range(len(samples_to_analyze)):
-                            out[s, 0].backward(retain_graph=True)
-                            sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:].cpu().detach().numpy()[:,0]
-                            signal_t.grad.data.zero_()
+                            out[s].backward(retain_graph=True)
+                            sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:, t_ind].cpu().detach().numpy()#[:,0]
+                        signal_t.grad.data.zero_()
                     self.risk_predictor.eval()
 
 
@@ -461,8 +461,8 @@ class FeatureGeneratorExplainer(Experiment):
                         imp_t = importance[ind, :]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
-                        max_val = int(max(imp_t.reshape(-1)))
-                        FFC.append((i_max, t_max, max(imp_t.reshape(-1))))
+                        max_val = float(max(imp_t.reshape(-1)))
+                        FFC.append((i_max, t_max, max_val))
                     print('FFC', FFC)
                     importance_labels.update({'FFC':FFC})
 
@@ -473,8 +473,8 @@ class FeatureGeneratorExplainer(Experiment):
                         imp_t = importance_occ[ind, :]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
-                        max_val = int(max(imp_t.reshape(-1)))
-                        FO.append((i_max, t_max, max(imp_t.reshape(-1))))
+                        max_val = float(max(imp_t.reshape(-1)))
+                        FO.append((i_max, t_max, max_val))
                     print('FO', FO)
                     importance_labels.update({'FO': FO})
 
@@ -485,7 +485,7 @@ class FeatureGeneratorExplainer(Experiment):
                         imp_t = importance_SA[ind, 1:]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
-                        max_val = int(max(imp_t.reshape(-1)))
+                        max_val = float(max(imp_t.reshape(-1)))
                         SA.append((i_max, t_max, max_val))
                     print('SA', SA)
                     importance_labels.update({'SA': SA})
@@ -497,8 +497,8 @@ class FeatureGeneratorExplainer(Experiment):
                         imp_t = importance_occ_aug[ind, :]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
-                        max_val = int(max(imp_t.reshape(-1)))
-                        AFO.append((i_max, t_max, max(imp_t.reshape(-1))))
+                        max_val = float(max(imp_t.reshape(-1)))
+                        AFO.append((i_max, t_max,max_val))
                     print('AFO', AFO)
                     importance_labels.update({'AFO': AFO})
 
@@ -752,42 +752,33 @@ class FeatureGeneratorExplainer(Experiment):
         baseline_methods = ['FFC', 'AFO', 'FO', 'SA']#, 'lime']
 
         for subject in samples_to_analyze:
-            f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
+            f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
             for method_ind, method in enumerate(baseline_methods):
                 signals, label_o = testset[subject]
-                ax1.plot(label_o[1:].cpu().numpy(), linewidth=3, color='r',  label='Model output')
+                if self.data =='mimic':
+                    label_o = torch.zeros(signals.shape[-1])
+                    for t in range(1, signals.shape[-1]):
+                        self.risk_predictor.eval()
+                        label_o[t-1] = self.risk_predictor(signals[:, 0:t].unsqueeze(0)).item()
                 with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, subject)) as config_file:
                     important_observations = json.load(config_file)[method]
+                ax = [ax1, ax2, ax3, ax4][method_ind]
+                ax.plot(label_o[1:].cpu().numpy(), linewidth=3, color='r',  label='Model output')
                 for observation in important_observations:
                     ref_ind = observation[0]
                     imp_t = observation[1]
                     c = color_map[ref_ind]
-                    ax = [ax2, ax3, ax4, ax5][method_ind]
                     ax.plot(np.array(signals[ref_ind, 1:]), linewidth=3, color=c,  label='%s' % (self.feature_map[ref_ind]))
-                    ax.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3)
-            ax1.set_title('Model Output', fontweight='bold', fontsize=34)
-            ax2.set_title('FFC', fontweight='bold',
-                          fontsize=34)  # TODO change the title depending on the type of generator is being used
-            ax3.set_title('AFO', fontweight='bold', fontsize=34)
-            ax4.set_title('Suresh et. al', fontweight='bold', fontsize=34)
-            ax5.set_title('Sensitivity analysis', fontweight='bold', fontsize=34)
-            ax5.set_xlabel('time', fontweight='bold', fontsize=24)
-            ax1.set_ylabel('y', fontweight='bold', fontsize=18)
-            ax2.set_ylabel('signal value', fontweight='bold', fontsize=18)
-            ax3.set_ylabel('signal value', fontweight='bold', fontsize=18)
-            ax4.set_ylabel('signal value', fontweight='bold', fontsize=18)
-            ax5.set_ylabel('signal value', fontweight='bold', fontsize=18)
+                    ax.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, label='%s score: %.3f' % (self.feature_map[ref_ind], observation[2]))
+                    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=True, ncol=10, fontsize=18)
+                    ax.set_title('%s'%method, fontweight='bold', fontsize=34)
+                    ax.set_ylabel('signal value', fontweight='bold', fontsize=18)
             f.set_figheight(25)
             f.set_figwidth(30)
             plt.subplots_adjust(hspace=0.5)
             plt.savefig(os.path.join('./examples', self.data, 'baselines_%d_%s.pdf' % (subject, self.generator_type)), dpi=300,
                         orientation='landscape',
                         bbox_inches='tight')
-            fig_legend = plt.figure(figsize=(13, 1.2))
-            handles, labels = ax1.get_legend_handles_labels()
-            plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-            fig_legend.savefig(os.path.join('./examples', self.data, 'baselines_legend_%d_%s.pdf' % (subject, self.generator_type)),
-                               dpi=300, bbox_inches='tight')
 
     def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3, data='ghg', tvec=None):
         mse_vec=[]
@@ -1134,9 +1125,9 @@ class FeatureGeneratorExplainer(Experiment):
             self.risk_predictor.train()
             for t in range(1,test_signals.size(2)):
                 signal_t = torch.Tensor(test_signals[:,:,:t+1]).to(self.device).requires_grad_()
-                out = self.risk_predictor(signal_t)
                 for s in range(len(ind_list)):
-                    out[s, 0].backward(retain_graph=True)
+                    out = self.risk_predictor(signal_t)
+                    out[s].backward()#retain_graph=True)
                     sensitivity_analysis[s,:,t] = signal_t.grad.data[s,:,t].cpu().detach().numpy()
                     signal_t.grad.data.zero_()
             self.risk_predictor.eval()
@@ -1199,166 +1190,166 @@ class FeatureGeneratorExplainer(Experiment):
                 os.mkdir("./interventions")
             df.to_pickle("./interventions/int_%d.pkl"%(intervention_ID))
 
-    def get_top_results(self, train,n_epochs, samples_to_analyze):
-        """ Run feature generator experiment
-        :param train: (boolean) If True, train the generators, if False, use saved checkpoints
-        """
-        if train and self.generator_type!='carry_forward_generator':
-           self.train(n_features=self.timeseries_feature_size, n_epochs=n_epochs)
-        else:
-            ckpt_path = os.path.join('./ckpt',self.data)
-            if self.historical:
-                check_path = glob.glob(os.path.join(ckpt_path,'*_generator.pt'))[0]
-            else:
-                check_path = glob.glob(os.path.join(ckpt_path,'*_generator.pt'))[0]
-
-            if not os.path.exists(check_path):
-                raise RuntimeError('No saved checkpoint for this model')
-            else:
-                if not self.data=='simulation':
-                    self.risk_predictor.load_state_dict(torch.load(os.path.join(ckpt_path,'risk_predictor.pt')))
-                    self.risk_predictor = self.risk_predictor.to(self.device)
-                    self.risk_predictor.eval()
-                else: #simulated data
-                    if self.learned_risk:
-                        self.risk_predictor.load_state_dict(torch.load(os.path.join(ckpt_path,'risk_predictor.pt')))
-                        self.risk_predictor = self.risk_predictor.to(self.device)
-                        self.risk_predictor.eval()
-
-            testset = list(self.test_loader.dataset)
-            if self.data=='simulation':
-                if self.spike_data==1:
-                    with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
-                        th = pkl.load(f)
-
-                    with open(os.path.join('./data_generator/data/simulated_data/gt_test.pkl'), 'rb') as f:
-                        gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
-                else:
-                    with open(os.path.join('./data/simulated_data/state_dataset_states_test.pkl'),'rb') as f:
-                        gt_importance = pkl.load(f)
-
-                #For simulated data this is the last entry - end of 48 hours that's the actual outcome
-                label = np.array([x[1][-1] for x in testset])
-            elif self.data=='ghg':
-                label = np.array([x[1][-1] for x in testset])
-                high_risk = np.arange(label.shape[0])
-                samples_to_analyze = np.random.choice(high_risk, len(high_risk), replace=False)
-
-            ## Sensitivity analysis as a baseline
-            signal = torch.stack([testset[sample][0] for sample in samples_to_analyze])
-
-            #Some setting up for ghg data
-            if self.data=='ghg':
-                label_tch = torch.stack([testset[sample][1] for sample in samples_to_analyze])
-                signal_scaled = self.patient_data.scaler_x.inverse_transform(np.reshape(signal.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
-                signal_scaled = np.reshape(signal_scaled,signal.shape)
-                label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(label_tch.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
-                label_scaled = np.reshape(label_scaled,label_tch.shape)
-                #label_scaled = label_tch.cpu().detach().numpy()
-
-                tvec = [int(x) for x in np.linspace(1,signal.shape[2]-1,5)]
-            else:
-                tvec = list(range(1,signal.shape[2]+1))
-                signal_scaled = signal
-
-            nt = len(tvec)
-            sensitivity_analysis = np.zeros((signal.shape))
-
-            if not self.data=='simulation':
-                if self.data=='mimic' or self.data=='ghg':
-                    self.risk_predictor.train()
-                    for t_ind,t in enumerate(tvec):
-                        signal_t = torch.Tensor(signal[:,:,:t]).to(self.device).requires_grad_()
-                        out = self.risk_predictor(signal_t)
-                        for s in range(len(samples_to_analyze)):
-                            out[s, 0].backward(retain_graph=True)
-                            sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:,t-1].cpu().detach().numpy()
-                            signal_t.grad.data.zero_()
-                self.risk_predictor.eval()
-            else:
-                if not self.learned_risk:
-                    grad_out = []
-                    for kk,i in enumerate(samples_to_analyze):
-                        sample = testset[i][0].cpu().detach().numpy()
-                        gt_imp = gt_importance[i,:]
-                        out = np.array([self.risk_predictor(sample,gt_imp,tt) for tt in tvec])
-                        #print(out.shape, sample.shape)
-                        grad_x0 = np.array([5*out[tt]*(1-out[tt])*(gt_importance[i,tt]==0)*sample[0,tt] for tt in tvec])
-                        grad_x1 = np.array([5*out[tt]*(1-out[tt])*(gt_importance[i,tt]==1)*sample[1,tt] for tt in tvec])
-                        grad_x2 = np.array([5*out[tt]*(1-out[tt])*(gt_importance[i,tt]==2)*sample[2,tt] for tt in tvec])
-                        grad_out.append(np.stack([grad_x0, grad_x1, grad_x2]))
-                    sensitivity_analysis = np.array(grad_out)
-                else:
-                    #In simulation data also get sensitivity w.r.t. a learned predictor
-                    self.risk_predictor.train()
-                    for t_ind, t in enumerate(tvec):
-                        #print(t)
-                        signal_t = torch.Tensor(signal[:,:,:t]).to(self.device).requires_grad_()
-                        out = self.risk_predictor(signal_t)
-                        for s in range(len(samples_to_analyze)):
-                            out[s, 0].backward(retain_graph=True)
-                            sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:].cpu().detach().numpy()[:,0]
-                            signal_t.grad.data.zero_()
-                    self.risk_predictor.eval()
-
-            print('\n********** Analyzing samples **********')
-            self.risk_predictor.load_state_dict(torch.load(os.path.join('./ckpt',self.data,'risk_predictor.pt')))
-            self.risk_predictor.to(self.device)
-            self.risk_predictor.eval()
-            if self.data=='mimic':
-                signals_to_analyze = range(0, self.timeseries_feature_size)
-            elif self.data=='simulation':
-                signals_to_analyze = range(0,3)
-            elif self.data=='ghg':
-                signals_to_analyze = range(0,15)
-
-            if self.data=='ghg':
-                #GHG experiment variables
-                mse_vec=[]
-                mse_vec_occ=[]
-                mse_vec_su=[]
-                mse_vec_comb=[]
-                mse_vec_sens=[]
-
-                # Replace and Predict Experiment
-                self.replace_and_predict(signals_to_analyze, sensitivity_analysis, data=self.data, tvec=tvec)
-            else:
-                for sub_ind, sample_ID in enumerate(samples_to_analyze):
-                    print('Fetching importance results for sample %d'%sample_ID)
-                    top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug = self.plot_baseline(sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data,gt_importance_subj=gt_importance[sample_ID,:] if self.data=='simulation' else None)
-                    top_signals = 4
-
-                    print('FFC method top signals')
-                    FFC=[]
-                    for ind, sig in top_FCC[0:top_signals]:
-                        ref_ind = signals_to_analyze[ind]
-                        imp_t = importance[ind, :]
-                        t_max = np.argmax(imp_t.reshape(-1))
-                        i_max = ind
-                        FFC.append((i_max, t_max, max(imp_t.reshape(-1))))
-
-                    print('FO method top signals')
-                    FO = []
-                    for ind, sig in top_occ[0:top_signals]:
-                        ref_ind = signals_to_analyze[ind]
-                        imp_t = importance_occ[ind, :]
-                        t_max = np.argmax(imp_t.reshape(-1))
-                        i_max = ind
-                        FO.append((i_max, t_max, max(imp_t.reshape(-1))))
-
-                    print('AFO method top signals')
-                    AFO = []
-                    for ind, sig in top_occ_aug[0:top_signals]:
-                        ref_ind = signals_to_analyze[ind]
-                        imp_t = importance_occ_aug[ind, :]
-                        t_max = np.argmax(imp_t.reshape(-1))
-                        i_max = ind
-                        AFO.append((i_max, t_max, max(imp_t.reshape(-1))))
-
-                    print('LIME method top signals')
-                    lime_exp = BaselineExplainer(self.train_loader, self.valid_loader, self.test_loader, self.feature_size, data_class=self.p_data,
-                                             data=self.data, baseline_method='lime')
-                    lime_exp.run(train=train, n_epochs=n_epochs, samples_to_analyze=samples_to_analyze[self.data])
+    # def get_top_results(self, train,n_epochs, samples_to_analyze):
+    #     """ Run feature generator experiment
+    #     :param train: (boolean) If True, train the generators, if False, use saved checkpoints
+    #     """
+    #     if train and self.generator_type!='carry_forward_generator':
+    #        self.train(n_features=self.timeseries_feature_size, n_epochs=n_epochs)
+    #     else:
+    #         ckpt_path = os.path.join('./ckpt',self.data)
+    #         if self.historical:
+    #             check_path = glob.glob(os.path.join(ckpt_path,'*_generator.pt'))[0]
+    #         else:
+    #             check_path = glob.glob(os.path.join(ckpt_path,'*_generator.pt'))[0]
+    #
+    #         if not os.path.exists(check_path):
+    #             raise RuntimeError('No saved checkpoint for this model')
+    #         else:
+    #             if not self.data=='simulation':
+    #                 self.risk_predictor.load_state_dict(torch.load(os.path.join(ckpt_path,'risk_predictor.pt')))
+    #                 self.risk_predictor = self.risk_predictor.to(self.device)
+    #                 self.risk_predictor.eval()
+    #             else: #simulated data
+    #                 if self.learned_risk:
+    #                     self.risk_predictor.load_state_dict(torch.load(os.path.join(ckpt_path,'risk_predictor.pt')))
+    #                     self.risk_predictor = self.risk_predictor.to(self.device)
+    #                     self.risk_predictor.eval()
+    #
+    #         testset = list(self.test_loader.dataset)
+    #         if self.data=='simulation':
+    #             if self.spike_data==1:
+    #                 with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
+    #                     th = pkl.load(f)
+    #
+    #                 with open(os.path.join('./data_generator/data/simulated_data/gt_test.pkl'), 'rb') as f:
+    #                     gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+    #             else:
+    #                 with open(os.path.join('./data/simulated_data/state_dataset_states_test.pkl'),'rb') as f:
+    #                     gt_importance = pkl.load(f)
+    #
+    #             #For simulated data this is the last entry - end of 48 hours that's the actual outcome
+    #             label = np.array([x[1][-1] for x in testset])
+    #         elif self.data=='ghg':
+    #             label = np.array([x[1][-1] for x in testset])
+    #             high_risk = np.arange(label.shape[0])
+    #             samples_to_analyze = np.random.choice(high_risk, len(high_risk), replace=False)
+    #
+    #         ## Sensitivity analysis as a baseline
+    #         signal = torch.stack([testset[sample][0] for sample in samples_to_analyze])
+    #
+    #         #Some setting up for ghg data
+    #         if self.data=='ghg':
+    #             label_tch = torch.stack([testset[sample][1] for sample in samples_to_analyze])
+    #             signal_scaled = self.patient_data.scaler_x.inverse_transform(np.reshape(signal.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
+    #             signal_scaled = np.reshape(signal_scaled,signal.shape)
+    #             label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(label_tch.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
+    #             label_scaled = np.reshape(label_scaled,label_tch.shape)
+    #             #label_scaled = label_tch.cpu().detach().numpy()
+    #
+    #             tvec = [int(x) for x in np.linspace(1,signal.shape[2]-1,5)]
+    #         else:
+    #             tvec = list(range(1,signal.shape[2]+1))
+    #             signal_scaled = signal
+    #
+    #         nt = len(tvec)
+    #         sensitivity_analysis = np.zeros((signal.shape))
+    #
+    #         if not self.data=='simulation':
+    #             if self.data=='mimic' or self.data=='ghg':
+    #                 self.risk_predictor.train()
+    #                 for t_ind,t in enumerate(tvec):
+    #                     signal_t = torch.Tensor(signal[:,:,:t]).to(self.device).requires_grad_()
+    #                     out = self.risk_predictor(signal_t)
+    #                     for s in range(len(samples_to_analyze)):
+    #                         out[s].backward()#retain_graph=True)
+    #                         sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:,t_ind].cpu().detach().numpy()
+    #                     signal_t.grad.data.zero_()
+    #             self.risk_predictor.eval()
+    #         else:
+    #             if not self.learned_risk:
+    #                 grad_out = []
+    #                 for kk,i in enumerate(samples_to_analyze):
+    #                     sample = testset[i][0].cpu().detach().numpy()
+    #                     gt_imp = gt_importance[i,:]
+    #                     out = np.array([self.risk_predictor(sample,gt_imp,tt) for tt in tvec])
+    #                     #print(out.shape, sample.shape)
+    #                     grad_x0 = np.array([5*out[tt]*(1-out[tt])*(gt_importance[i,tt]==0)*sample[0,tt] for tt in tvec])
+    #                     grad_x1 = np.array([5*out[tt]*(1-out[tt])*(gt_importance[i,tt]==1)*sample[1,tt] for tt in tvec])
+    #                     grad_x2 = np.array([5*out[tt]*(1-out[tt])*(gt_importance[i,tt]==2)*sample[2,tt] for tt in tvec])
+    #                     grad_out.append(np.stack([grad_x0, grad_x1, grad_x2]))
+    #                 sensitivity_analysis = np.array(grad_out)
+    #             else:
+    #                 #In simulation data also get sensitivity w.r.t. a learned predictor
+    #                 self.risk_predictor.train()
+    #                 for t_ind, t in enumerate(tvec):
+    #                     #print(t)
+    #                     signal_t = torch.Tensor(signal[:,:,:t]).to(self.device).requires_grad_()
+    #                     out = self.risk_predictor(signal_t)
+    #                     for s in range(len(samples_to_analyze)):
+    #                         out[s, 0].backward(retain_graph=True)
+    #                         sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:].cpu().detach().numpy()[:,0]
+    #                         signal_t.grad.data.zero_()
+    #                 self.risk_predictor.eval()
+    #
+    #         print('\n********** Analyzing samples **********')
+    #         self.risk_predictor.load_state_dict(torch.load(os.path.join('./ckpt',self.data,'risk_predictor.pt')))
+    #         self.risk_predictor.to(self.device)
+    #         self.risk_predictor.eval()
+    #         if self.data=='mimic':
+    #             signals_to_analyze = range(0, self.timeseries_feature_size)
+    #         elif self.data=='simulation':
+    #             signals_to_analyze = range(0,3)
+    #         elif self.data=='ghg':
+    #             signals_to_analyze = range(0,15)
+    #
+    #         if self.data=='ghg':
+    #             #GHG experiment variables
+    #             mse_vec=[]
+    #             mse_vec_occ=[]
+    #             mse_vec_su=[]
+    #             mse_vec_comb=[]
+    #             mse_vec_sens=[]
+    #
+    #             # Replace and Predict Experiment
+    #             self.replace_and_predict(signals_to_analyze, sensitivity_analysis, data=self.data, tvec=tvec)
+    #         else:
+    #             for sub_ind, sample_ID in enumerate(samples_to_analyze):
+    #                 print('Fetching importance results for sample %d'%sample_ID)
+    #                 top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug = self.plot_baseline(sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind,:,:],data=self.data,gt_importance_subj=gt_importance[sample_ID,:] if self.data=='simulation' else None)
+    #                 top_signals = 4
+    #
+    #                 print('FFC method top signals')
+    #                 FFC=[]
+    #                 for ind, sig in top_FCC[0:top_signals]:
+    #                     ref_ind = signals_to_analyze[ind]
+    #                     imp_t = importance[ind, :]
+    #                     t_max = np.argmax(imp_t.reshape(-1))
+    #                     i_max = ind
+    #                     FFC.append((i_max, t_max, max(imp_t.reshape(-1))))
+    #
+    #                 print('FO method top signals')
+    #                 FO = []
+    #                 for ind, sig in top_occ[0:top_signals]:
+    #                     ref_ind = signals_to_analyze[ind]
+    #                     imp_t = importance_occ[ind, :]
+    #                     t_max = np.argmax(imp_t.reshape(-1))
+    #                     i_max = ind
+    #                     FO.append((i_max, t_max, max(imp_t.reshape(-1))))
+    #
+    #                 print('AFO method top signals')
+    #                 AFO = []
+    #                 for ind, sig in top_occ_aug[0:top_signals]:
+    #                     ref_ind = signals_to_analyze[ind]
+    #                     imp_t = importance_occ_aug[ind, :]
+    #                     t_max = np.argmax(imp_t.reshape(-1))
+    #                     i_max = ind
+    #                     AFO.append((i_max, t_max, max(imp_t.reshape(-1))))
+    #
+    #                 print('LIME method top signals')
+    #                 lime_exp = BaselineExplainer(self.train_loader, self.valid_loader, self.test_loader, self.feature_size, data_class=self.p_data,
+    #                                          data=self.data, baseline_method='lime')
+    #                 lime_exp.run(train=train, n_epochs=n_epochs, samples_to_analyze=samples_to_analyze[self.data])
 
 
 
