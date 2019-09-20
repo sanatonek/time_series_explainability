@@ -222,9 +222,20 @@ class BaselineExplainer(Experiment):
         testset = list(self.test_loader.dataset)
         test_signals = torch.stack(([x[0] for x in testset])).to(self.device)
         matrix_test_dataset = test_signals.mean(dim=2).cpu().numpy()
-        for test_sample in samples_to_analyze:
-            exp = self.explainer.explain_instance(matrix_test_dataset[test_sample], self.predictor_wrapper, num_features=4, top_labels=2)
-            print("Most important features for sample %d: "%(test_sample), exp.as_list())
+        # importance = np.zeros((len(samples_to_analyze),test_signals.shape[1], test_signals.shape[2]))
+        explanation = []
+        for test_sample_ind, test_sample in enumerate(samples_to_analyze):
+            exp = self.explainer.explain_instance(matrix_test_dataset[test_sample], self.predictor_wrapper, top_labels=2)
+            print("Most important features for sample %d: " % (test_sample), exp.as_list())
+            explanation.append(exp.as_list)
+        return explanation
+            # for t in range(test_signals.shape[-1]):
+            #     exp = self.explainer.explain_instance(test_signals[test_sample, :, t], self.predictor_wrapper, top_labels=2)
+            #     print("Most important features for sample %d: "%(test_sample), exp.as_list())
+            #     for f in range(test_signals.shape[1]):
+            #         imp = exp.as_list(f)
+            #         importance[test_sample_ind,f,t] = imp
+        # print(importance[0,2,10:13])
 
     def train(self, n_epochs, learn_rt=False):
         trainset = list(self.train_loader.dataset)
@@ -504,7 +515,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                     print('LIME method top signals')
                     lime_imp = lime_exp.run(train=train, n_epochs=n_epochs, samples_to_analyze=[sample_ID])
-                    importance_labels.update({'lime': lime_imp})
+                    #importance_labels.update({'lime': lime_imp})
 
                     with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, sample_ID),'w') as f:
                         json.dump(importance_labels, f)
