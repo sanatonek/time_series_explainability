@@ -162,13 +162,14 @@ class EncoderPredictor(Experiment):
 class BaselineExplainer(Experiment):
     """ Baseline explainability methods
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, data_class, experiment='baseline_explainer', data='mimic', baseline_method='lime'):
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, data_class, experiment='baseline_explainer', data='mimic', baseline_method='lime',**kwargs):
         super(BaselineExplainer, self).__init__(train_loader, valid_loader, test_loader, data=data)
         self.experiment = experiment
         self.data_class = data_class
         self.ckpt_path = os.path.join('./ckpt/', self.data)
         self.baseline_method = baseline_method
         self.input_size = feature_size
+        self.spike_data = True if 'spike_data' in kwargs.keys() else False
         self.learned_risk = True
         if data == 'mimic':
             self.timeseries_feature_size = feature_size - 4
@@ -177,7 +178,10 @@ class BaselineExplainer(Experiment):
 
         # Build the risk predictor and load checkpoint
         with open('config.json') as config_file:
-            configs = json.load(config_file)[data]['risk_predictor']
+            if self.spike_data:
+                configs = json.load(config_file)[data]['risk_predictor']
+            else:
+                configs = json.load(config_file)['simulation_spike']['risk_predictor']
         if self.data == 'simulation':
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
@@ -366,7 +370,8 @@ class FeatureGeneratorExplainer(Experiment):
                 label = np.array([x[1][-1] for x in testset])
                 #print(label)
                 high_risk = np.where(label==1)[0]
-                #samples_to_analyse = np.random.choice(high_risk, 10, replace=False)
+                if len(samples_to_analyze)==0:
+                    samples_to_analyze = np.random.choice(range(len(label)), 20, replace=False)
                 # samples_to_analyse = [101, 48, 88, 192, 143, 166, 18, 58, 172, 132]
             else:
                 # if self.data=='mimic':
