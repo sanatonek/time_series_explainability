@@ -92,9 +92,9 @@ def create_signal(sig_len,mean,cov):
             delta_state=0
 
         #if state_n!=previous:
-        imp_sig = [0, 0, 0]
+        imp_sig = np.zeros(3)
         imp_sig[imp_feature[state_n]]=1
-        imp_sig[correlated_feature[state_n]] = 1
+        #imp_sig[correlated_feature[state_n]] = 1
         #else:
         #    imp_sig = [0, 0, 0]
 
@@ -113,6 +113,7 @@ def create_signal(sig_len,mean,cov):
     signal = np.array(signal)
     y = np.array(y)
     importance = np.array(importance)
+    #print(importance.shape)
     return signal.T, y, states, importance, y_logits
 
 
@@ -160,12 +161,13 @@ def create_dataset(count, signal_len):
         sig, y, state, importance,y_logits = create_signal(signal_len,mean,cov)
         dataset.append(sig)
         labels.append(y)
-        importance_score.append(importance)
+        importance_score.append(importance.T)
         states.append(state)
         label_logits.append(y_logits)
     dataset = np.array(dataset)
     labels = np.array(labels)
     importance_score = np.array(importance_score)
+    print(importance_score.shape)
     states = np.array(states)
     label_logits = np.array(label_logits)
     n_train= int(len(dataset)*0.8)
