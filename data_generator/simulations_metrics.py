@@ -11,23 +11,40 @@ import matplotlib.pyplot as plt
 from sklearn import metrics
 import pickle as pkl
 
-
-# In[101]:
+def parse_lime_results(arr,Tt,n_features):
+    lime_res = np.zeros((n_features,Tt))
+    for t in range(Tt):
+        parse_str = np.array(arr['lime']['imp'][0][t][0][0].split(' '))
+        feature_idx = np.where(np.array(parse_str)=='feature')[0][0]+1
+        feature_val = abs(arr['lime']['imp'][0][t][0][1])
+        lime_res[int(parse_str[feature_idx])-1,t]=feature_val
+    return lime_res
 
 
 #preprocess before metric collection
-Tt=79
-N=199
-y_true=np.zeros(N*Tt)
-y_ffc=np.zeros(N*Tt)
-y_afo=np.zeros(N*Tt)
-y_suresh=np.zeros(N*Tt)
-y_sens=np.zeros(N*Tt)
+filelist = glob.glob('/scratch/gobi1/shalmali/simulation/results_*.pkl')
+Tt=99
+N=len(filelist)
+n_features=3
+y_true=np.zeros(n_features*N*Tt)
+y_ffc=np.zeros(n_features*N*Tt)
+y_afo=np.zeros(n_features*N*Tt)
+y_suresh=np.zeros(n_features*N*Tt)
+y_sens=np.zeros(n_features*N*Tt)
+y_lime=np.zeros(n_features*N*Tt)
 
-y_binary_ffc=np.zeros(N*Tt)
-y_binary_afo=np.zeros(N*Tt)
-y_binary_suresh=np.zeros(N*Tt)
-y_binary_sens=np.zeros(N*Tt)
+y_binary_ffc=np.zeros(n_features*N*Tt)
+y_binary_afo=np.zeros(n_features*N*Tt)
+y_binary_suresh=np.zeros(n_features*N*Tt)
+y_binary_sens=np.zeros(n_features*N*Tt)
+y_binary_lime=np.zeros(n_features*N*Tt)
+
+y_true_rk0=np.zeros((n_features, N*Tt)).T
+y_true_rk=np.zeros((n_features, N*Tt)).T
+y_ffc_rk=np.zeros((n_features, N*Tt)).T
+y_afo_rk=np.zeros((n_features, N*Tt)).T
+y_suresh_rk=np.zeros((n_features, N*Tt)).T
+y_sens_rk=np.zeros((n_features, N*Tt)).T
 
 plot=0
 
@@ -54,30 +71,46 @@ fpr_sens=[]
 precision_sens=[]
 recall_sens=[]
 
+tpr_lime=[]
+fpr_lime=[]
+precision_lime=[]
+recall_lime=[]
 
 for th in thrs:
-    for n in range(nn):
-        with open('../examples/simulation/results_'+str(n)+'.pkl','rb') as f:
+    for n,file in enumerate(filelist):
+        with open(file,'rb') as f:
             arr = pkl.load(f)
-        y_true[n*Tt:(n+1)*Tt] = arr['gt'][1:]
-        y_ffc[n*Tt:(n+1)*Tt] = arr['FFC'][0,:]
-        y_afo[n*Tt:(n+1)*Tt] = arr['AFO'][0,:]
-        y_suresh[n*Tt:(n+1)*Tt] = arr['Suresh_et_al'][0,:]
-        y_sens[n*Tt:(n+1)*Tt] = arr['Sens'][0,1:]
 
-        y_binary_ffc[n*Tt:(n+1)*Tt] = np.argmax(arr['FFC'],axis=0)
-        y_binary_ffc[n*Tt:(n+1)*Tt] = (np.logical_and(y_binary_ffc[n*Tt:(n+1)*Tt]==0,np.max(arr['FFC'],axis=0)>th)).astype(int)
+        n_obs=Tt*n_features
         
-        y_binary_afo[n*Tt:(n+1)*Tt] = np.argmax(arr['AFO'],axis=0)
-        y_binary_afo[n*Tt:(n+1)*Tt] = (np.logical_and(y_binary_afo[n*Tt:(n+1)*Tt]==0 , np.max(arr['AFO'],axis=0)>th)).astype(int)
-
-
-        y_binary_suresh[n*Tt:(n+1)*Tt] = np.argmax(arr['Suresh_et_al'],axis=0)
-        y_binary_suresh[n*Tt:(n+1)*Tt] = (np.logical_and(y_binary_suresh[n*Tt:(n+1)*Tt]==0 ,np.max(arr['Suresh_et_al'],axis=0)>th)).astype(int)
-
-
-        y_binary_sens[n*Tt:(n+1)*Tt] = np.argmax(arr['Sens'][:,1:],axis=0)
-        y_binary_sens[n*Tt:(n+1)*Tt] = (np.logical_and(y_binary_sens[n*Tt:(n+1)*Tt]==0 ,np.max(arr['Sens'][:,1:],axis=0)>th)).astype(int)
+        y_true[n*n_obs:(n+1)*n_obs] = arr['gt'][:,1:].flatten()
+        y_ffc[n*n_obs:(n+1)*n_obs] = arr['FFC']['imp'].flatten()
+        y_afo[n*n_obs:(n+1)*n_obs] = arr['AFO']['imp'].flatten()
+        y_suresh[n*n_obs:(n+1)*n_obs] = arr['Suresh_et_al']['imp'].flatten()
+        y_sens[n*n_obs:(n+1)*n_obs] = arr['Sens']['imp'][:,1:].flatten()
+        y_lime[n*n_obs:(n+1)*n_obs] = parse_lime_results(arr,Tt,n_features).flatten()
+        
+        
+        y_binary_ffc[n*n_obs:(n+1)*n_obs] = arr['FFC']['imp'].flatten()
+        y_binary_ffc[y_binary_ffc>=th] = 1
+        y_binary_ffc[y_binary_ffc<th] = 1
+        
+        y_binary_afo[n*n_obs:(n+1)*n_obs] = arr['AFO']['imp'].flatten()
+        y_binary_afo[y_binary_afo>=th] = 1
+        y_binary_afo[y_binary_afo<th] = 1
+        
+        y_binary_suresh[n*n_obs:(n+1)*n_obs] = arr['Suresh_et_al']['imp'].flatten()
+        y_binary_suresh[y_binary_suresh>=th] = 1
+        y_binary_suresh[y_binary_suresh<th] = 1
+        
+        y_binary_sens[n*n_obs:(n+1)*n_obs] = arr['Sens']['imp'][:,1:].flatten()
+        y_binary_sens[y_binary_sens>=th] = 1
+        y_binary_sens[y_binary_sens<th] = 1
+        
+        y_binary_lime[n*n_obs:(n+1)*n_obs] = y_lime[n*n_obs:(n+1)*n_obs]
+        y_binary_lime[y_binary_lime>=th] = 1
+        y_binary_lime[y_binary_lime<th] = 1
+        
 
      
     #print metrics
@@ -85,6 +118,7 @@ for th in thrs:
     auc_afo= metrics.roc_auc_score(y_true, y_afo)
     auc_suresh= metrics.roc_auc_score(y_true, y_suresh)
     auc_sens= metrics.roc_auc_score(y_true, y_sens)
+    auc_lime= metrics.roc_auc_score(y_true, y_lime)
         
 
     # recall/sensitivity
@@ -92,12 +126,14 @@ for th in thrs:
     report_afo = metrics.classification_report(y_true, y_binary_afo,output_dict=True)['1.0']
     report_suresh = metrics.classification_report(y_true, y_binary_suresh,output_dict=True)['1.0']
     report_sens = metrics.classification_report(y_true, y_binary_sens,output_dict=True)['1.0']
+    report_lime = metrics.classification_report(y_true, y_binary_lime,output_dict=True)['1.0']
         
     # auprc
     auprc_ffc= metrics.average_precision_score(y_true, y_ffc)
     auprc_afo= metrics.average_precision_score(y_true, y_afo)
     auprc_suresh= metrics.average_precision_score(y_true, y_suresh)
     auprc_sens= metrics.average_precision_score(y_true, y_sens)
+    auprc_lime= metrics.average_precision_score(y_true, y_lime)
 
     '''
     print('FFC - AUC: ',auc_ffc, ' Sensitivity: ',report_ffc['recall'], ' AUPRC: ',  auprc_ffc)
@@ -111,6 +147,7 @@ for th in thrs:
     print('AFO &',round(auc_afo,4),  ' & ',  round(auprc_afo,4), '&' , report_afo['precision'],'&', report_afo['recall'],'&',report_afo['f1-score'],'\\\\')
     print('Suresh & ',round(auc_suresh,4),  ' & ',  round(auprc_suresh,4), '&', report_suresh['precision'],'&',report_suresh['recall'],'&',report_suresh['f1-score'],'\\\\')
     print('Sens & ',round(auc_sens,4),  ' & ',  round(auprc_sens,4),'&' , report_sens['precision'] ,'&',report_sens['recall'],'&',report_sens['f1-score'],'\\\\')
+    print('Lime & ',round(auc_lime,4),  ' & ',  round(auprc_lime,4),'&' , report_lime['precision'] ,'&',report_lime['recall'],'&',report_lime['f1-score'],'\\\\')
 
     precision_ffc.append(report_ffc['precision'])
     recall_ffc.append(report_ffc['recall'])
@@ -123,6 +160,9 @@ for th in thrs:
     
     precision_sens.append(report_sens['precision'])
     recall_sens.append(report_sens['recall'])
+    
+    precision_lime.append(report_lime['precision'])
+    recall_lime.append(report_lime['recall'])
 
 print('aupr ffc - final :', metrics.auc(precision_ffc,recall_ffc,thrs))
 print('aupr afo - final :', metrics.auc(precision_afo,recall_afo,thrs))

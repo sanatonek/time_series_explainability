@@ -93,7 +93,8 @@ def create_signal(sig_len,mean,cov):
 
         #if state_n!=previous:
         imp_sig = np.zeros(3)
-        imp_sig[imp_feature[state_n]]=1
+        if state_n!=previous or i==0:
+            imp_sig[imp_feature[state_n]]=1
         #imp_sig[correlated_feature[state_n]] = 1
         #else:
         #    imp_sig = [0, 0, 0]

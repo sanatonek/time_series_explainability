@@ -308,11 +308,16 @@ def test_reconstruction(model, valid_loader, device):
     return test_loss
 
 
-def load_data(batch_size, path='./data/', *argv):
+def load_data(batch_size, path='./data/', **kwargs):
     if 'class_conditional' in argv:
         p_data = NormalPatientData(path)
     else:
         p_data = PatientData(path)
+
+    features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
+    x_train = x_train[:,features,:]
+    x_test = x_test[:,features,:]
+
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
                                         torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
     valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
@@ -332,14 +337,18 @@ def load_data(batch_size, path='./data/', *argv):
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_ghg_data(batch_size, path='./data_generator/data'):
+def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
     p_data = GHGData(path)
     print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
+    features=kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
+    x_train = x_train[:,features,:]
+    x_test = x_test[:,features,:]
+
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
                                         torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
     valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
                                         torch.Tensor(p_data.train_label[int(0.8 * p_data.n_train):]))
-    test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data), torch.Tensor(p_data.test_label))
+    test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data[:,:,:]), torch.Tensor(p_data.test_label))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
     test_loader = DataLoader(test_dataset, batch_size=p_data.n_test)
@@ -349,7 +358,7 @@ def load_ghg_data(batch_size, path='./data_generator/data'):
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type='state'):
+def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type='state',**kwargs):
     if data_type=='state':
         with open('./data/simulated_data/state_dataset_importance_train.pkl', 'rb') as f:
             importance_score_train = pkl.load(f)
@@ -367,12 +376,16 @@ def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type=
     with open(os.path.join(path, file_name+'y_test.pkl'), 'rb') as f:
         y_test = pkl.load(f)
 
+    features = kwargs['features'] if 'features' in kwargs.keys() else list(range(x_test.shape[1]))
+    
     n_train = int(0.8 * len(x_train))
+    x_train = x_train[:,features,:]
+    x_test = x_test[:,features,:]
     train_dataset = utils.TensorDataset(torch.Tensor(x_train[0:n_train, :, :]),
                                         torch.Tensor(y_train[0:n_train, :]))
     valid_dataset = utils.TensorDataset(torch.Tensor(x_train[n_train:, :, :]),
                                         torch.Tensor(y_train[n_train:, :]))
-    test_dataset = utils.TensorDataset(torch.Tensor(x_test), torch.Tensor(y_test))
+    test_dataset = utils.TensorDataset(torch.Tensor(x_test[:,:,:]), torch.Tensor(y_test))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=len(x_train) - int(0.8 * n_train))
     test_loader = DataLoader(test_dataset, batch_size=len(x_test))

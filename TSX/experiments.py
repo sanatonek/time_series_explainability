@@ -226,13 +226,16 @@ class BaselineExplainer(Experiment):
         self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
         testset = list(self.test_loader.dataset)
         test_signals = torch.stack(([x[0] for x in testset])).to(self.device)
-        matrix_test_dataset = test_signals.mean(dim=2).cpu().numpy()
+        matrix_test_dataset = test_signals.cpu().numpy()
         # importance = np.zeros((len(samples_to_analyze),test_signals.shape[1], test_signals.shape[2]))
         explanation = []
         for test_sample_ind, test_sample in enumerate(samples_to_analyze):
-            exp = self.explainer.explain_instance(matrix_test_dataset[test_sample], self.predictor_wrapper, top_labels=2)
-            print("Most important features for sample %d: " % (test_sample), exp.as_list())
-            explanation.append(exp.as_list)
+            exp_sample=[]
+            for tttt in range(matrix_test_dataset.shape[2]):
+                exp = self.explainer.explain_instance(np.mean(matrix_test_dataset[test_sample,:,:tttt+1],axis=1), self.predictor_wrapper, top_labels=2)
+                #print("Most important features for sample %d: " % (test_sample), exp.as_list())
+                exp_sample.append(exp.as_list())
+            explanation.append(exp_sample)
         return explanation
             # for t in range(test_signals.shape[-1]):
             #     exp = self.explainer.explain_instance(test_signals[test_sample, :, t], self.predictor_wrapper, top_labels=2)
@@ -247,8 +250,8 @@ class BaselineExplainer(Experiment):
         signals = torch.stack(([x[0] for x in trainset])).to(self.device)
         matrix_train_dataset = signals.mean(dim=2).cpu().numpy()
         if self.baseline_method == 'lime':
-            self.explainer = lime.lime_tabular.LimeTabularExplainer(matrix_train_dataset, discretize_continuous=True)
-            # self.explainer = lime.lime_tabular.LimeTabularExplainer(matrix_train_dataset, feature_names=self.feature_map+['gender', 'age', 'ethnicity', 'first_icu_stay'], discretize_continuous=True)
+            #self.explainer = lime.lime_tabular.LimeTabularExplainer(matrix_train_dataset, discretize_continuous=True)
+            self.explainer = lime.lime_tabular.LimeTabularExplainer(matrix_train_dataset, feature_names=self.feature_map+['gender', 'age', 'ethnicity', 'first_icu_stay'], discretize_continuous=True)
 
 
 class FeatureGeneratorExplainer(Experiment):
@@ -471,10 +474,13 @@ class FeatureGeneratorExplainer(Experiment):
                                              data=self.data, baseline_method='lime',spike_data=self.spike_data)
                 importance_labels = {}
                 for sub_ind, sample_ID in enumerate(samples_to_analyze):
+                    print('LIME method top signals')
+                    lime_imp = lime_exp.run(train=train, n_epochs=n_epochs, samples_to_analyze=[sample_ID])
+ 
                     print('Fetching importance results for sample %d' % sample_ID)
                     top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = self.plot_baseline(
                         sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=self.data,
-                        gt_importance_subj=gt_importance[sample_ID, :] if self.data == 'simulation' else None)
+                        gt_importance_subj=gt_importance[sample_ID, :] if self.data == 'simulation' else None,lime_imp=lime_imp)
                     top_signals = 4
 
                     print('FFC method top signals')
@@ -525,14 +531,12 @@ class FeatureGeneratorExplainer(Experiment):
                     #print('AFO', AFO)
                     importance_labels.update({'AFO': AFO})
 
-                    print('LIME method top signals')
-                    lime_imp = lime_exp.run(train=train, n_epochs=n_epochs, samples_to_analyze=[sample_ID])
-                    #importance_labels.update({'lime': lime_imp})
+                   #importance_labels.update({'lime': lime_imp})
 
                     with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, sample_ID),'w') as f:
                         json.dump(importance_labels, f)
 
-    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic',gt_importance_subj=None):
+    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
         :param signals_to_analyze: list of signals to include in importance analysis
@@ -611,8 +615,13 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-        with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
-            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'gt': gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
+        if self.spike_data:
+            datafile='simulation_spike'
+        else:
+            datafile = data
+
+        with open(os.path.join('/scratch/gobi1/shalmali/',datafile,'results_'+str(subject)+'.pkl'),'wb') as f:
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]},'lime': {'imp':lime_imp,'std':[]}, 'gt': gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
 
         #return
 
@@ -665,27 +674,28 @@ class FeatureGeneratorExplainer(Experiment):
         if not gt_importance_subj is None:
             # Shade the state on simulation data plots
             for ttt in range(1,len(t)+1):
-                if gt_importance_subj[ttt]==1:
+                if gt_importance_subj[1,ttt]==1:
                     ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                else:
+                elif gt_importance_subj[2,ttt]==1:
                     ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
             for ttt in  range(1,len(t)+1):
-                if gt_importance_subj[ttt]==1:
+                if gt_importance_subj[1,ttt]==1:
                     ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                else:
+                elif gt_importance_subj[2,ttt]==1:
+                    ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
                     ax2.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
             for ttt in range(1,len(t)+1):
-                if gt_importance_subj[ttt]==1:
+                if gt_importance_subj[1,ttt]==1:
                     ax3.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                else:
+                elif gt_importance_subj[2,ttt]==1:
                     ax3.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
             for ttt in range(1,len(t)+1):
-                if gt_importance_subj[ttt]==1:
+                if gt_importance_subj[1,ttt]==1:
                     ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                else:
+                elif gt_importance_subj[2,ttt]==1:
                     ax4.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
         # Augmented feature occlusion
