@@ -41,7 +41,7 @@ class TrueFeatureGenerator():
         }
         
     def sample(self,x,t,feature):
-        observations = x[:,:t-1]
+        observations = x[:,:t]
         p_s_past={}
         for st in self.states:
             p_s_past[st],_,_ = fwd_bkw(observations, self.states, self.start_probability, self.transition_probability, self.emission_probability,st)
@@ -61,5 +61,5 @@ class TrueFeatureGenerator():
         x_sampled = gmm.sample()[0]
         return x_sampled[0,feature]
     
-#true_gen = TrueFeatureGenerator()
-#print(true_gen.sample(x_train[80],60,1))
+true_gen = TrueFeatureGenerator()
+print(true_gen.sample(x_train[10],1,0))
