@@ -28,6 +28,7 @@ def fwd_bkw(observations, states, start_prob, trans_prob, emm_prob, end_st):
     # backward part of the algorithm
     bkw = []
     b_prev = {}
+    #for i, observation_i_plus in enumerate(reversed(observations[1:]+(None,))):
     for i in range(observations.shape[1]):
         if i==0:
             observation_i_plus = None
@@ -48,10 +49,10 @@ def fwd_bkw(observations, states, start_prob, trans_prob, emm_prob, end_st):
 
     # merging the two parts
     posterior = []
-    for i in range(len(observations)):
+    for i in range(observations.shape[1]):
         posterior.append({st: fwd[i][st] * bkw[i][st] / p_fwd for st in states})
 
-    #print(p_bkw)
+    #print(p_fwd,p_bkw)
     #assert p_fwd == p_bkw #all numerical errors
     return p_fwd, p_bkw, posterior
 

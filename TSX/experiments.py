@@ -683,30 +683,55 @@ class FeatureGeneratorExplainer(Experiment):
             gt_importance_subj = gt_importance[subject,:]
         if not gt_importance_subj is None:
             # Shade the state on simulation data plots
-            for ttt in range(1,len(t)+1):
-                if gt_importance_subj[1,ttt]==1:
-                    ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                elif gt_importance_subj[2,ttt]==1:
-                    ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+            if not self.spike_data:
+                for ttt in range(1,len(t)+1):
+                    if gt_importance_subj[1,ttt]==1:
+                        ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    elif gt_importance_subj[2,ttt]==1:
+                        ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
-            for ttt in  range(1,len(t)+1):
-                if gt_importance_subj[1,ttt]==1:
-                    ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                elif gt_importance_subj[2,ttt]==1:
-                    ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
-                    ax2.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+                for ttt in  range(1,len(t)+1):
+                    if gt_importance_subj[1,ttt]==1:
+                        ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    elif gt_importance_subj[2,ttt]==1:
+                        ax2.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
-            for ttt in range(1,len(t)+1):
-                if gt_importance_subj[1,ttt]==1:
-                    ax3.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                elif gt_importance_subj[2,ttt]==1:
-                    ax3.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+                for ttt in range(1,len(t)+1):
+                    if gt_importance_subj[1,ttt]==1:
+                        ax3.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    elif gt_importance_subj[2,ttt]==1:
+                        ax3.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
-            for ttt in range(1,len(t)+1):
-                if gt_importance_subj[1,ttt]==1:
-                    ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                elif gt_importance_subj[2,ttt]==1:
-                    ax4.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+                for ttt in range(1,len(t)+1):
+                    if gt_importance_subj[1,ttt]==1:
+                        ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    elif gt_importance_subj[2,ttt]==1:
+                        ax4.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+            else:
+                for ttt in range(1,len(t)+1):
+                    if gt_importance_subj[ttt]==1:
+                        ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    else:
+                        ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+
+                for ttt in  range(1,len(t)+1):
+                    if gt_importance_subj[ttt]==1:
+                        ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    else:
+                        ax2.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+
+                for ttt in range(1,len(t)+1):
+                    if gt_importance_subj[ttt]==1:
+                        ax3.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    else:
+                        ax3.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+
+                for ttt in range(1,len(t)+1):
+                    if gt_importance_subj[ttt]==1:
+                        ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                    else:
+                        ax4.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+
 
         # Augmented feature occlusion
         for ind, sig in max_imp_occ_aug[0:n_feats_to_plot]:

@@ -22,10 +22,15 @@ def parse_lime_results(arr,Tt,n_features):
 
 
 #preprocess before metric collection
-filelist = glob.glob('/scratch/gobi1/shalmali/simulation/results_*.pkl')
-Tt=99
+data='simulation_spike'
+filelist = glob.glob('/scratch/gobi1/shalmali/'+data+'/results_*.pkl')
+
 N=len(filelist)
-n_features=3
+with open(filelist[0],'rb') as f:
+    arr = pkl.load(f)
+#print(arr.keys())
+n_features,Tt = arr['FFC']['imp'].shape
+
 y_true=np.zeros(n_features*N*Tt)
 y_ffc=np.zeros(n_features*N*Tt)
 y_afo=np.zeros(n_features*N*Tt)
@@ -83,7 +88,13 @@ for th in thrs:
 
         n_obs=Tt*n_features
         
-        y_true[n*n_obs:(n+1)*n_obs] = arr['gt'][:,1:].flatten()
+        if data!='simulation_spike':
+            y_true[n*n_obs:(n+1)*n_obs] = arr['gt'][:,1:].flatten()
+        else:
+            gt_array = np.zeros((n_features,Tt))
+            gt_array[0,:] = arr['gt'][1:]
+            y_true[n*n_obs:(n+1)*n_obs] = gt_array.flatten()
+
         y_ffc[n*n_obs:(n+1)*n_obs] = arr['FFC']['imp'].flatten()
         y_afo[n*n_obs:(n+1)*n_obs] = arr['AFO']['imp'].flatten()
         y_suresh[n*n_obs:(n+1)*n_obs] = arr['Suresh_et_al']['imp'].flatten()
