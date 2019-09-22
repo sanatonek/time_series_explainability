@@ -309,14 +309,14 @@ def test_reconstruction(model, valid_loader, device):
 
 
 def load_data(batch_size, path='./data/', **kwargs):
-    if 'class_conditional' in argv:
-        p_data = NormalPatientData(path)
-    else:
-        p_data = PatientData(path)
+    #if 'class_conditional' in argv:
+    #    p_data = NormalPatientData(path)
+    #else:
+    p_data = PatientData(path)
 
     features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
-    x_train = x_train[:,features,:]
-    x_test = x_test[:,features,:]
+    #x_train = x_train[:,features,:]
+    #x_test = x_test[:,features,:]
 
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
                                         torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))

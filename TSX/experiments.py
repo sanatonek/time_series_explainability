@@ -633,7 +633,6 @@ class FeatureGeneratorExplainer(Experiment):
 
         #return
 
-        print('plotting results ...')
         f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
         t = np.arange(signals.shape[1]-1)
         ## Pick the most influential signals and plot their importance over time
