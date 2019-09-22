@@ -627,7 +627,7 @@ class FeatureGeneratorExplainer(Experiment):
         lime_imp = lime_exp.run(train=True, n_epochs=100, samples_to_analyze=[subject])
         with open(os.path.join('/scratch/gobi1/sana/TSX_results',data,'results_'+str(subject)+'.pkl'), 'wb') as f:
         # with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
-            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':{gt_importance_subj}},f,protocol=pkl.HIGHEST_PROTOCOL)
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
         if not plot:
             return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 

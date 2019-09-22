@@ -1,6 +1,6 @@
 import numpy as np
-from hmm_forward import *
-import state_data as sd #use parameters from here.
+from data_generator.hmm_forward import *
+import data_generator.state_data as sd #use parameters from here.
 import pickle as pkl
 from sklearn.mixture import GaussianMixture
 
