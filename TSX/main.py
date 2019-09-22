@@ -68,7 +68,9 @@ def main(experiment, train, uncertainty_score, data, generator_type, all_samples
             exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=[i,i+1,i+2,i+3,i+4])
     else:
         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
-    # exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
+    
+    if experiment=='feature_generator_explainer':
+        exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
 
     # For MIMIC experiment, extract population level importance for interventions
     # print('********** Extracting population level intervention statistics **********')

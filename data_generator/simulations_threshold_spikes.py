@@ -203,7 +203,7 @@ def generate_sample(plot, Tt=80):
     x1 = ts.signals.NARMA(order=2,coefficients=[.5,.5,1.5,.5],seed=random.seed())
     x1_ts = ts.TimeSeries(x1, noise_generator=noise)
     x1_sample, signals, errors = x1_ts.sample(np.array(range(Tt)))
-    x1_sample += 0.035*np.array(range(Tt)) 
+    x1_sample += 0.003*np.array(range(Tt)) 
     x1_sample = x1_sample/(max(x1_sample)-min(x1_sample)) # - 1
     
     noise = ts.noise.GaussianNoise(std=0.001)

@@ -32,7 +32,7 @@
     "risk_predictor":{
         "encoding_size" : 50,
         "batch_size" : 100,
-        "n_epochs" : 30,
+        "n_epochs" : 150,
         "historical": 1,
         "rnn_type" : "GRU"
     },
