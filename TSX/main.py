@@ -22,7 +22,7 @@ SIMULATION_SAMPLES = [101, 48]#, 88, 192, 143, 166, 18, 58, 172, 132]
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
 
 
-def main(experiment, train, uncertainty_score, data, generator_type):
+def main(experiment, train, uncertainty_score, data, generator_type, all_samples):
     print('********** Experiment with the %s data **********' %(experiment))
     with open('config.json') as config_file:
         configs = json.load(config_file)[data][experiment]
@@ -31,6 +31,7 @@ def main(experiment, train, uncertainty_score, data, generator_type):
         p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
                                                                     path='./data')
         feature_size = p_data.feature_size
+        samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
     elif data == 'ghg':
         p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'])
         feature_size = p_data.feature_size
@@ -61,8 +62,13 @@ def main(experiment, train, uncertainty_score, data, generator_type):
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
-    exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
-    exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
+    if data=='mimic' and all_samples:
+        print('Running mimic experiment on all test data')
+        for i in range(0,len(exp.test_loader.dataset),5):
+            exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=[i,i+1,i+2,i+3,i+4])
+    else:
+        exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
+    # exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
 
     # For MIMIC experiment, extract population level importance for interventions
     # print('********** Extracting population level intervention statistics **********')
@@ -91,6 +97,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=str, default='mimic')
     parser.add_argument('--generator', type=str, default='RNN_generator')
     parser.add_argument('--train', action='store_true')
+    parser.add_argument('--all_samples', action='store_true')
     parser.add_argument('--uncertainty', action='store_true')
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty, data=args.data, generator_type=args.generator)
+    main(args.model, train=args.train, uncertainty_score=args.uncertainty, data=args.data, generator_type=args.generator, all_samples=args.all_samples)

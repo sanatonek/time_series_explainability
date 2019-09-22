@@ -224,9 +224,9 @@ class BaselineExplainer(Experiment):
         # importance = np.zeros((len(samples_to_analyze),test_signals.shape[1], test_signals.shape[2]))
         explanation = []
         for test_sample_ind, test_sample in enumerate(samples_to_analyze):
-            exp = self.explainer.explain_instance(matrix_test_dataset[test_sample], self.predictor_wrapper, top_labels=2)
-            print("Most important features for sample %d: " % (test_sample), exp.as_list())
-            explanation.append(exp.as_list)
+            exp = self.explainer.explain_instance(data_row=matrix_test_dataset[test_sample],predict_fn= self.predictor_wrapper, labels=['feature '+ str(i) for i in range(len(self.feature_map))], top_labels=2)
+            # print("Most important features for sample %d: " % (test_sample), exp.as_list())
+            explanation.append(exp.as_list())
         return explanation
             # for t in range(test_signals.shape[-1]):
             #     exp = self.explainer.explain_instance(test_signals[test_sample, :, t], self.predictor_wrapper, top_labels=2)
@@ -369,6 +369,7 @@ class FeatureGeneratorExplainer(Experiment):
                 #samples_to_analyse = np.random.choice(high_risk, 10, replace=False)
                 # samples_to_analyse = [101, 48, 88, 192, 143, 166, 18, 58, 172, 132]
             else:
+                gt_importance = None
                 # if self.data=='mimic':
                     # samples_to_analyse = MIMIC_TEST_SAMPLES
                 if self.data=='ghg':
@@ -461,10 +462,11 @@ class FeatureGeneratorExplainer(Experiment):
                                              data=self.data, baseline_method='lime')
                 importance_labels = {}
                 for sub_ind, sample_ID in enumerate(samples_to_analyze):
+                    print(self.data)
                     print('Fetching importance results for sample %d' % sample_ID)
                     top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = self.plot_baseline(
                         sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=self.data,
-                        gt_importance_subj=gt_importance[sample_ID, :] if self.data == 'simulation' else None)
+                        gt_importance_subj=None if self.data!='simulation' else gt_importance)
                     top_signals = 4
 
                     print('FFC method top signals')
@@ -522,7 +524,7 @@ class FeatureGeneratorExplainer(Experiment):
                     with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, sample_ID),'w') as f:
                         json.dump(importance_labels, f)
 
-    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, n_important_features=3,data='mimic',gt_importance_subj=None):
+    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, plot=False, retain_style=False, n_important_features=3,data='mimic',gt_importance_subj=None):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
         :param signals_to_analyze: list of signals to include in importance analysis
@@ -540,7 +542,6 @@ class FeatureGeneratorExplainer(Experiment):
         print('Subject ID: ', subject)
         if data=='mimic':
             print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
-
         importance = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
         mean_predicted_risk = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
         std_predicted_risk = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
@@ -601,11 +602,18 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-        with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
-            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'gt': gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
-
+        lime_exp = BaselineExplainer(self.train_loader, self.valid_loader, self.test_loader,
+                                             self.feature_size, data_class=self.patient_data,
+                                             data=self.data, baseline_method='lime')
+        lime_imp = lime_exp.run(train=True, n_epochs=100, samples_to_analyze=[subject])
+        with open(os.path.join('/scratch/gobi1/sana/TSX_results',data,'results_'+str(subject)+'.pkl'), 'wb') as f:
+        # with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':{gt_importance_subj}},f,protocol=pkl.HIGHEST_PROTOCOL)
+        if not plot:
+            return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
         #return
 
+        print('plotting results ...')
         f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
         t = np.arange(signals.shape[1]-1)
         ## Pick the most influential signals and plot their importance over time
@@ -652,6 +660,8 @@ class FeatureGeneratorExplainer(Experiment):
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
                          label='%s' % (self.feature_map[ref_ind]))
 
+        if self.data=='simulation':
+            gt_importance_subj = gt_importance[subject,:]
         if not gt_importance_subj is None:
             # Shade the state on simulation data plots
             for ttt in range(1,len(t)+1):
@@ -758,7 +768,7 @@ class FeatureGeneratorExplainer(Experiment):
         handles, labels = ax1.get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         fig_legend.savefig(os.path.join('./examples', data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
-        return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug[0:n_feats_to_plot], importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
+        return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
     def final_reported_plots(self, samples_to_analyze):
         testset = list(self.test_loader.dataset)
