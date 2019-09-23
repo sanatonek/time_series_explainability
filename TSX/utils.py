@@ -315,8 +315,9 @@ def load_data(batch_size, path='./data/', **kwargs):
     p_data = PatientData(path)
 
     features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
-    #x_train = x_train[:,features,:]
-    #x_test = x_test[:,features,:]
+    p_data.train_data = p_data.train_data[:,features,:]
+    p_data.test_data = p_data.test_data[:,features,:]
+    p_data.feature_size = len(features)
 
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
                                         torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
