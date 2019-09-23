@@ -1,6 +1,6 @@
 from TSX.utils import load_data, load_simulated_data, load_ghg_data
 from TSX.models import DeepKnn, EncoderRNN
-from TSX.experiments import Baseline, EncoderPredictor, FeatureGeneratorExplainer, BaselineExplainer
+from TSX.experiments import EncoderPredictor, FeatureGeneratorExplainer, BaselineExplainer
 from data_generator.true_generator_state_data import TrueFeatureGenerator
 import matplotlib.pyplot as plt
 
@@ -97,6 +97,7 @@ def main(data, generator_type):
         f.set_figheight(25)
         f.set_figwidth(30)
         plt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results',data,'generator_baselines_%d.pdf' %(sample_ID)), dpi=300, orientation='landscape', bbox_inches='tight')
+
 
 def find_true_gen_importance(sample, data):
     true_generator = TrueFeatureGenerator()

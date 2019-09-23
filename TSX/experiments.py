@@ -23,9 +23,9 @@ marker_styles_map=['o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','
 xkcd_colors = mcolors.XKCD_COLORS
 color_map = [list(xkcd_colors.keys())[k] for k in
              np.random.choice(range(len(xkcd_colors)), 28, replace=False)]
-color_map = ['#990000', '#C20088', '#0075DC', '#993F00', '#4C005C', '#191919', '#FF0010', '#2BCE48', '#FFCC99', '#808080',
+color_map = ['#00998F', '#C20088', '#0075DC', '#E0FF66', '#4C005C', '#191919', '#FF0010', '#2BCE48', '#FFCC99', '#808080',
              '#740AFF', '#8F7C00', '#9DCC00', '#F0A3FF', '#94FFB5', '#FFA405', '#FFA8BB', '#426600', '#005C31', '#5EF1F2',
-             '#00998F', '#E0FF66', '#003380', '#990000', '#FFFF80', '#FF5005', '#FFFF00','#FF0010', '#FFCC99']
+             '#993F00', '#990000', '#003380', '#990000', '#FFFF80', '#FF5005', '#FFFF00','#FF0010', '#FFCC99']
 
 intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone', 'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus', 'nivdurations']
 
@@ -525,8 +525,7 @@ class FeatureGeneratorExplainer(Experiment):
                     with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, sample_ID),'w') as f:
                         json.dump(importance_labels, f)
 
-
-    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, plot=False,  n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None):
+    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, plot=True,  n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
         :param signals_to_analyze: list of signals to include in importance analysis
@@ -651,6 +650,9 @@ class FeatureGeneratorExplainer(Experiment):
         markers = ['*', 'D', 'X', 'o', '8', 'v', '+']
         l_style = ['solid']#'-.', '--', ':']
         important_signals = []
+        n_output_importance = 5
+        import heapq
+        from TSX.generator_baselines import find_true_gen_importance
 
         # TODO Remove first important assignments for FFC, becuase poor quality of the generator results in different scaling
         # FCC
@@ -661,38 +663,29 @@ class FeatureGeneratorExplainer(Experiment):
             c = color_map[ref_ind]
             ax2.errorbar(t, importance[ind, :], yerr=std_predicted_risk[ind, :],
                          marker=markers[list(important_signals).index(ref_ind) % len(markers)],
-                         markersize=9, markeredgecolor='k', linewidth=3,
+                         markersize=9, markeredgecolor='k', linewidth=3, elinewidth=1,
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
                          label='%s' % (self.feature_map[ref_ind]))
+        max_ts = importance.reshape(-1).argsort()[-1*n_output_importance:][::-1]
+        max_ts = [(t//(importance.shape[-1]), t%(importance.shape[-1]) ) for t in max_ts]
+        for imp_f, imp_t in max_ts:
+            imp_f, imp_t = int(imp_f), int(imp_t)
+            c = color_map[imp_f]
+            ax2.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, hatch='/', label='%s score: %.3f' % (self.feature_map[imp_f], importance[imp_f, imp_t]))
+            ax2.annotate('%.2f'%importance[imp_f, imp_t], (imp_t-.5, importance[imp_f, imp_t]+.1), fontsize=26, fontweight='bold')
 
-        if self.data=='simulation':
-            gt_importance_subj = gt_importance[subject,:]
+
+        # if self.data=='simulation':
+        #     gt_importance_subj = gt_importance[subject,:]
         if not gt_importance_subj is None:
             # Shade the state on simulation data plots
             if not self.spike_data:
-                for ttt in range(1,len(t)+1):
-                    if gt_importance_subj[1,ttt]==1:
-                        ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    elif gt_importance_subj[2,ttt]==1:
-                        ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
-
-                for ttt in  range(1,len(t)+1):
-                    if gt_importance_subj[1,ttt]==1:
-                        ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    elif gt_importance_subj[2,ttt]==1:
-                        ax2.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
-
-                for ttt in range(1,len(t)+1):
-                    if gt_importance_subj[1,ttt]==1:
-                        ax3.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    elif gt_importance_subj[2,ttt]==1:
-                        ax3.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
-
-                for ttt in range(1,len(t)+1):
-                    if gt_importance_subj[1,ttt]==1:
-                        ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    elif gt_importance_subj[2,ttt]==1:
-                        ax4.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
+                for ax in [ax1]:#, ax2, ax3, ax4, ax5]:
+                    for ttt in range(1,len(t)+1):
+                        if gt_importance_subj[ttt, 1]==1:
+                            ax.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                        elif gt_importance_subj[ttt, 2]==1:
+                            ax.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
             else:
                 for ttt in range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
@@ -726,9 +719,17 @@ class FeatureGeneratorExplainer(Experiment):
                 important_signals.append(ref_ind)
             c = color_map[ref_ind]
             ax3.errorbar(t, importance_occ_aug[ind, :], yerr=std_predicted_risk_occ_aug[ind, :],
-                         marker=markers[list(important_signals).index(ref_ind) % len(markers)], linewidth=3,
+                         marker=markers[list(important_signals).index(ref_ind) % len(markers)], linewidth=3, elinewidth=1,
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
                          markersize=9, markeredgecolor='k', color=c, label='%s' % (self.feature_map[ref_ind]))
+        max_ts = importance_occ_aug.reshape(-1).argsort()[-1 * n_output_importance:][::-1]
+        max_ts = [(t // (importance_occ_aug.shape[-1]), t % (importance_occ_aug.shape[-1])) for t in max_ts]
+        for imp_f, imp_t in max_ts:
+            imp_f, imp_t = int(imp_f), int(imp_t)
+            c = color_map[imp_f]
+            ax3.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
+                            label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ_aug[imp_f, imp_t]))
+            ax3.annotate('%.2f' % importance_occ_aug[imp_f, imp_t], (imp_t-.5, importance_occ_aug[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
 
         # Feature occlusion
         for ind, sig in max_imp_occ[0:n_feats_to_plot]:
@@ -738,9 +739,18 @@ class FeatureGeneratorExplainer(Experiment):
             c = color_map[ref_ind]
             ax4.errorbar(t, importance_occ[ind, :], yerr=std_predicted_risk_occ[ind, :],
                          marker=markers[list(important_signals).index(ref_ind) % len(markers)],
-                         linewidth=3, linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+                         linewidth=3, elinewidth=1, linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
                          markersize=9, markeredgecolor='k',
                          color=c, label='%s' % (self.feature_map[ref_ind]))
+
+        max_ts = importance_occ.reshape(-1).argsort()[-1 * n_output_importance:][::-1]
+        max_ts = [(t // (importance_occ.shape[-1]), t % (importance_occ.shape[-1])) for t in max_ts]
+        for imp_f, imp_t in max_ts:
+            imp_f, imp_t = int(imp_f), int(imp_t)
+            c = color_map[imp_f]
+            ax4.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
+                            label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ[imp_f, imp_t]))
+            ax4.annotate('%.2f' % importance_occ[imp_f, imp_t], (imp_t-.5, importance_occ[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
 
         # Sensitivity analysis
         for ind, sig in max_imp_sen[0:n_feats_to_plot]:
@@ -751,6 +761,18 @@ class FeatureGeneratorExplainer(Experiment):
             ax5.plot(abs(sensitivity_analysis_importance[ind, 1:]), linewidth=3,
                      linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
                      color=c, label='%s' % (self.feature_map[ref_ind]))
+        if self.data=='mimic':
+            sensitivity_analysis_importance = sensitivity_analysis_importance[:self.timeseries_feature_size, 1:]
+        else:
+            sensitivity_analysis_importance = sensitivity_analysis_importance[:,1:]
+        max_ts = sensitivity_analysis_importance.reshape(-1).argsort()[-1 * n_output_importance:][::-1]
+        max_ts = [(t // (sensitivity_analysis_importance.shape[-1]), t % (sensitivity_analysis_importance.shape[-1])) for t in max_ts]
+        for imp_f, imp_t in max_ts:
+            imp_f, imp_t = int(imp_f), int(imp_t)
+            c = color_map[imp_f]
+            ax5.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
+                            label='%s score: %.3f' % (self.feature_map[imp_f], sensitivity_analysis_importance[imp_f, imp_t]))
+            ax5.annotate('%.2f' % sensitivity_analysis_importance[imp_f, imp_t], (imp_t-.5, sensitivity_analysis_importance[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
 
         # Plot the original signals
         important_signals = np.unique(important_signals)
@@ -763,35 +785,27 @@ class FeatureGeneratorExplainer(Experiment):
                      linestyle=l_style[i % len(l_style)], color=c,
                      label='%s' % (self.feature_map[ref_ind]))
 
+
+        for ax in [ax1, ax2, ax3, ax4, ax5]:
+            ax.grid()
+            ax.tick_params(axis='both', labelsize=32)
+            if ax!=ax1:
+                ax.set_ylabel('importance', fontweight='bold', fontsize=32)
+                if self.data == 'simulation' and ax!=ax5:
+                    ax.set_ylim(top=.8)
+
+
         ax1.plot(np.array(label), '-', linewidth=6, label='Risk score')
-        ax1.grid()
-        ax1.tick_params(axis='both', labelsize=26)
-        ax2.grid()
-        ax2.tick_params(axis='both', labelsize=26)
-        ax3.grid()
-        ax3.tick_params(axis='both', labelsize=26)
-        ax4.grid()
-        ax4.tick_params(axis='both', labelsize=26)
-        ax5.grid()
-        ax5.tick_params(axis='both', labelsize=26)
         ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
         ax2.set_title('FFC', fontweight='bold', fontsize=34) # TODO change the title depending on the type of generator is being used
         ax3.set_title('AFO', fontweight='bold', fontsize=34)
         ax4.set_title('Suresh et. al', fontweight='bold', fontsize=34)
         ax5.set_title('Sensitivity analysis', fontweight='bold', fontsize=34)
-        ax5.set_xlabel('time', fontweight='bold', fontsize=24)
-        ax1.set_ylabel('signal value', fontweight='bold',fontsize=18)
-        ax2.set_ylabel('importance score', fontweight='bold', fontsize=18)
-        ax3.set_ylabel('importance score', fontweight='bold', fontsize=18)
-        ax4.set_ylabel('importance score', fontweight='bold', fontsize=18)
-        ax5.set_ylabel('importance score', fontweight='bold', fontsize=18)
-        if self.data=='simluation':
-            ax2.set_ylim((0,0.7))
-            ax3.set_ylim((0, 0.7))
-            ax4.set_ylim((0, 0.7))
-            ax5.set_ylim((0, 0.7))
+        ax5.set_xlabel('time', fontweight='bold', fontsize=32)
+        ax1.set_ylabel('signal value', fontweight='bold',fontsize=32)
+
         f.set_figheight(25)
-        f.set_figwidth(30)
+        f.set_figwidth(60)
         plt.subplots_adjust(hspace=0.5)
         plt.savefig(os.path.join('./examples',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape',
                     bbox_inches='tight')
@@ -806,7 +820,7 @@ class FeatureGeneratorExplainer(Experiment):
         baseline_methods = ['FFC', 'AFO', 'FO', 'SA']#, 'lime']
 
         for subject in samples_to_analyze:
-            f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
+            f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
             for method_ind, method in enumerate(baseline_methods):
                 signals, label_o = testset[subject]
                 if self.data =='mimic':
@@ -816,17 +830,30 @@ class FeatureGeneratorExplainer(Experiment):
                         label_o[t-1] = self.risk_predictor(signals[:, 0:t].unsqueeze(0)).item()
                 with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, subject)) as config_file:
                     important_observations = json.load(config_file)[method]
-                ax = [ax1, ax2, ax3, ax4][method_ind]
+                ax = [ax2, ax3, ax4, ax5][method_ind]
                 ax.plot(label_o[1:].cpu().numpy(), linewidth=3, color='r',  label='Model output')
                 for observation in important_observations:
                     ref_ind = observation[0]
                     imp_t = observation[1]
                     c = color_map[ref_ind]
                     ax.plot(np.array(signals[ref_ind, 1:]), linewidth=3, color=c,  label='%s' % (self.feature_map[ref_ind]))
-                    ax.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, label='%s score: %.3f' % (self.feature_map[ref_ind], observation[2]))
-                    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=True, ncol=10, fontsize=18)
+                    ax.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, hatch='/', label='%s score: %.3f' % (self.feature_map[ref_ind], observation[2]))
+                    # ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=True, ncol=10, fontsize=18)
                     ax.set_title('%s'%method, fontweight='bold', fontsize=34)
-                    ax.set_ylabel('signal value', fontweight='bold', fontsize=18)
+                    ax.set_ylabel('signal value', fontweight='bold', fontsize=24)
+                    ax.tick_params(axis='both', labelsize=26)
+            from TSX.generator_baselines import find_true_gen_importance
+            true_importance = find_true_gen_importance(signals.to(self.device), self.data)
+            for feature in range(signals.shape[0]):
+                imp_t = np.argmax(true_importance[feature,:])
+                c = color_map[feature]
+                ax1.plot(np.array(signals[feature, 1:]), linewidth=3, color=c, label='%s' % (self.feature_map[feature]))
+                ax1.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
+                           label='%s score: %.3f' % (self.feature_map[feature], true_importance[feature,imp_t]))
+                # ax1.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), fancybox=True, shadow=True, ncol=10, fontsize=18)
+                ax1.set_title('Ground Truth Generator', fontweight='bold', fontsize=34)
+                ax1.set_ylabel('signal value', fontweight='bold', fontsize=24)
+                ax1.tick_params(axis='both', labelsize=26)
             f.set_figheight(25)
             f.set_figwidth(30)
             plt.subplots_adjust(hspace=0.5)

@@ -16,7 +16,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP', 'DiasBP', 'MeanBP', 'RespRate', 'SpO2',
                      'Glucose', 'Temp']
 
-MIMIC_TEST_SAMPLES =  [4387, 481, 546, 10]
+MIMIC_TEST_SAMPLES = [4387, 481, 546, 10]
 SIMULATION_SAMPLES = [101, 48]#, 88, 192, 143, 166, 18, 58, 172, 132]
 #SIMULATION_SAMPLES = []
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
@@ -31,7 +31,7 @@ def main(experiment, train, uncertainty_score, data, generator_type, all_samples
         p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
                                                                     path='./data')
         feature_size = p_data.feature_size
-        samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
+        #samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
     elif data == 'ghg':
         p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'])
         feature_size = p_data.feature_size
@@ -64,13 +64,14 @@ def main(experiment, train, uncertainty_score, data, generator_type, all_samples
 
     if data=='mimic' and all_samples:
         print('Running mimic experiment on all test data')
-        for i in range(0,len(exp.test_loader.dataset),5):
+        print('Number of test samples: ', len(exp.test_loader.dataset))
+        for i in range(670,len(exp.test_loader.dataset),5):
             exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=[i,i+1,i+2,i+3,i+4])
     else:
         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
     
-    if experiment=='feature_generator_explainer':
-        exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
+    # if experiment=='feature_generator_explainer':
+    #     exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
 
     # For MIMIC experiment, extract population level importance for interventions
     # print('********** Extracting population level intervention statistics **********')
