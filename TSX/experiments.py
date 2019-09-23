@@ -177,7 +177,6 @@ class BaselineExplainer(Experiment):
             self.timeseries_feature_size = feature_size
 
         # Build the risk predictor and load checkpoint
-        print(data,self.spike_data)
         with open('config.json') as config_file:
             if not self.spike_data:
                 configs = json.load(config_file)[data]['risk_predictor']
@@ -187,7 +186,6 @@ class BaselineExplainer(Experiment):
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
-                print(configs['encoding_size'])
                 self.risk_predictor = EncoderRNN(self.input_size, hidden_size=configs['encoding_size'],
                                                  rnn=configs['rnn_type'], regres=True, data=data)
                 # self.risk_predictor = EncoderRNN(configs['feature_size'], hidden_size=configs['encoding_size'],
@@ -361,7 +359,6 @@ class FeatureGeneratorExplainer(Experiment):
 
             testset = list(self.test_loader.dataset)
             if self.data=='simulation':
-                print(self.spike_data)
                 if self.spike_data==True:
                     with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
                         th = pkl.load(f)
@@ -372,7 +369,6 @@ class FeatureGeneratorExplainer(Experiment):
                     with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
                         gt_importance = pkl.load(f)
 
-                    print(gt_importance.shape)
 
                 #For simulated data this is the last entry - end of 48 hours that's the actual outcome
                 label = np.array([x[1][-1] for x in testset])
@@ -476,7 +472,6 @@ class FeatureGeneratorExplainer(Experiment):
                 importance_labels = {}
                 for sub_ind, sample_ID in enumerate(samples_to_analyze):
 
-                    print('LIME method top signals')
                     lime_imp = lime_exp.run(train=train, n_epochs=n_epochs, samples_to_analyze=[sample_ID])
  
                     print('Fetching importance results for sample %d' % sample_ID)
@@ -485,7 +480,6 @@ class FeatureGeneratorExplainer(Experiment):
                         gt_importance_subj=gt_importance[sample_ID, :] if self.data == 'simulation' else None,lime_imp=lime_imp)
                     top_signals = 4
 
-                    print('FFC method top signals')
                     FFC = []
                     for ind, sig in top_FCC[0:top_signals]:
                         ref_ind = signals_to_analyze[ind]
@@ -494,10 +488,8 @@ class FeatureGeneratorExplainer(Experiment):
                         i_max = int(ind)
                         max_val = float(max(imp_t.reshape(-1)))
                         FFC.append((i_max, t_max, max_val))
-                    #print('FFC', FFC)
                     importance_labels.update({'FFC':FFC})
 
-                    print('FO method top signals')
                     FO = []
                     for ind, sig in top_occ[0:top_signals]:
                         ref_ind = signals_to_analyze[ind]
@@ -506,10 +498,8 @@ class FeatureGeneratorExplainer(Experiment):
                         i_max = int(ind)
                         max_val = float(max(imp_t.reshape(-1)))
                         FO.append((i_max, t_max, max_val))
-                    #print('FO', FO)
                     importance_labels.update({'FO': FO})
 
-                    print('Sensitivity analysis top signals')
                     SA = []
                     for ind, sig in top_SA[0:top_signals]:
                         ref_ind = signals_to_analyze[ind]
@@ -518,10 +508,8 @@ class FeatureGeneratorExplainer(Experiment):
                         i_max = int(ind)
                         max_val = float(max(imp_t.reshape(-1)))
                         SA.append((i_max, t_max, max_val))
-                    #print('SA', SA)
                     importance_labels.update({'SA': SA})
 
-                    print('AFO method top signals')
                     AFO = []
                     for ind, sig in top_occ_aug[0:top_signals]:
                         ref_ind = signals_to_analyze[ind]
@@ -530,7 +518,6 @@ class FeatureGeneratorExplainer(Experiment):
                         i_max = int(ind)
                         max_val = float(max(imp_t.reshape(-1)))
                         AFO.append((i_max, t_max,max_val))
-                    #print('AFO', AFO)
                     importance_labels.update({'AFO': AFO})
 
                    #importance_labels.update({'lime': lime_imp})
@@ -554,7 +541,6 @@ class FeatureGeneratorExplainer(Experiment):
 
         testset = list(self.test_loader.dataset)
         signals, label_o = testset[subject]
-        print('Subject ID: ', subject)
         if data=='mimic':
             print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
         importance = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))

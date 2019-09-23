@@ -2,6 +2,7 @@ from TSX.utils import load_data, load_simulated_data, load_ghg_data
 from TSX.models import DeepKnn, EncoderRNN
 from TSX.experiments import Baseline, EncoderPredictor, FeatureGeneratorExplainer, BaselineExplainer
 from data_generator.true_generator_state_data import TrueFeatureGenerator
+import matplotlib.pyplot as plt
 
 import torch
 import os
@@ -58,7 +59,7 @@ def main(data, generator_type):
     exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
                                         generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type,spike_data=spike_data)
 
-    #exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
+    exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
 
     testset = list(exp.test_loader.dataset)
     test_signals = torch.stack(([x[0] for x in testset])).to(device)
@@ -72,17 +73,30 @@ def main(data, generator_type):
         fcc_importance = arr['FFC']['imp']   
         afo_importance = arr['AFO']['imp']   
         fo_importance = arr['Suresh_et_al']['imp']
-        basline_importance = find_true_gen_importance(test_signal, data)
-        print(baseline_importance)
+        baseline_importance = find_true_gen_importance(test_signal, data)
 
-        f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
-        ax1.plot(fcc_importance)
-        ax2.plot(afo_importance)
-        ax3.plot(fo_importance)
-        ax4.plot(basleine_importance)
+        f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
+        for ft in range(test_signal.shape[0]):
+            ax2.plot(fcc_importance[ft,:], linestyle='--', marker='o', markersize=10, label='feature %d'%ft)
+            ax2.set_title('FFC', fontweight='bold', fontsize=34)
+            ax3.plot(afo_importance[ft,:], linestyle='--', marker='o', markersize=10, label='feature %d'%ft)
+            ax3.set_title('AFO', fontweight='bold', fontsize=34)
+            ax4.plot(fo_importance[ft,:], linestyle='--', marker='o', markersize=10, label='feature %d'%ft)
+            ax4.set_title('Suresh et al', fontweight='bold', fontsize=34)
+            ax1.plot(baseline_importance[ft,:], linestyle='--', marker='o', markersize=10, label='feature %d'%ft)
+            ax1.set_title('True Generator', fontweight='bold', fontsize=34)
+            ax1.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            ax2.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            ax3.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            ax4.set_ylabel('importance score', fontweight='bold', fontsize=18)
+            ax1.tick_params(axis='both', labelsize=26)
+            ax2.tick_params(axis='both', labelsize=26)
+            ax3.tick_params(axis='both', labelsize=26)
+            ax4.tick_params(axis='both', labelsize=26)
+            ax4.set_xlabel('time', fontweight='bold', fontsize=24)
         f.set_figheight(25)
         f.set_figwidth(30)
-        plt.savefig(os.path.join('./examples',data,'generator_baselines_%d.pdf' %(subject)), dpi=300, orientation='landscape', bbox_inches='tight')
+        plt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results',data,'generator_baselines_%d.pdf' %(sample_ID)), dpi=300, orientation='landscape', bbox_inches='tight')
 
 def find_true_gen_importance(sample, data):
     true_generator = TrueFeatureGenerator()
@@ -105,7 +119,6 @@ def find_true_gen_importance(sample, data):
         for t in range(1,signal_len):
             counterfact = true_generator.sample(sample.cpu().numpy(), t, f)
             full_counterfact = torch.cat((sample[:f,t], torch.Tensor([counterfact]).to(device), sample[f+1:,t]))
-            print(full_counterfact)
             predicted_risk = predictor_model(torch.cat((sample[:,:t],full_counterfact.view(-1,1)),-1).view(1,n_feature,-1))
             importance[f,t-1] = abs(true_risk[t-1]-predicted_risk.item())
     return(importance)
