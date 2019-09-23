@@ -167,22 +167,22 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
     plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
 
-def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='ghg'):
+def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='ghg'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    #device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
     loss_criterion = torch.nn.MSELoss()
     print('loss function: MSE')
     for epoch in range(n_epochs):
         model.train()
         epoch_loss = 0
-        num = 10
+        num = 50
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
+            for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-1, num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:, :, :t+1])
 
@@ -244,10 +244,10 @@ def test_model_rt_rg(model,test_loader):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
     test_loss = 0
-    num=10
+    num=50
     for i, (signals,labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
+        for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-1,num=num)]:
             prediction = model(signals[:,:,:t+1])
             loss = torch.nn.MSELoss()(prediction, labels[:,t].to(device))
             test_loss += loss.item()
@@ -338,11 +338,11 @@ def load_data(batch_size, path='./data/', **kwargs):
 
 
 def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
-    p_data = GHGData(path)
-    print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
-    features=kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
-    x_train = x_train[:,features,:]
-    x_test = x_test[:,features,:]
+    p_data = GHGData(path,transform=None) #data already normalized zero mean 1 std
+    #print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
+    features=kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1]) 
+    p_data.train_data = p_data.train_data[:,features,:]
+    p_data.test_data  = p_data.test_data[:,features,:]
 
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
                                         torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
@@ -352,9 +352,10 @@ def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
     test_loader = DataLoader(test_dataset, batch_size=p_data.n_test)
-    print('Train set: ', p_data.train_data.shape)
-    print('Valid set: ', p_data.train_data.shape)
-    print('Test set: ', p_data.test_data.shape)
+    #print('Train set: ', p_data.train_data.shape)
+    #print('Valid set: ', p_data.train_data.shape)
+    #print('Test set: ', p_data.test_data.shape)
+    p_data.feature_size = len(features)
     return p_data, train_loader, valid_loader, test_loader
 
 

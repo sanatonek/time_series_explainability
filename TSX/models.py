@@ -223,8 +223,14 @@ class EncoderRNN(nn.Module):
                                        nn.Sigmoid())
         elif data=='ghg':
             self.regressor = nn.Sequential(#nn.BatchNorm1d(self.hidden_size),
+                                       nn.Linear(self.hidden_size,200),
+                                       nn.LeakyReLU(),
+                                       nn.Linear(200,200),
+                                       nn.LeakyReLU(),
+                                       nn.Linear(200,200),
+                                       nn.LeakyReLU(),
                                        #nn.Dropout(0.5),
-                                       nn.Linear(self.hidden_size, 1))
+                                       nn.Linear(200, 1))
         elif data=='simulation':
             self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
                                        nn.ReLU(),
