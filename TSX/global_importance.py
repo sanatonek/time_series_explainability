@@ -12,16 +12,42 @@ from sklearn import metrics
 import pickle as pkl
 import sys
 import glob
+import re
 sys.path.append(os.path.join(os.path.dirname(__file__),".."))
 
+feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE',
+                     'HEMATOCRIT', 'HEMOGLOBIN', 'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT',
+                     'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP', 'DiasBP', 'MeanBP', 'RespRate', 'SpO2','Glucose', 'Temp', 'gender','age','ethnicity','first_icu_stay']
 
-def parse_lime_results(arr,Tt,n_features):
-    lime_res = np.zeros((n_features,Tt))
-    for t in range(Tt):
-        parse_str = np.array(arr['lime']['imp'][0][t][0][0].split(' '))
-        feature_idx = np.where(np.array(parse_str)=='feature')[0][0]+1
-        feature_val = abs(arr['lime']['imp'][0][t][0][1])
-        lime_res[int(parse_str[feature_idx])-1,t]=feature_val
+def parse_lime_results(arr,Tt,n_features,data='ghg'):
+    if data=='mimic':
+        tvec = range(Tt)
+    else:
+        tvec = range(1,Tt+1,50)
+    lime_res = np.zeros((n_features,len(tvec)))
+    for i,t in enumerate(tvec):
+        impt_time_t = arr['lime']['imp'][0][t]
+        for ff in impt_time_t:
+            parse_str = re.split('> | < | <= | >= | =',ff[0])
+            #print(parse_str)
+            if len(parse_str)==2: #feature number is always first
+                feature_idx = parse_str[0].strip()
+                if data=='ghg':
+                    feature_idx = int(feature_idx)-1
+                else:
+                    #print(np.where(np.array(feature_map_mimic)==feature_idx))
+                    feature_idx = np.where(np.array(feature_map_mimic)==feature_idx)[0][0]
+            elif len(parse_str)==3: #feature number is always in the middle
+                feature_idx = parse_str[1].strip()
+                if data=='ghg':
+                    feature_idx = int(feature_idx)-1
+                else:
+                    #print(np.where(np.array(feature_map_mimic)==feature_idx))
+                    feature_idx = np.where(np.array(feature_map_mimic)==str(feature_idx))[0][0]
+            #print(feature_idx)
+            feature_val = abs(arr['lime']['imp'][0][t][0][1])
+            #if feature_idx<n_features:
+            lime_res[int(feature_idx),i]=feature_val
     return lime_res
 
 def main(experiment, train, uncertainty_score, data,n_features_to_remove=5):
@@ -49,7 +75,7 @@ def main(experiment, train, uncertainty_score, data,n_features_to_remove=5):
         y_afo[n,:] = arr['AFO']['imp'].sum(1)
         y_suresh[n,:] = arr['Suresh_et_al']['imp'].sum(1)
         y_sens[n,:] = arr['Sens']['imp'][:,1:].sum(1)
-        y_lime[n,:] = parse_lime_results(arr,Tt,n_features).sum(1)
+        y_lime[n,:] = parse_lime_results(arr,Tt,n_features,data=data).sum(1)
     
     y_rank_ffc = np.flip(np.argsort(y_ffc.sum(0)).flatten())# sorted in order of relevance
     y_rank_afo = np.flip(np.argsort(y_afo.sum(0)).flatten())# sorted in order of relevance
@@ -67,9 +93,11 @@ def main(experiment, train, uncertainty_score, data,n_features_to_remove=5):
     for m in methods:
         print('Experiment for removing features using method: ', m)
         feature_rank = ranked_features[m]
-        for ff in range(min(n_features-1,n_features_to_remove)):
-            features = [ elem for elem in list(range(n_features)) if elem not in feature_rank[:ff+1]]
-            print('removing features:', feature_rank[:ff+1])
+        
+        #for ff in range(min(n_features-1,n_features_to_remove)):
+        for ff in [0,n_features_to_remove]:
+            features = [ elem for elem in list(range(n_features)) if elem not in feature_rank[:ff]]
+            #print('using features:', features)
 
             if data == 'mimic':
                 p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
@@ -78,6 +106,7 @@ def main(experiment, train, uncertainty_score, data,n_features_to_remove=5):
             elif data == 'ghg':
                 p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'],features=features)
                 feature_size = p_data.feature_size
+                print(feature_size)
             elif data == 'simulation_spike':
                 p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
                                                                               path='./data_generator/data/simulated_data',data_type='spike',features=features)
@@ -101,42 +130,44 @@ def main(experiment, train, uncertainty_score, data,n_features_to_remove=5):
             exp.run(train=train, n_epochs=configs['n_epochs'])
     
             
-            
+    n_features_to_use = n_features_to_remove #add/remove same number for now
     for m in methods:
         print('Experiment with 5 most relevant features: ', m)
         feature_rank = ranked_features[m]
-        
-        features = feature_rank[:min(n_features-1,n_features_to_remove)]
-        print('using features',features)
+       
+        for ff in [len(feature_rank),n_features_to_use]:
+            features = feature_rank[:min(n_features-1,ff)]
+            print('using features',features)
 
-        if data == 'mimic':
-            p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
+            if data == 'mimic':
+                p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
                                                                     path='./data',features=features)
-            feature_size = p_data.feature_size
-        elif data == 'ghg':
-            p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'],features=features)
-            feature_size = p_data.feature_size
-        elif data == 'simulation_spike':
-            p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
+                feature_size = p_data.feature_size
+            elif data == 'ghg':
+                p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'],features=features)
+                feature_size = p_data.feature_size
+                print(feature_size)
+            elif data == 'simulation_spike':
+                p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
                                                                               path='./data_generator/data/simulated_data',data_type='spike',features=features)
-            feature_size = p_data.shape[1]
+                feature_size = p_data.shape[1]
 
-        elif data == 'simulation':
-            p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
+            elif data == 'simulation':
+                p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
                                                                               path='./data/simulated_data',features=features)
-            feature_size = p_data.shape[1]
+                feature_size = p_data.shape[1]
 
-        if data=='simulation_spike':
-            data='simulation'
-            spike_data=True
-        else:
-            spike_data=False
+            if data=='simulation_spike':
+                data='simulation'
+                spike_data=True
+            else:
+                spike_data=False
 
 
-        print('training on ', feature_size, ' features!')
+            print('training on ', feature_size, ' features!')
             
-        exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, configs['encoding_size'], rnn_type=configs['rnn_type'], data=data)
-        exp.run(train=train, n_epochs=configs['n_epochs'])
+            exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, configs['encoding_size'], rnn_type=configs['rnn_type'], data=data)
+            exp.run(train=train, n_epochs=configs['n_epochs'])
 
 
 if __name__ == '__main__':

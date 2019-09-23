@@ -326,7 +326,7 @@ class FeatureGeneratorExplainer(Experiment):
                 self.feature_map = feature_map_mimic
                 self.risk_predictor = self.risk_predictor.to(self.device)
             elif self.data=='ghg':
-                self.risk_predictor = EncoderRNN(self.input_size, hidden_size=100, rnn='GRU', regres=True,data=data)
+                self.risk_predictor = EncoderRNN(self.input_size, hidden_size=500, rnn='LSTM', regres=True,data=data)
                 self.feature_map = feature_map_ghg
                 self.risk_predictor = self.risk_predictor.to(self.device)
 
@@ -357,7 +357,7 @@ class FeatureGeneratorExplainer(Experiment):
                         self.risk_predictor.eval()
                 #print('Generator test loss: ', gen_test_loss)
 
-            testset = list(self.test_loader.dataset)
+            testset = list(self.valid_loader.dataset)
             if self.data=='simulation':
                 if self.spike_data==True:
                     with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
@@ -394,11 +394,11 @@ class FeatureGeneratorExplainer(Experiment):
                 label_tch = torch.stack([testset[sample][1] for sample in samples_to_analyze])
                 signal_scaled = self.patient_data.scaler_x.inverse_transform(np.reshape(signal.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
                 signal_scaled = np.reshape(signal_scaled,signal.shape)
-                label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(label_tch.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
-                label_scaled = np.reshape(label_scaled,label_tch.shape)
-                #label_scaled = label_tch.cpu().detach().numpy()
-
-                tvec = [int(x) for x in np.linspace(1,signal.shape[2]-1,5)]
+                #label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(label_tch.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
+                #label_scaled = np.reshape(label_scaled,label_tch.shape)
+                label_scaled = label_tch.cpu().detach().numpy()
+                #tvec = [int(x) for x in np.linspace(1,signal.shape[2]-1)]
+                tvec = list(range(1,signal.shape[2]+1,50))
             else:
                 tvec = list(range(1,signal.shape[2]+1))
                 signal_scaled = signal
@@ -455,7 +455,8 @@ class FeatureGeneratorExplainer(Experiment):
             elif self.data=='ghg':
                 signals_to_analyze = range(0,15)
 
-            if self.data=='ghg':
+            #if self.data=='ghg':
+            if 0:
                 #GHG experiment variables
                 mse_vec=[]
                 mse_vec_occ=[]
@@ -477,7 +478,7 @@ class FeatureGeneratorExplainer(Experiment):
                     print('Fetching importance results for sample %d' % sample_ID)
                     top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = self.plot_baseline(
                         sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=self.data,
-                        gt_importance_subj=gt_importance[sample_ID, :] if self.data == 'simulation' else None,lime_imp=lime_imp)
+                        gt_importance_subj=gt_importance[sample_ID, :] if self.data == 'simulation' else None,lime_imp=lime_imp,tvec=tvec)
                     top_signals = 4
 
                     FFC = []
@@ -525,7 +526,7 @@ class FeatureGeneratorExplainer(Experiment):
                     with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, sample_ID),'w') as f:
                         json.dump(importance_labels, f)
 
-    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, plot=True,  n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None):
+    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, plot=False,  n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None,tvec=None):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
         :param signals_to_analyze: list of signals to include in importance analysis
@@ -542,13 +543,13 @@ class FeatureGeneratorExplainer(Experiment):
         signals, label_o = testset[subject]
         if data=='mimic':
             print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
-        importance = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
-        mean_predicted_risk = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
-        std_predicted_risk = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
-        importance_occ = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
-        std_predicted_risk_occ = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
-        importance_occ_aug = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
-        std_predicted_risk_occ_aug = np.zeros((self.timeseries_feature_size, signals.shape[1]-1))
+        importance = np.zeros((self.timeseries_feature_size, len(tvec)))
+        mean_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
+        std_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
+        importance_occ = np.zeros((self.timeseries_feature_size, len(tvec)))
+        std_predicted_risk_occ = np.zeros((self.timeseries_feature_size, len(tvec)))
+        importance_occ_aug = np.zeros((self.timeseries_feature_size, len(tvec)))
+        std_predicted_risk_occ_aug = np.zeros((self.timeseries_feature_size, len(tvec)))
         max_imp_FCC = []
         max_imp_occ = []
         max_imp_occ_aug = []
@@ -586,17 +587,17 @@ class FeatureGeneratorExplainer(Experiment):
                             torch.load(os.path.join('./ckpt',data,'%s_generator_nohist.pt' % (str(sig_ind)))))
 
             label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
-                signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)
+                signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk,tvec=tvec)
             _, importance_occ[i, :], _, std_predicted_risk_occ[i, :] = self._get_feature_importance(signals,
                                                                                                     sig_ind=sig_ind,
                                                                                                     n_samples=10,
                                                                                                     mode="feature_occlusion",
-                                                                                                    learned_risk=self.learned_risk)
+                                                                                                    learned_risk=self.learned_risk,tvec=tvec)
             _, importance_occ_aug[i, :], _, std_predicted_risk_occ_aug[i, :] = self._get_feature_importance(signals,
                                                                                                             sig_ind=sig_ind,
                                                                                                             n_samples=10,
                                                                                                             mode='augmented_feature_occlusion',
-                                                                                                            learned_risk=self.learned_risk)
+                                                                                                            learned_risk=self.learned_risk,tvec=tvec)
             max_imp_FCC.append((i, max(importance[i, :])))
             max_imp_occ.append((i, max(importance_occ[i, :])))
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
@@ -610,7 +611,7 @@ class FeatureGeneratorExplainer(Experiment):
                                              self.feature_size, data_class=self.patient_data,
                                              data=self.data, baseline_method='lime')
         lime_imp = lime_exp.run(train=True, n_epochs=100, samples_to_analyze=[subject])
-        with open(os.path.join('/scratch/gobi1/sana/TSX_results',data,'results_'+str(subject)+'.pkl'), 'wb') as f:
+        with open(os.path.join('/scratch/gobi1/shalmali/',data,'results_'+str(subject)+'.pkl'), 'wb') as f:
         # with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
         if not plot:
@@ -690,26 +691,18 @@ class FeatureGeneratorExplainer(Experiment):
                 for ttt in range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
                         ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    else:
-                        ax1.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
                 for ttt in  range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
                         ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    else:
-                        ax2.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
                 for ttt in range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
                         ax3.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    else:
-                        ax3.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
                 for ttt in range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
                         ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-                    else:
-                        ax4.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
 
 
         # Augmented feature occlusion
@@ -785,7 +778,6 @@ class FeatureGeneratorExplainer(Experiment):
                      linestyle=l_style[i % len(l_style)], color=c,
                      label='%s' % (self.feature_map[ref_ind]))
 
-
         for ax in [ax1, ax2, ax3, ax4, ax5]:
             ax.grid()
             ax.tick_params(axis='both', labelsize=32)
@@ -796,6 +788,7 @@ class FeatureGeneratorExplainer(Experiment):
 
 
         ax1.plot(np.array(label), '-', linewidth=6, label='Risk score')
+
         ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
         ax2.set_title('FFC', fontweight='bold', fontsize=34) # TODO change the title depending on the type of generator is being used
         ax3.set_title('AFO', fontweight='bold', fontsize=34)
@@ -929,8 +922,9 @@ class FeatureGeneratorExplainer(Experiment):
                 max_imp_total_sens.append((i,max(sensitivity_analysis_importance[sub_ind,i,:])))
 
                 #print(label)
-                label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(np.array(label),[-1,1]))
-                label_scaled = np.reshape(label_scaled,[1,-1])
+                #label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(np.array(label),[-1,1]))
+                #label_scaled = np.reshape(label_scaled,[1,-1])
+                label_scaled=label
 
             max_imp = np.argmax(importance,axis=0)
             for im in max_imp:
