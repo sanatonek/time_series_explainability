@@ -7,6 +7,7 @@ from sklearn.metrics import precision_score, roc_auc_score
 from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import pickle as pkl
+from sklearn.model_selection import KFold
 
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
 import warnings
@@ -105,7 +106,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
+    plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
 def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=3):
@@ -164,7 +165,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
+    plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
 def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='ghg'):
@@ -293,7 +294,7 @@ def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, ex
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.savefig('train_loss.pdf')
 
 
 def test_reconstruction(model, valid_loader, device):
@@ -319,10 +320,19 @@ def load_data(batch_size, path='./data/', **kwargs):
     p_data.test_data = p_data.test_data[:,features,:]
     p_data.feature_size = len(features)
 
-    train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
-                                        torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
-    valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
-                                        torch.Tensor(p_data.train_label[int(0.8 * p_data.n_train):]))
+    n_train = int(0.8*p_data.n_train)
+    if 'cv' in kwargs.keys():
+        kf = KFold(n_splits=5,random_state=42)
+        #print(p_data.train_data[:,:,0].shape,kf.split(p_data.train_data))
+        train_idx, valid_idx = list(kf.split(p_data.train_data))[kwargs['cv']]
+    else:
+        train_idx = range(n_train)
+        valid_idx = range(n_train, p_data.n_train)
+
+    train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[train_idx, :, :]),
+                                        torch.Tensor(p_data.train_label[train_idx]))
+    valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[valid_idx, :, :]),
+                                        torch.Tensor(p_data.train_label[valid_idx]))
     test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data), torch.Tensor(p_data.test_label))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))

@@ -395,11 +395,11 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
     if data == 'mimic':
         plt.title('%s Generator Loss'%(feature_map_mimic[feature_to_predict]),fontweight='bold',fontsize=12)
         plt.legend()
-        plt.savefig('./plots/%s/%s_%s_loss.png'%(data, feature_map_mimic[feature_to_predict], generator_type))
+        plt.savefig('./plots/%s/%s_%s_loss.pdf'%(data, feature_map_mimic[feature_to_predict], generator_type))
     else:
         plt.title('feature %d Generator Loss'%(feature_to_predict),fontweight='bold',fontsize=12)
         plt.legend()
-        plt.savefig('./plots/%s/feature_%d_%s_loss.png'%(data, feature_to_predict, generator_type))
+        plt.savefig('./plots/%s/feature_%d_%s_loss.pdf'%(data, feature_to_predict, generator_type))
 
 
 def test_feature_generator(model, test_loader, feature_to_predict, historical=False):
@@ -522,7 +522,7 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
         os.mkdir('./plots')
     if not os.path.exists('./plots/'+ data):
         os.mkdir('./plots/' + data)
-    plt.savefig('./plots/%s/generator_loss_%s.png'%(data, generator_type))
+    plt.savefig('./plots/%s/generator_loss_%s.pdf'%(data, generator_type))
 
 
 def test_joint_feature_generator(model, test_loader):
