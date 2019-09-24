@@ -23,7 +23,8 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'Glucose', 'Temp']
 
 MIMIC_TEST_SAMPLES = [4387, 481, 546, 10]
-SIMULATION_SAMPLES = [101, 48]
+SIMULATION_SAMPLES = [101, 48]  # , 88, 192, 143, 166, 18, 58, 172, 132]
+# SIMULATION_SAMPLES = []
 samples_to_analyze = {'mimic': MIMIC_TEST_SAMPLES, 'simulation': SIMULATION_SAMPLES, 'ghg': [], 'simulation_spike': []}
 
 
@@ -58,8 +59,10 @@ def main(data, generator_type):
     else:
         spike_data = False
 
-    #exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-    #                                    generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type,spike_data=spike_data)
+    exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
+                                    generator_hidden_size=configs['encoding_size'], prediction_size=1,
+                                    historical=(configs['historical'] == 1), generator_type=generator_type, data=data,
+                                    experiment=experiment + '_' + generator_type, spike_data=spike_data)
 
     exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=[1,2])
 
@@ -72,22 +75,41 @@ def main(data, generator_type):
     fo_mse = 0
     n = 200*test_signals.shape[1]*(test_signals.shape[-1]-1)
     
+    ffc_log_prob=0
+    afo_log_prob=0
+    fo_log_prob=0
     for s in range(200):
         signal = test_signals[s]
         for t in range(1, test_signals.shape[-1]):
+            ffc_sample = np.zeros((1,test_signals.shape[1]))
+            afo_sample = np.zeros((1,test_signals.shape[1]))
+            fo_sample = np.zeros((1,test_signals.shape[1]))
             for f in range(test_signals.shape[1]):
                 feature_dist = (np.array(exp.feature_dist[:, f, :]).reshape(-1))
-                ffc_sample, _ = exp.generator(signal[: , t], signal[:, 0:t].view(1, signal.size(0), t), f, method='m1')
-                ffc_sample = ffc_sample.cpu().detach().numpy()
-                fo_sample = torch.Tensor(np.array([np.random.uniform(-3, 3)]).reshape(-1)).detach().numpy()
-                afo_sample = torch.Tensor(np.array(np.random.choice(feature_dist)).reshape(-1, )).detach().numpy()
-        true_sample = true_generator.sample(signal.cpu().numpy(), t, f)
+                # feature_dist_1 = (np.array(exp.feature_dist_1[:, f, :]).reshape(-1))
+                ffc_sample_t, _ = exp.generator(signal[: , t], signal[:, 0:t].view(1, signal.size(0), t), f, method='m1')
+                #print(ffc_sample_t.cpu().detach().numpy())
+                ffc_sample[0,f] = ffc_sample_t.cpu().detach().numpy()[0][0]
+                #fo_sample[0,f] = torch.Tensor(np.array([np.random.uniform(-3, 3)]).reshape(-1)).detach().numpy()[0]
+                fo_sample[0,f] = np.random.uniform(-3, 3,size=1)
+                afo_sample[0,f] = np.random.choice(feature_dist,size=1)
+                # if exp.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t)).item() > 0.5:
+                #     afo_sample = torch.Tensor(np.array(np.random.choice(feature_dist_0)).reshape(-1, )).detach().numpy()
+                # else:
+                #     afo_sample = torch.Tensor(np.array(np.random.choice(feature_dist_1)).reshape(-1, )).detach().numpy()
+                print(ffc_sample.shape)
+            ffc_log_prob += true_generator.log_prob(signal.cpu().numpy(), t, f,ffc_sample)
+            afo_log_prob += true_generator.log_prob(signal.cpu().numpy(), t, f,afo_sample)
+            fo_log_prob += true_generator.log_prob(signal.cpu().numpy(), t, f,fo_sample)
         # true_sample = np.float(signal[f,t])
-        ffc_mse = ffc_mse + np.mean(np.square(ffc_sample-true_sample))
-        afo_mse = afo_mse + np.mean(np.square(afo_sample-true_sample))
-        fo_mse = fo_mse + np.mean(np.square(fo_sample - true_sample))
-    print(ffc_mse/n, afo_mse/n, fo_mse/n)
+                #ffc_mse += np.mean(np.square(ffc_sample-true_sample))
+                #afo_mse += np.mean(np.square(afo_sample-true_sample))
+                #fo_mse = fo_mse + np.mean(np.square(fo_sample - true_sample))
+    print(ffc_log_prob, afo_log_prob, fo_log_prob)
+    
 
+
+    '''
     for sample_ID in samples_to_analyze[data]:
         # result_path = '/scratch/gobi1/sana/TSX_results/' + str(data) + '/results_%s.pkl' % str(sample_ID)
         result_path = '/scratch/gobi1/shalmali/' + str(data) + '/results_%s.pkl' % str(sample_ID)
@@ -100,8 +122,17 @@ def main(data, generator_type):
         fo_importance = arr['Suresh_et_al']['imp']
 
         baseline_importance = find_true_gen_importance(test_signal, data,sample_ID)
+        result_path = '/scratch/gobi1/shalmali/' + str(data) + '/results_true_%s.pkl' % str(sample_ID)
+        #with open(result_path, 'rb') as f:
+        #    baseline_importance = pkl.load(f)
 
-        '''
+        # ffc_mse = ffc_mse + np.mean(np.square(fcc_importance-baseline_importance))
+        # afo_mse = afo_mse + np.mean(np.square(afo_importance-baseline_importance))
+        # fo_mse = fo_mse + np.mean(np.square(fo_importance - baseline_importance))
+        # print(ffc_mse, afo_mse, fo_mse)
+
+    # print('FINAL', ffc_mse, afo_mse, fo_mse)
+
         f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
         for ft in range(test_signal.shape[0]):
             ax2.plot(fcc_importance[ft, :], linestyle='--', marker='o', markersize=10, label='feature %d' % ft)
@@ -123,8 +154,9 @@ def main(data, generator_type):
             ax4.set_xlabel('time', fontweight='bold', fontsize=32)
         f.set_figheight(20)
         f.set_figwidth(30)
-        plt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results',data,'generator_baselines_%d.pdf' %(sample_ID)), dpi=300, orientation='landscape', bbox_inches='tight')
-        '''
+        plt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results', data, 'generator_baselines_%d.pdf' % (sample_ID)),
+                    dpi=300, orientation='landscape', bbox_inches='tight')
+    '''
 
 def find_true_gen_importance(sample, data, sampleID):
     true_generator = TrueFeatureGenerator()
