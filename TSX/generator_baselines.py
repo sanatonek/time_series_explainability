@@ -59,27 +59,27 @@ def main(data, generator_type):
     else:
         spike_data = False
 
-    exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                    generator_hidden_size=configs['encoding_size'], prediction_size=1,
-                                    historical=(configs['historical'] == 1), generator_type=generator_type, data=data,
-                                    experiment=experiment + '_' + generator_type, spike_data=spike_data)
+    #exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
+    #                                    generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1), generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type,spike_data=spike_data)
 
-    exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
+    #exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
 
     testset = list(exp.test_loader.dataset)
     test_signals = torch.stack(([x[0] for x in testset])).to(device)
-    for sample_ID in samples_to_analyze[data]:
-        result_path = '/scratch/gobi1/sana/TSX_results/' + str(data) + '/results_%s.pkl' % str(sample_ID)
-        print('Reading results from ', result_path)
-        with open(result_path, 'rb') as f:
-            arr = pkl.load(f)
+    
+    for sample_ID in samples_to_analyze[data]: 
+        #result_path = '/scratch/gobi1/sana/TSX_results/'+str(data)+'/results_%s.pkl'%str(sample_ID)
+        #print('Reading results from ', result_path)
+        #with open(result_path, 'rb') as f:
+        #    arr = pkl.load(f)
 
-        test_signal = test_signals[sample_ID, :, :]
-        fcc_importance = arr['FFC']['imp']
-        afo_importance = arr['AFO']['imp']
-        fo_importance = arr['Suresh_et_al']['imp']
+        test_signal = test_signals[sample_ID,:,:]
+        #fcc_importance = arr['FFC']['imp']   
+        #afo_importance = arr['AFO']['imp']   
+        #fo_importance = arr['Suresh_et_al']['imp']
         baseline_importance = find_true_gen_importance(test_signal, data,sample_ID)
 
+        '''
         f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
         for ft in range(test_signal.shape[0]):
             ax2.plot(fcc_importance[ft, :], linestyle='--', marker='o', markersize=10, label='feature %d' % ft)
@@ -101,9 +101,8 @@ def main(data, generator_type):
             ax4.set_xlabel('time', fontweight='bold', fontsize=24)
         f.set_figheight(25)
         f.set_figwidth(30)
-        plt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results', data, 'generator_baselines_%d.pdf' % (sample_ID)),
-                    dpi=300, orientation='landscape', bbox_inches='tight')
-
+        plt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results',data,'generator_baselines_%d.pdf' %(sample_ID)), dpi=300, orientation='landscape', bbox_inches='tight')
+        '''
 
 def find_true_gen_importance(sample, data, sampleID):
     true_generator = TrueFeatureGenerator()
@@ -126,16 +125,12 @@ def find_true_gen_importance(sample, data, sampleID):
         sample.to(device)
         for t in range(1, signal_len):
             counterfact = true_generator.sample(sample.cpu().numpy(), t, f)
-            full_counterfact = torch.cat((sample[:f, t], torch.Tensor([counterfact]).to(device), sample[f + 1:, t]))
-            predicted_risk = predictor_model(
-                torch.cat((sample[:, :t], full_counterfact.view(-1, 1)), -1).view(1, n_feature, -1))
-            importance[f, t - 1] = abs(true_risk[t - 1] - predicted_risk.item())
-
-    with open(os.path.join('/scratch/gobi1/shalmali', data, '/results_' + str(sampleID) + '.pkl'), 'wb') as f:
-        pkl.dump(importance)
-
-    return (importance)
-
+            full_counterfact = torch.cat((sample[:f,t], torch.Tensor([counterfact]).to(device), sample[f+1:,t]))
+            predicted_risk = predictor_model(torch.cat((sample[:,:t],full_counterfact.view(-1,1)),-1).view(1,n_feature,-1))
+            importance[f,t-1] = abs(true_risk[t-1]-predicted_risk.item())
+    with open(os.path.join('/scratch/gobi1/shalmali/',data, 'results_true_'+ sample_ID + '.pkl'),'wb') as f:
+        pkl.dump(importance,f)
+    return(importance)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train an ICU mortality prediction model')

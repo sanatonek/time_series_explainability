@@ -319,6 +319,15 @@ def load_data(batch_size, path='./data/', **kwargs):
     p_data.train_data = p_data.train_data[:,features,:]
     p_data.test_data = p_data.test_data[:,features,:]
     p_data.feature_size = len(features)
+    #x_train = x_train[:,features,:]
+    #x_test = x_test[:,features,:]
+    n_train = int(0.8 * len(x_train))
+    if 'cv' in kwargs.keys():
+        kf = KFold(n_splits=5, random_state=42)
+        train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
+    else:
+        train_idx = range(n_train)
+        valid_idx = range(ntrain,len(x_train))
 
     n_train = int(0.8*p_data.n_train)
     if 'cv' in kwargs.keys():
@@ -355,10 +364,18 @@ def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
     p_data.train_data = p_data.train_data[:,features,:]
     p_data.test_data  = p_data.test_data[:,features,:]
 
-    train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
-                                        torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
-    valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
-                                        torch.Tensor(p_data.train_label[int(0.8 * p_data.n_train):]))
+    n_train = int(0.8 * len(x_train))
+    if 'cv' in kwargs.keys():
+        kf = KFold(n_splits=5, random_state=42)
+        train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
+    else:
+        train_idx = range(n_train)
+        valid_idx = range(ntrain.len(x_train))
+
+    train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[train_idx, :, :]),
+                                        torch.Tensor(p_data.train_label[train_idx]))
+    valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[train_idx, :, :]),
+                                        torch.Tensor(p_data.train_label[train_idx]))
     test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data[:,:,:]), torch.Tensor(p_data.test_label))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
@@ -390,13 +407,21 @@ def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type=
 
     features = kwargs['features'] if 'features' in kwargs.keys() else list(range(x_test.shape[1]))
     
-    n_train = int(0.8 * len(x_train))
     x_train = x_train[:,features,:]
     x_test = x_test[:,features,:]
-    train_dataset = utils.TensorDataset(torch.Tensor(x_train[0:n_train, :, :]),
-                                        torch.Tensor(y_train[0:n_train, :]))
-    valid_dataset = utils.TensorDataset(torch.Tensor(x_train[n_train:, :, :]),
-                                        torch.Tensor(y_train[n_train:, :]))
+
+    n_train = int(0.8 * len(x_train))
+    if 'cv' in kwargs.keys():
+        kf = KFold(n_splits=5, random_state=42)
+        train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
+    else:
+        train_idx = range(n_train)
+        valid_idx = range(n_train,len(x_train))
+    
+    train_dataset = utils.TensorDataset(torch.Tensor(x_train[train_idx, :, :]),
+                                        torch.Tensor(y_train[train_idx, :]))
+    valid_dataset = utils.TensorDataset(torch.Tensor(x_train[valid_idx, :, :]),
+                                        torch.Tensor(y_train[valid_idx, :]))
     test_dataset = utils.TensorDataset(torch.Tensor(x_test[:,:,:]), torch.Tensor(y_test))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=len(x_train) - int(0.8 * n_train))
