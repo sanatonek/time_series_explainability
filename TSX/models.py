@@ -223,14 +223,20 @@ class EncoderRNN(nn.Module):
                                        nn.Sigmoid())
         elif data=='ghg':
             self.regressor = nn.Sequential(#nn.BatchNorm1d(self.hidden_size),
+                                       nn.Linear(self.hidden_size,200),
+                                       nn.LeakyReLU(),
+                                       nn.Linear(200,200),
+                                       nn.LeakyReLU(),
+                                       nn.Linear(200,200),
+                                       nn.LeakyReLU(),
                                        #nn.Dropout(0.5),
-                                       nn.Linear(self.hidden_size, 1))
+                                       nn.Linear(200, 1))
         elif data=='simulation':
             self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
+                                       nn.ReLU(),
                                        nn.Dropout(0.5),
                                        nn.Linear(self.hidden_size, 1),
                                        nn.Sigmoid())
- 
 
     def forward(self, input, past_state=None):
         input = input.permute(2, 0, 1).to(self.device)
@@ -342,4 +348,5 @@ class RiskPredictor(nn.Module):
     def forward(self, x):
         risk = nn.Sigmoid()(self.net(x))
         return risk
+
 

@@ -7,6 +7,7 @@ from sklearn.metrics import precision_score, roc_auc_score
 from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import pickle as pkl
+from sklearn.model_selection import KFold
 
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
 import warnings
@@ -105,15 +106,14 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
+    plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='simulation'):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=3):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
     loss_criterion = torch.nn.BCELoss()
     for epoch in range(n_epochs):
@@ -121,8 +121,8 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, exper
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            num=5
-            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
+            #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
+            for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2, num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])
 
@@ -140,18 +140,19 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, exper
                 reconstruction_loss.backward()
                 optimizer.step()
 
-        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader)
+        test_num=num
+        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader,num=test_num)
 
         train_loss_trend.append(epoch_loss/((i+1)*num))
         test_loss_trend.append(test_loss)
 
         if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
-            print('Training ===>loss: ', epoch_loss,
+            print('Training ===>loss: ', epoch_loss/((i+1)*num),
                   ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset)*num)),
                   ' AUC: %.2f' % (auc_train/((i+1)*num)))
             print('Test ===>loss: ', test_loss,
-                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset))),
+                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset)*test_num)),
                   ' AUC: %.2f' % (auc_test))
 
     test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader)
@@ -164,25 +165,25 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, exper
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
+    plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
-def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, experiment, data='ghg'):
+def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='ghg'):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    #device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
     loss_criterion = torch.nn.MSELoss()
     print('loss function: MSE')
     for epoch in range(n_epochs):
         model.train()
         epoch_loss = 0
-        num = 10
+        num = 50
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]), num=num)]:
+            for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-1, num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:, :, :t+1])
 
@@ -213,7 +214,7 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, ex
     plt.savefig(os.path.join('./plots',data,'train_loss.png'))
 
 
-def test_model_rt(model,test_loader):
+def test_model_rt(model,test_loader,num=1):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
     correct_label_test = 0
@@ -222,9 +223,8 @@ def test_model_rt(model,test_loader):
     test_loss = 0
     for i, (signals,labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        num=1
-        #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
-        for t in [24]:
+        for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2,num=num)]:
+        #for t in [24]:
             prediction = model(signals[:,:,:t+1])
             predicted_label = (prediction > 0.5).float()
             labels_th = (labels[:,t] > 0.5).float()
@@ -238,17 +238,17 @@ def test_model_rt(model,test_loader):
             test_loss += loss.item()
 
     test_loss = test_loss/((i+1)*num)
-    return test_loss, recall_test, precision_test, auc_test, correct_label_test 
+    return test_loss, recall_test, precision_test, auc_test/((i+1)*num), correct_label_test
 
 
 def test_model_rt_rg(model,test_loader):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
     test_loss = 0
-    num=10
+    num=50
     for i, (signals,labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]),num=num)]:
+        for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-1,num=num)]:
             prediction = model(signals[:,:,:t+1])
             loss = torch.nn.MSELoss()(prediction, labels[:,t].to(device))
             test_loss += loss.item()
@@ -294,7 +294,7 @@ def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, ex
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig('train_loss.png')
+    plt.savefig('train_loss.pdf')
 
 
 def test_reconstruction(model, valid_loader, device):
@@ -309,15 +309,30 @@ def test_reconstruction(model, valid_loader, device):
     return test_loss
 
 
-def load_data(batch_size, path='./data/', *argv):
-    if 'class_conditional' in argv:
-        p_data = NormalPatientData(path)
+def load_data(batch_size, path='./data/', **kwargs):
+    #if 'class_conditional' in argv:
+    #    p_data = NormalPatientData(path)
+    #else:
+    p_data = PatientData(path)
+
+    features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
+    p_data.train_data = p_data.train_data[:,features,:]
+    p_data.test_data = p_data.test_data[:,features,:]
+    p_data.feature_size = len(features)
+
+    n_train = int(0.8*p_data.n_train)
+    if 'cv' in kwargs.keys():
+        kf = KFold(n_splits=5,random_state=42)
+        #print(p_data.train_data[:,:,0].shape,kf.split(p_data.train_data))
+        train_idx, valid_idx = list(kf.split(p_data.train_data))[kwargs['cv']]
     else:
-        p_data = PatientData(path)
-    train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
-                                        torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
-    valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
-                                        torch.Tensor(p_data.train_label[int(0.8 * p_data.n_train):]))
+        train_idx = range(n_train)
+        valid_idx = range(n_train, p_data.n_train)
+
+    train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[train_idx, :, :]),
+                                        torch.Tensor(p_data.train_label[train_idx]))
+    valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[valid_idx, :, :]),
+                                        torch.Tensor(p_data.train_label[valid_idx]))
     test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data), torch.Tensor(p_data.test_label))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
@@ -333,39 +348,56 @@ def load_data(batch_size, path='./data/', *argv):
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_ghg_data(batch_size, path='./data_generator/data'):
-    p_data = GHGData(path)
-    print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
+def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
+    p_data = GHGData(path,transform=None) #data already normalized zero mean 1 std
+    #print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
+    features=kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1]) 
+    p_data.train_data = p_data.train_data[:,features,:]
+    p_data.test_data  = p_data.test_data[:,features,:]
+
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[0:int(0.8 * p_data.n_train), :, :]),
                                         torch.Tensor(p_data.train_label[0:int(0.8 * p_data.n_train)]))
     valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[int(0.8 * p_data.n_train):, :, :]),
                                         torch.Tensor(p_data.train_label[int(0.8 * p_data.n_train):]))
-    test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data), torch.Tensor(p_data.test_label))
+    test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data[:,:,:]), torch.Tensor(p_data.test_label))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
     test_loader = DataLoader(test_dataset, batch_size=p_data.n_test)
-    print('Train set: ', p_data.train_data.shape)
-    print('Valid set: ', p_data.train_data.shape)
-    print('Test set: ', p_data.test_data.shape)
+    #print('Train set: ', p_data.train_data.shape)
+    #print('Valid set: ', p_data.train_data.shape)
+    #print('Test set: ', p_data.test_data.shape)
+    p_data.feature_size = len(features)
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_simulated_data(batch_size=100, path='./data_generator/data/simulated_data'):
-    with open(os.path.join(path, 'x_train.pkl'), 'rb') as f:
+def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type='state',**kwargs):
+    if data_type=='state':
+        with open('./data/simulated_data/state_dataset_importance_train.pkl', 'rb') as f:
+            importance_score_train = pkl.load(f)
+        with open('./data/simulated_data/state_dataset_importance_test.pkl', 'rb') as f:
+            importance_score_train_test = pkl.load(f)
+        file_name = 'state_dataset_'
+    else:
+        file_name = ''
+    with open(os.path.join(path, file_name+'x_train.pkl'), 'rb') as f:
         x_train = pkl.load(f)
-    with open(os.path.join(path, 'y_train.pkl'), 'rb') as f:
+    with open(os.path.join(path, file_name+'y_train.pkl'), 'rb') as f:
         y_train = pkl.load(f)
-    with open(os.path.join(path, 'x_test.pkl'), 'rb') as f:
+    with open(os.path.join(path, file_name+'x_test.pkl'), 'rb') as f:
         x_test = pkl.load(f)
-    with open(os.path.join(path, 'y_test.pkl'), 'rb') as f:
+    with open(os.path.join(path, file_name+'y_test.pkl'), 'rb') as f:
         y_test = pkl.load(f)
 
+    features = kwargs['features'] if 'features' in kwargs.keys() else list(range(x_test.shape[1]))
+    
     n_train = int(0.8 * len(x_train))
+    x_train = x_train[:,features,:]
+    x_test = x_test[:,features,:]
     train_dataset = utils.TensorDataset(torch.Tensor(x_train[0:n_train, :, :]),
                                         torch.Tensor(y_train[0:n_train, :]))
     valid_dataset = utils.TensorDataset(torch.Tensor(x_train[n_train:, :, :]),
                                         torch.Tensor(y_train[n_train:, :]))
-    test_dataset = utils.TensorDataset(torch.Tensor(x_test), torch.Tensor(y_test))
+    test_dataset = utils.TensorDataset(torch.Tensor(x_test[:,:,:]), torch.Tensor(y_test))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=len(x_train) - int(0.8 * n_train))
     test_loader = DataLoader(test_dataset, batch_size=len(x_test))
@@ -390,3 +422,15 @@ def top_risk_change(exp):
         span.append((i, max(risk) - min(risk)))
     span.sort(key=lambda pair:pair[1], reverse=True)
     print([x[0] for x in span[0:300]])
+
+
+def test_cond(mean, covariance, sig_ind, x_ind):
+    mean_1 = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
+    cov_1_2 = torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]), 1).unsqueeze(-1)
+    cov_2_2 = covariance[:, sig_ind, sig_ind]
+    cov_1_1 = torch.cat(([covariance[:, 0:sig_ind, :], covariance[:, sig_ind + 1:, :]]), 1)
+    cov_1_1 = torch.cat(([cov_1_1[:, :, 0:sig_ind], cov_1_1[:, :, sig_ind + 1:]]), 2)
+    mean_cond = mean_1 + torch.bmm(cov_1_2, (x_ind - mean[:, sig_ind]).unsqueeze(-1)) / cov_2_2
+    covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
+    return mean_cond, covariance_cond
+
