@@ -57,7 +57,10 @@ class TrueFeatureGenerator():
         gmm.weights_ = list(p_currstate_past.values())
         gmm.means_ = np.array(self.mean)
         gmm.covariances_ = np.array(self.cov)
-        
+        for i in  range(2):
+            gmm.precisions_[i] = np.linalg.inv(gmm.covariances_[i])
+            gmm.precisions_cholesky_[i] = np.linalg.cholesky(gmm.covariances_[i])
+
         x_sampled = gmm.sample()[0]
         return x_sampled[0,feature]
     
