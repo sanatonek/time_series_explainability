@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 #get_ipython().run_line_magic('matplotlib', 'inline')
 from sklearn import metrics
 import pickle as pkl
+import glob
 
 def parse_lime_results(arr,Tt,n_features):
     lime_res = np.zeros((n_features,Tt))
@@ -23,7 +24,8 @@ def parse_lime_results(arr,Tt,n_features):
 
 #preprocess before metric collection
 data='simulation_spike'
-filelist = glob.glob('/scratch/gobi1/shalmali/'+data+'/results_*.pkl')
+#filelist = glob.glob('/scratch/gobi1/shalmali/'+data+'/results_*.pkl')
+filelist = glob.glob('/scratch/gobi1/sana/TSX_results/simulation_non_stationary/results_*.pkl')
 
 N=len(filelist)
 with open(filelist[0],'rb') as f:

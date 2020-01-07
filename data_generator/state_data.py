@@ -52,7 +52,7 @@ def next_state(previous_state, t):
         params = 0.05
     #params = 0.2
     #print('previous', previous_state)
-    #params = 1-decay(t)[0]
+    params = params-float(t/500) if params>0.8 else params
     #print('transition probability',params)
     next = np.random.binomial(1,params)
     return next
@@ -68,6 +68,7 @@ def next_state(previous_state, t):
 
 def state_decoder(previous,next):
     return int(next*(1-previous)+(1-next)*(previous))
+
 
 def create_signal(sig_len,mean,cov):
     signal = []
