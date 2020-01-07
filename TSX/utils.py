@@ -8,6 +8,7 @@ from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import pickle as pkl
 from sklearn.model_selection import KFold
+from TSX.temperature_scaling import ModelWithTemperature
 
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
 import warnings
@@ -60,6 +61,7 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
         optimizer.zero_grad()
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
         labels = labels.view(labels.shape[0],)
+        labels = labels.view(labels.shape[0],)
         risks = model(signals)
         predicted_label = (risks > 0.5).view(len(labels), ).float()
         auc, recall, precision, correct = evaluate(labels, predicted_label, risks)
@@ -94,6 +96,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
             print('Test ===>loss: ', test_loss,
                   ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset))),
                   ' AUC: %.2f' % (auc_test))
+
 
     # Save model and results
     if not os.path.exists(os.path.join("./ckpt/",data)):
@@ -370,7 +373,7 @@ def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type='state',**kwargs):
+def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type='state', percentage=1., **kwargs):
     if data_type=='state':
         with open('./data/simulated_data/state_dataset_importance_train.pkl', 'rb') as f:
             importance_score_train = pkl.load(f)
@@ -390,6 +393,9 @@ def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type=
 
     features = kwargs['features'] if 'features' in kwargs.keys() else list(range(x_test.shape[1]))
     
+    total_sample_n = int(len(x_train)*percentage)
+    x_train = x_train[:total_sample_n]
+    y_train = y_train[:total_sample_n]
     n_train = int(0.8 * len(x_train))
     x_train = x_train[:,features,:]
     x_test = x_test[:,features,:]

@@ -4,7 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pydlm import dlm, autoReg
+#from pydlm import dlm, autoReg
 
 feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN',
            'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate' ,
@@ -269,7 +269,7 @@ class CarryForwardGenerator(torch.nn.Module):
         self.prediction_size = prediction_size
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    def forward(self, x_T, x_past, sig_ind):
+    def forward(self, x_T, x_past, sig_ind, method):
         mu = x_past[:,sig_ind,-1]
         next_obs = mu + torch.randn_like(mu).to(self.device)*0.1
         return next_obs, mu
