@@ -23,36 +23,31 @@ SIMULATION_SAMPLES = [51, 11, 101, 48]
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
 
 
-def main(experiment, train, uncertainty_score, data, generator_type, predictor_model, all_samples):
+def main(experiment, train, uncertainty_score, data, generator_type, predictor_model, all_samples,cv=0):
     print('********** Experiment with the %s data **********' %(experiment))
     with open('config.json') as config_file:
         configs = json.load(config_file)[data][experiment]
 
     if data == 'mimic':
         p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
-                                                                    path='./data')
+                                                                    path='./data',cv=cv)
         feature_size = p_data.feature_size
         #samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
     elif data == 'ghg':
-        p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'])
+        p_data, train_loader, valid_loader, test_loader = load_ghg_data(configs['batch_size'],cv=cv)
         feature_size = p_data.feature_size
     elif data == 'simulation_spike':
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
-                                                                              path='./data_generator/data/simulated_data',data_type='spike')
+                                                                              path='./data/simulated_spike_data',data_type='spike',cv=cv)
         feature_size = p_data.shape[1]
 
     elif data == 'simulation':
         percentage = 100.
         p_data, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=configs['batch_size'],
-                                                                              path='./data/simulated_data', percentage=percentage/100)
+                                                                              path='./data/simulated_data', percentage=percentage/100,cv=cv)
         # generator_type = generator_type+'_%d'%percentage
         feature_size = p_data.shape[1]
 
-    if data=='simulation_spike':
-        data='simulation'
-        spike_data=True
-    else:
-        spike_data=False
 
     if experiment == 'baseline':
         exp = Baseline(train_loader, valid_loader, test_loader, p_data.feature_size)
@@ -61,18 +56,18 @@ def main(experiment, train, uncertainty_score, data, generator_type, predictor_m
     elif experiment == 'feature_generator_explainer':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
                                         generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1),
-                                        generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type,spike_data=spike_data)
+                                        generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type)
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
-        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=range(0, len(exp.test_loader.dataset)//2), plot=False)
+        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=range(0, len(exp.test_loader.dataset)//2), plot=True,cv=cv)
     #     for i in range(0,len(exp.test_loader.dataset),5):
     #         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=[i,i+1,i+2,i+3,i+4], plot=False)
     else:
-        exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
+        exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data],cv=cv)
 
     # span = []
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -132,5 +127,6 @@ if __name__ == '__main__':
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--all_samples', action='store_true')
     parser.add_argument('--uncertainty', action='store_true')
+    parser.add_argument('--cv', type=int, default=0)
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty, data=args.data, generator_type=args.generator, predictor_model=args.predictor, all_samples=args.all_samples)
+    main(args.model, train=args.train, uncertainty_score=args.uncertainty, data=args.data, generator_type=args.generator, predictor_model=args.predictor, all_samples=args.all_samples,cv=args.cv)

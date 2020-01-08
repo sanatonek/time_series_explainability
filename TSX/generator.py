@@ -292,7 +292,7 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
     data=generator_model.data
     if data=='mimic':
         feature_map = feature_map_mimic
-    elif data=='simulation':
+    elif 'simulation' in data:
         feature_map = ['0','1','2']
 
     # Overwrite default learning parameters if values are passed
@@ -446,7 +446,7 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
     generator_model.train()
     if data=='mimic':
         feature_map = feature_map_mimic
-    elif data=='simulation':
+    elif 'simulation' in data:
         feature_map = ['0','1','2']
 
     # Overwrite default learning parameters if values are passed
