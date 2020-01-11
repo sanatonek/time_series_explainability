@@ -13,6 +13,7 @@ import matplotlib.image as mpimg
 import json
 import time
 from math import log
+from statistics import mean
 
 import lime
 import lime.lime_tabular
@@ -695,8 +696,9 @@ class FeatureGeneratorExplainer(Experiment):
                         torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind),self.generator_type))))
 
             t0 = time.time()
-            label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
-                signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)#,tvec=tvec)
+            label, importance[i, :] = self._get_feature_importance_FFC( signals, sig_ind=sig_ind, n_samples=50, learned_risk=self.learned_risk)
+            # label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
+            #     signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)#,tvec=tvec)
             t1 = time.time()
             FFC_exe_time.append(t1-t0)
 
@@ -1222,6 +1224,50 @@ class FeatureGeneratorExplainer(Experiment):
                 train_feature_generator(self.generator, self.train_loader, self.valid_loader, self.generator_type, feature_to_predict, n_epochs=n_epochs, historical=self.historical)
         print("Training time for %s = "%(self.generator_type), time.time()-train_start_time)
 
+
+    def _get_feature_importance_FFC(self, signal, sig_ind, n_samples=10, learned_risk=True, tvec=None):
+        self.generator.eval()
+
+        risks = []
+        importance = []
+        if tvec is None:
+            tvec = range(1,signal.shape[1])
+
+        for t in tvec:
+            if self.simulation:
+                if not learned_risk:
+                    risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
+                else:
+                    risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t+1)).item()
+            else:
+                risk = self.risk_predictor(signal[:,0:t+self.generator.prediction_size].view(1, signal.shape[0], t+self.generator.prediction_size)).item()
+
+            generator_predicted_risks = []
+            conditional_predicted_risks = []
+            for _ in range(n_samples):
+                # Replace signal with random sample from the distribution if feature_occlusion==True,
+                # else use the generator model to estimate the value
+                x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
+                predicted_signal = signal[:,0:t+1].clone()
+                predicted_signal[:,t] = x_hat_t
+                predicted_signal_conditional = predicted_signal.clone()
+                predicted_signal_conditional[sig_ind, -1] = signal[sig_ind, t]
+                if self.simulation and not learned_risk:
+                    predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
+                    conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.cpu().detach().numpy(), t)
+                else:
+                    predicted_risk = self.risk_predictor(predicted_signal.unsqueeze(0).to(self.device)).item()
+                    conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.unsqueeze(0).to(self.device)).item()
+                generator_predicted_risks.append(predicted_risk)
+                conditional_predicted_risks.append(conditional_predicted_risk)
+
+            entropy = -1*mean(generator_predicted_risks)*log(mean(generator_predicted_risks))
+            conditional_entropy = -1*mean(conditional_predicted_risks)*log(mean(conditional_predicted_risks))
+            importance.append(conditional_entropy - entropy)
+            risks.append(risk)
+        return risks, importance
+
+
     def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True, tvec=None, method='m1'):
         self.generator.eval()
         feature_dist = np.sort(np.array(self.feature_dist[:,sig_ind,:]).reshape(-1))
@@ -1311,8 +1357,8 @@ class FeatureGeneratorExplainer(Experiment):
                     IG = np.array(cf_entropy) - entropy
                     return np.mean(IG)
                 #importance.append(abs(mean_imp-risk))
-                #importance.append(np.mean(diff_imp))
-                importance.append(assign_importance_IG(predicted_risks, risk))
+                importance.append(np.mean(diff_imp))
+                #importance.append(assign_importance_IG(predicted_risks, risk))
         return risks, importance, mean_predicted_risk, std_predicted_risk
 
     
