@@ -1248,10 +1248,11 @@ class FeatureGeneratorExplainer(Experiment):
                 # Replace signal with random sample from the distribution if feature_occlusion==True,
                 # else use the generator model to estimate the value
                 x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
+                x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
                 predicted_signal = signal[:,0:t+1].clone()
                 predicted_signal[:,t] = x_hat_t
-                predicted_signal_conditional = predicted_signal.clone()
-                predicted_signal_conditional[sig_ind, -1] = signal[sig_ind, t]
+                predicted_signal_conditional = signal[:,0:t+1].clone()
+                predicted_signal_conditional[:, -1] = x_hat_t_cond
                 if self.simulation and not learned_risk:
                     predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
                     conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.cpu().detach().numpy(), t)
