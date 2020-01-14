@@ -1,7 +1,7 @@
 import torch
 import os,sys,glob
 from abc import ABC, abstractmethod
-from TSX.utils import train_reconstruction, test_reconstruction, train_model, train_model_rt, train_model_rt_rg, test, test_model_rt_rg, logistic, test_model_rt, test
+from TSX.utils import train_reconstruction, test_reconstruction, train_model, train_model_rt, train_model_rt_rg, test, test_model_rt_rg, logistic, test_model_rt, test, test_cond
 from TSX.models import EncoderRNN, RiskPredictor, LR, RnnVAE
 from TSX.generator import FeatureGenerator, train_joint_feature_generator, train_feature_generator, CarryForwardGenerator, DLMGenerator, JointFeatureGenerator
 import matplotlib.pyplot as plt
@@ -407,14 +407,15 @@ class FeatureGeneratorExplainer(Experiment):
                         self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_RNN.pt')))
 
                     # Calibrate model
-                    self.risk_predictor = self.risk_predictor.to(self.device)
-                    _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
-                    print('Precalibration auc: ', auc)
-                    self.risk_predictor = ModelWithTemperature(self.risk_predictor)
-                    self.risk_predictor.set_temperature(self.valid_loader)
+                    # self.risk_predictor = self.risk_predictor.to(self.device)
+                    # _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
+                    # print('Precalibration auc: ', auc)
+                    # self.risk_predictor = ModelWithTemperature(self.risk_predictor)
+                    # self.risk_predictor.set_temperature(self.valid_loader)
+                        self.risk_predictor.to(self.device)
                     self.risk_predictor.eval()
                     _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
-                    print('Postcalibration auc: ', auc)
+                    # print('Postcalibration auc: ', auc)
 
 
                 else: #simulated data
@@ -451,14 +452,15 @@ class FeatureGeneratorExplainer(Experiment):
                                 torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
 
                         # Calibrate model
-                        self.risk_predictor = self.risk_predictor.to(self.device)
-                        _, _, auc, correct_label, _ = test_model_rt(self.risk_predictor, self.test_loader)
-                        print('Precalibration auc: ', auc)
-                        self.risk_predictor = ModelWithTemperature(self.risk_predictor)
-                        self.risk_predictor.set_temperature(self.valid_loader)
+                        # self.risk_predictor = self.risk_predictor.to(self.device)
+                        # _, _, _,auc,  _ = test_model_rt(self.risk_predictor, self.test_loader)
+                        # print('Precalibration auc: ', auc)
+                        # self.risk_predictor = ModelWithTemperature(self.risk_predictor)
+                        # self.risk_predictor.set_temperature(self.valid_loader)
+                        self.risk_predictor.to(self.device)
                         self.risk_predictor.eval()
-                        _, _, auc, correct_label, _ = test_model_rt(self.risk_predictor, self.test_loader)
-                        print('Postcalibration auc: ', auc)
+                        _, _, _, auc,  _ = test_model_rt(self.risk_predictor, self.test_loader)
+                        # print('Postcalibration auc: ', auc)
 
 
                         # self.risk_predictor.eval()
@@ -696,7 +698,7 @@ class FeatureGeneratorExplainer(Experiment):
                         torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind),self.generator_type))))
 
             t0 = time.time()
-            label, importance[i, :] = self._get_feature_importance_FFC( signals, sig_ind=sig_ind, n_samples=50, learned_risk=self.learned_risk)
+            label, importance[i, :] = self._get_feature_importance_FFC( signals, sig_ind=sig_ind, n_samples=10, learned_risk=self.learned_risk)
             # label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
             #     signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)#,tvec=tvec)
             t1 = time.time()
@@ -1227,7 +1229,7 @@ class FeatureGeneratorExplainer(Experiment):
 
     def _get_feature_importance_FFC(self, signal, sig_ind, n_samples=10, learned_risk=True, tvec=None):
         self.generator.eval()
-
+        # signal = signal.to(self.device)
         risks = []
         importance = []
         if tvec is None:
@@ -1244,27 +1246,58 @@ class FeatureGeneratorExplainer(Experiment):
 
             generator_predicted_risks = []
             conditional_predicted_risks = []
+
+            # dist_mean, dist_covariance = self.generator.likelihood_distribution(signal[:, :t].unsqueeze(0))
+            # dist = torch.distributions.multivariate_normal.MultivariateNormal(loc=dist_mean, covariance_matrix=dist_covariance)
+            # mean_cond, covariance_cond = test_cond(dist_mean, dist_covariance, sig_ind, signal[sig_ind,t].unsqueeze(0).to(self.device))
+            # dist_cond = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond[:,:,0],
+            #                                                                        covariance_matrix=covariance_cond)
             for _ in range(n_samples):
                 # Replace signal with random sample from the distribution if feature_occlusion==True,
                 # else use the generator model to estimate the value
-                x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
-                x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
-                predicted_signal = signal[:,0:t+1].clone()
-                predicted_signal[:,t] = x_hat_t
+                # x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
+
+                # Definition I
+                x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='m1')
+                # Definition II
+                # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
+
+                # x_hat_t = dist.rsample()
+                # sample_cond = dist_cond.rsample()
+                # x_hat_t_cond = torch.cat([sample_cond[0, 0:sig_ind], signal[sig_ind,t].unsqueeze(-1).to(self.device), sample_cond[0, sig_ind:]])
+
+                # predicted_signal = signal[:,0:t+1].clone()
+                # predicted_signal[:,-1] = x_hat_t
                 predicted_signal_conditional = signal[:,0:t+1].clone()
                 predicted_signal_conditional[:, -1] = x_hat_t_cond
+                # print(x_hat_t_cond, signal[:,t])
+
                 if self.simulation and not learned_risk:
-                    predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
+                    # predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
                     conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.cpu().detach().numpy(), t)
                 else:
-                    predicted_risk = self.risk_predictor(predicted_signal.unsqueeze(0).to(self.device)).item()
+                    # predicted_risk = self.risk_predictor(predicted_signal.unsqueeze(0).to(self.device)).item()
                     conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.unsqueeze(0).to(self.device)).item()
-                generator_predicted_risks.append(predicted_risk)
+                # generator_predicted_risks.append(predicted_risk)
                 conditional_predicted_risks.append(conditional_predicted_risk)
 
-            entropy = -1*mean(generator_predicted_risks)*log(mean(generator_predicted_risks))
-            conditional_entropy = -1*mean(conditional_predicted_risks)*log(mean(conditional_predicted_risks))
-            importance.append(conditional_entropy - entropy)
+            # Definition I
+            conditional_predicted_risks = np.array(conditional_predicted_risks)
+            entropy = -1 * risk * np.log2(risk) - (1.-risk)*np.log2(1.-risk)
+            conditional_entropy = -1 * np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks)) - np.multiply((1.-conditional_predicted_risks), np.log2((1.-conditional_predicted_risks)))
+            imp = max(0,np.mean(conditional_entropy - entropy))
+
+            # Definition II
+            # generator_predicted_risks = np.array(generator_predicted_risks)
+            # conditional_predicted_risks = np.array(conditional_predicted_risks)
+            # entropy = -1*(np.mean(generator_predicted_risks)*np.log2(np.mean(generator_predicted_risks))) - (np.mean(1.-generator_predicted_risks) * np.log2(np.mean(1.-generator_predicted_risks)))
+            # conditional_entropy = -1*(np.mean(conditional_predicted_risks)*np.log2(np.mean(conditional_predicted_risks))) - (np.mean(1.-conditional_predicted_risks) * np.log2(np.mean(1.-conditional_predicted_risks)))
+            # imp = entropy - conditional_entropy
+
+            # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))
+            # conditional_entropy = np.mean(-1*(np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks))) - (np.multiply((1-conditional_predicted_risks), np.log2(1-conditional_predicted_risks))))
+            importance.append(imp)
+
             risks.append(risk)
         return risks, importance
 

@@ -158,7 +158,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
                   ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset)*test_num)),
                   ' AUC: %.2f' % (auc_test))
 
-    test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader)
+    test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model, valid_loader)
     print('Test loss: ', test_loss)
 
     # Save model and results
@@ -431,6 +431,7 @@ def top_risk_change(exp):
 
 
 def test_cond(mean, covariance, sig_ind, x_ind):
+    x_ind = x_ind.unsqueeze(-1)
     mean_1 = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
     cov_1_2 = torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]), 1).unsqueeze(-1)
     cov_2_2 = covariance[:, sig_ind, sig_ind]
@@ -439,4 +440,6 @@ def test_cond(mean, covariance, sig_ind, x_ind):
     mean_cond = mean_1 + torch.bmm(cov_1_2, (x_ind - mean[:, sig_ind]).unsqueeze(-1)) / cov_2_2
     covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
     return mean_cond, covariance_cond
+
+
 
