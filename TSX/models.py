@@ -340,13 +340,28 @@ class RiskPredictor(nn.Module):
     def __init__(self, encoding_size):
         super(RiskPredictor, self).__init__()
         self.encoding_size = encoding_size
+        self.temperature = nn.Parameter(torch.ones(1) * 1.5)
         self.net = nn.Sequential(nn.Linear(self.encoding_size, 500),
                                  nn.ReLU(True),
                                  nn.Dropout(0.5),
                                  nn.Linear(500, 1))
 
+    def temperature_scale(self, logits):
+        """
+        Perform temperature scaling on logits
+        """
+        # Expand temperature to match the size of logits
+        temperature = self.temperature.unsqueeze(1).expand(logits.size(0), logits.size(1))
+        return logits / temperature
+
     def forward(self, x):
-        risk = nn.Sigmoid()(self.net(x))
+        logits = self.net(x)
+        risk = self.temperature_scale(logits)
+        # risk = nn.Sigmoid()(self.net(x))
         return risk
+
+    def forward_logit(self, x):
+        logits = self.net(x)
+        return logits
 
 

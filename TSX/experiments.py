@@ -1258,9 +1258,9 @@ class FeatureGeneratorExplainer(Experiment):
                 # x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
 
                 # Definition I
-                x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='m1')
-                # Definition II
                 # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
+                # Definition II
+                x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
 
                 # x_hat_t = dist.rsample()
                 # sample_cond = dist_cond.rsample()
@@ -1270,7 +1270,6 @@ class FeatureGeneratorExplainer(Experiment):
                 # predicted_signal[:,-1] = x_hat_t
                 predicted_signal_conditional = signal[:,0:t+1].clone()
                 predicted_signal_conditional[:, -1] = x_hat_t_cond
-                # print(x_hat_t_cond, signal[:,t])
 
                 if self.simulation and not learned_risk:
                     # predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
@@ -1282,10 +1281,10 @@ class FeatureGeneratorExplainer(Experiment):
                 conditional_predicted_risks.append(conditional_predicted_risk)
 
             # Definition I
-            conditional_predicted_risks = np.array(conditional_predicted_risks)
-            entropy = -1 * risk * np.log2(risk) - (1.-risk)*np.log2(1.-risk)
-            conditional_entropy = -1 * np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks)) - np.multiply((1.-conditional_predicted_risks), np.log2((1.-conditional_predicted_risks)))
-            imp = max(0,np.mean(conditional_entropy - entropy))
+            # conditional_predicted_risks = np.array(conditional_predicted_risks)
+            # entropy = -1 * risk * np.log2(risk) - (1.-risk)*np.log2(1.-risk)
+            # conditional_entropy = -1 * np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks)) - np.multiply((1.-conditional_predicted_risks), np.log2((1.-conditional_predicted_risks)))
+            # imp = max(0,np.mean(conditional_entropy - entropy))
 
             # Definition II
             # generator_predicted_risks = np.array(generator_predicted_risks)
@@ -1293,6 +1292,15 @@ class FeatureGeneratorExplainer(Experiment):
             # entropy = -1*(np.mean(generator_predicted_risks)*np.log2(np.mean(generator_predicted_risks))) - (np.mean(1.-generator_predicted_risks) * np.log2(np.mean(1.-generator_predicted_risks)))
             # conditional_entropy = -1*(np.mean(conditional_predicted_risks)*np.log2(np.mean(conditional_predicted_risks))) - (np.mean(1.-conditional_predicted_risks) * np.log2(np.mean(1.-conditional_predicted_risks)))
             # imp = entropy - conditional_entropy
+
+            # KL divergence
+            probability_subsection = torch.Tensor([1-np.mean(conditional_predicted_risk), np.mean(conditional_predicted_risk)])
+            probability_all = torch.Tensor([(1-risk), risk])
+            # print(probability_subsection)
+            # print(probability_all)
+            div = torch.nn.functional.kl_div(probability_all, probability_subsection)
+            # print('KL divergence: ', div)
+            imp = -1*div
 
             # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))
             # conditional_entropy = np.mean(-1*(np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks))) - (np.multiply((1-conditional_predicted_risks), np.log2(1-conditional_predicted_risks))))

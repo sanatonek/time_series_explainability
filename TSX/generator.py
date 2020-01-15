@@ -163,7 +163,7 @@ class JointFeatureGenerator(torch.nn.Module):
         mean, covariance = self.likelihood_distribution(past)  # P(X_t|X_0:t-1)
         if len(x.shape) is 1:
             x = x.unsqueeze(0)
-        if method=='c1':  # c1 method
+        if method=='c1':  # c1 method: P(x_{-i,t}|X_{0:t-1}, x_{i,t})
             x_ind = x[:, sig_ind].to(self.device).unsqueeze(-1)
             mean_1 = torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
             cov_1_2 = torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]),
@@ -178,12 +178,12 @@ class JointFeatureGenerator(torch.nn.Module):
             sample = likelihood.rsample()
             full_sample = torch.cat([sample[:,0:sig_ind], x_ind, sample[:,sig_ind:]], 1)
             return full_sample, mean[:,sig_ind]
-        elif method=='m1':  # m1 method
+        elif method=='m1':  # m1 method: marginalize over x_{-i,t}
             known_signal = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
             return torch.cat((known_signal[:, 0:sig_ind], mean[:,sig_ind].unsqueeze(-1), known_signal[:, sig_ind:]), 1), mean[:,sig_ind]
         elif method=='inform':
             return torch.cat((mean[:,:sig_ind], x[:, sig_ind].unsqueeze(-1), mean[:,sig_ind+1:]), 1), mean[:,sig_ind]
-        elif method=='old':
+        elif method=='c2':  # c2 method: P(x_{i,t}|X_{0:t-1}, x_{-i,t})
             x = torch.cat((x[:, :sig_ind], x[:, sig_ind + 1:]), 1).to(self.device)
             margianl_cov = torch.cat(([covariance[:, :, 0:sig_ind], covariance[:, :, sig_ind + 1:]]), 2)
             margianl_cov = torch.cat(([margianl_cov[:, 0:sig_ind, :], margianl_cov[:, sig_ind + 1:, :]]), 1)
@@ -221,7 +221,7 @@ class JointFeatureGenerator(torch.nn.Module):
         mean, covariance = self.likelihood_distribution(past)
         likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean, covariance_matrix=covariance)
         return likelihood.rsample()
-
+    
 
 class DLMGenerator(torch.nn.Module):
     def __init__(self, feature_size, hidden_size=800, prediction_size=1, seed=random.seed('2019'), **kwargs):
