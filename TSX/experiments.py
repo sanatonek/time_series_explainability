@@ -6,6 +6,7 @@ from TSX.models import EncoderRNN, RiskPredictor, LR, RnnVAE
 from TSX.generator import FeatureGenerator, train_joint_feature_generator, train_feature_generator, CarryForwardGenerator, DLMGenerator, JointFeatureGenerator
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib
 import numpy as np
 import pickle as pkl
 import pandas as pd
@@ -19,6 +20,8 @@ import lime
 import lime.lime_tabular
 from TSX.temperature_scaling import ModelWithTemperature
 
+font={'family': 'normal','weight': 'bold','size':82}
+matplotlib.rc('font',**font)
 #generic plot configs
 line_styles_map=['-','--','-.',':','-','--','-.',':','-','--','-.',':','-','--','-.',':']
 marker_styles_map=['o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h']
@@ -40,7 +43,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
 #simulation plot configs
 feature_map_simulation = ['feature 0', 'feature 1', 'feature 2']
 
-feature_map = {'mimic':feature_map_mimic, 'simulation': feature_map_simulation}
+feature_map = {'mimic':feature_map_mimic, 'simulation': feature_map_simulation,'simulation_spike':feature_map_simulation}
 
 simulation_color_map = ['#e6194B', '#469990', '#000000','#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabebe',  '#e6beff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#3cb44b','#ffe119']
 
@@ -96,7 +99,7 @@ class Experiment(ABC):
             _, _, auc_test, correct_label, test_loss = test(self.test_loader, self.model, self.device)
             print('\nFinal performance on held out test set ===> AUC: ', auc_test)
         else:
-            if self.data == 'mimic' or self.data=='simulation':
+            if self.data == 'mimic' or 'simulation' in self.data:
                 train_model_rt(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device, self.experiment,data=self.data)
             elif self.data == 'ghg':
                 train_model_rt_rg(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device, self.experiment,data=self.data)
@@ -135,7 +138,6 @@ class EncoderPredictor(Experiment):
             self.model = LR(feature_size)
         self.model_type = model
         self.experiment = experiment
-        self.simulation = simulation
         self.data = data
         self.ckpt_path='./ckpt/' + self.data
 
@@ -163,17 +165,17 @@ class EncoderPredictor(Experiment):
             _, _, auc_test, correct_label, test_loss = test(self.test_loader, self.model, self.device)
             print('\nFinal performance on held out test set ===> AUC: ', auc_test)
         else:
-            if self.data=='simulation':
+            if 'simulation' in self.data:
                 print('training rt')
                 train_model_rt(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
                                             self.experiment+'_'+self.model_type, data=self.data)
                 # Evaluate performance on held-out test set
                 _, _, _, auc, correct_label = test_model_rt(self.model, self.valid_loader)
                 print('Precalibration auc: ', auc)
-                self.model = ModelWithTemperature(self.model)
-                self.model.set_temperature(self.valid_loader)
-                self.model.eval()
-                _, _, _, auc, correct_label = test_model_rt(self.model, self.valid_loader)
+                #self.model = ModelWithTemperature(self.model)
+                #self.model.set_temperature(self.valid_loader)
+                #self.model.eval()
+                #_, _, _, auc, correct_label = test_model_rt(self.model, self.valid_loader)
                 print('\nPost calibration AUC: ', auc)
                 print('\nFinal performance on held out test set ===> AUC: ', auc)
 
@@ -193,7 +195,6 @@ class BaselineExplainer(Experiment):
         self.ckpt_path = os.path.join('./ckpt/', self.data)
         self.baseline_method = baseline_method
         self.input_size = feature_size
-        self.spike_data = kwargs['spike_data'] if 'spike_data' in kwargs.keys() else False
         self.learned_risk = True
         if data == 'mimic':
             self.timeseries_feature_size = len(feature_map_mimic)
@@ -202,11 +203,8 @@ class BaselineExplainer(Experiment):
 
         # Build the risk predictor and load checkpoint
         with open('config.json') as config_file:
-            if not self.spike_data:
-                configs = json.load(config_file)[data]['risk_predictor']
-            else:
-                configs = json.load(config_file)['simulation_spike']['risk_predictor']
-        if self.data == 'simulation':
+            configs = json.load(config_file)[data]['risk_predictor']
+        if 'simulation' in self.data:
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
@@ -321,8 +319,6 @@ class FeatureGeneratorExplainer(Experiment):
         self.patient_data = patient_data
         self.experiment = experiment
         self.historical = historical
-        self.simulation = self.data=='simulation'
-        self.spike_data=kwargs['spike_data'] if "spike_data" in kwargs.keys() else False
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
         self.ckpt_path = os.path.join('./ckpt/', self.data)
@@ -341,11 +337,11 @@ class FeatureGeneratorExplainer(Experiment):
             self.feature_dist_1=self.feature_dist
 
         # TODO: instead of hard coding read from json
-        if self.data=='simulation':
+        if 'simulation' in self.data:
             if not self.learned_risk:
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
-                if self.spike_data:
+                if self.data=='simulation_spike':
                     self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
                 else:
                     self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
@@ -360,11 +356,13 @@ class FeatureGeneratorExplainer(Experiment):
                 self.feature_map = feature_map_ghg
                 self.risk_predictor = self.risk_predictor.to(self.device)
 
-    def run(self, train,n_epochs, samples_to_analyze, plot=True, sanity_check=None):
+    def run(self, train,n_epochs, samples_to_analyze, plot=True, sanity_check=None, **kwargs):
         """ Run feature generator experiment
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
+
         """
         testset = list(self.test_loader.dataset)
+        cv = kwargs['cv'] if 'cv' in kwargs.keys() else 0
         if train and self.generator_type!='carry_forward_generator':
            self.train(n_features=self.timeseries_feature_size, n_epochs=n_epochs)
            return 0
@@ -379,7 +377,7 @@ class FeatureGeneratorExplainer(Experiment):
                 raise RuntimeError('No saved checkpoint for this model')
 
             else:
-                if not self.data=='simulation':
+                if not 'simulation' in self.data:
                     if sanity_check == "randomized_param": # Do not load learnt parameters if doing experiment with randomized parameters
                         self.risk_predictor.load_state_dict(
                             torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
@@ -466,14 +464,14 @@ class FeatureGeneratorExplainer(Experiment):
                         # self.risk_predictor.eval()
                         # _, _, precision, auc, correct_label = test_model_rt(self.risk_predictor, self.test_loader)
 
-            print("\nRisk predictor model AUC:%.2f"%(auc))
+            print("\n ** Risk predictor model AUC:%.2f"%(auc))
 
-            if self.data=='simulation':
-                if self.spike_data==True:
-                    with open(os.path.join('./data_generator/data/simulated_data/thresholds_test.pkl'), 'rb') as f:
+            if 'simulation' in self.data:
+                if self.data=='simulation_spike':
+                    with open(os.path.join('./data/simulated_spike_data/thresholds_test.pkl'), 'rb') as f:
                         th = pkl.load(f)
 
-                    with open(os.path.join('./data_generator/data/simulated_data/gt_test.pkl'), 'rb') as f:
+                    with open(os.path.join('./data/simulated_spike_data/gt_test.pkl'), 'rb') as f:
                         gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
                 else:
                     with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
@@ -516,7 +514,7 @@ class FeatureGeneratorExplainer(Experiment):
             nt = len(tvec)
             sensitivity_analysis = np.zeros((signal.shape))
             sensitivity_start = time.time()
-            if not self.data=='simulation':
+            if not 'simulation' in self.data:
                 if self.data=='mimic' or self.data=='ghg':
                     self.risk_predictor.train()
                     for t_ind,t in enumerate(tvec):
@@ -564,7 +562,7 @@ class FeatureGeneratorExplainer(Experiment):
             self.risk_predictor.eval()
             if self.data=='mimic':
                 signals_to_analyze = range(0, self.timeseries_feature_size)
-            elif self.data=='simulation':
+            elif 'simulation' in self.data:
                 signals_to_analyze = range(0,3)
             elif self.data=='ghg':
                 signals_to_analyze = range(0,15)
@@ -582,7 +580,7 @@ class FeatureGeneratorExplainer(Experiment):
             else:
                 lime_exp = BaselineExplainer(self.train_loader, self.valid_loader, self.test_loader,
                                              self.feature_size, data_class=self.patient_data,
-                                             data=self.data, baseline_method='lime',spike_data=self.spike_data)
+                                             data=self.data, baseline_method='lime')
                 importance_labels = {}
                 for sub_ind, sample_ID in enumerate(samples_to_analyze):
                     print('Fetching importance results for sample %d' % sample_ID)
@@ -592,7 +590,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                     top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = self.plot_baseline(
                         sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=self.data, plot=plot, 
-                        gt_importance_subj=gt_importance[sample_ID] if self.data == 'simulation' else None,lime_imp=lime_imp,tvec=tvec)
+                        gt_importance_subj=gt_importance[sample_ID] if self.data == 'simulation' else None,lime_imp=lime_imp,tvec=tvec,cv=cv)
                     all_FFC_importance.append(importance)
                     all_AFO_importance.append(importance_occ_aug)
                     all_FO_importance.append(importance_occ)
@@ -645,7 +643,8 @@ class FeatureGeneratorExplainer(Experiment):
                         json.dump(importance_labels, f)
         return np.array(all_FFC_importance), np.array(all_AFO_importance), np.array(all_FO_importance), np.array(all_lime_importance), sensitivity_analysis
 
-    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, plot=True,  n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None,tvec=None):
+
+    def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, plot=False,  n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None,tvec=None,**kwargs):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
         :param signals_to_analyze: list of signals to include in importance analysis
@@ -662,9 +661,8 @@ class FeatureGeneratorExplainer(Experiment):
         signals, label_o = testset[subject]
         if data=='mimic':
             print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
-        #if tvec is None:
+        
         tvec = range(1,signals.shape[1])
-
         importance = np.zeros((self.timeseries_feature_size, len(tvec)))
         mean_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
         std_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
@@ -727,17 +725,13 @@ class FeatureGeneratorExplainer(Experiment):
         print('Execution time of FFC for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FFC_exe_time)), np.std(np.array(FFC_exe_time))) )
         print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
         print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
-        if self.spike_data:
-            datafile='simulation_spike'
-        # else:
-        #     datafile = data
-        # lime_exp = BaselineExplainer(self.train_loader, self.valid_loader, self.test_loader,
-        #                                      self.feature_size, data_class=self.patient_data,
-        #                                      data=self.data, baseline_method='lime')
-        # lime_imp = lime_exp.run(train=True, n_epochs=100, samples_to_analyze=[subject])
-        with open(os.path.join('/scratch/gobi1/sana/TSX_results/',data,'results_'+str(subject)+'.pkl'), 'wb') as f:
-        #with open(os.path.join('/scratch/gobi1/sana/TSX_results/simulation/', 'results_' + str(subject) + '.pkl'), 'wb') as f:
-        #with open(os.path.join('./examples',data,'results_'+str(subject)+'.pkl'),'wb') as f:
+
+        if 'cv' in kwargs.keys():
+            cv = kwargs['cv']
+        else:
+            cv= 0
+
+        with open(os.path.join('/scratch/gobi1/shalmali/',data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
         ## Plot heatmaps
         import seaborn as sns
@@ -748,12 +742,12 @@ class FeatureGeneratorExplainer(Experiment):
             heatmap_fig = plt.figure(figsize=(15, 1) if data=='simulation' else (16,9))
             plt.yticks(rotation=0)
             imp_plot = sns.heatmap(all_importances[imp_plot_ind], yticklabels=feature_map[data], square=True if data=='mimic' else False)#, vmin=0, vmax=1)
-            heatmap_fig.savefig(os.path.join('/scratch/gobi1/sana/TSX_results/',data, 'heatmap_'+str(subject)+'_'+all_importance_labels[imp_plot_ind]+'.pdf'))
+            heatmap_fig.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results/',data, 'heatmap_'+str(subject)+'_'+all_importance_labels[imp_plot_ind]+'.pdf'))
         if data=='simulation':
                 heatmap_gt = plt.figure(figsize=(20, 1))
                 plt.yticks(rotation=0)
                 imp_plot = sns.heatmap(gt_importance_subj, yticklabels=feature_map[data])
-                heatmap_gt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results/',data, 'heatmap_'+str(subject)+'_ground_truth.pdf'))
+                heatmap_gt.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results/',data, 'heatmap_'+str(subject)+'_ground_truth.pdf'))
         if not plot:
             return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
@@ -815,32 +809,31 @@ class FeatureGeneratorExplainer(Experiment):
             ax2.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, hatch='/', label='%s score: %.3f' % (self.feature_map[imp_f], importance[imp_f, imp_t]))
             # ax2.annotate('%.2f'%importance[imp_f, imp_t], (imp_t-.5, importance[imp_f, imp_t]+.1), fontsize=26, fontweight='bold')
         pos = ax2.get_position() # get the original position
-        ax2.text(pos.x0 - .2, pos.y0 +.1, 'FFC', transform=ax2.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        ax2.text(pos.x0 - .22, pos.y0 +.1, 'FFC', transform=ax2.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
 
-        # if self.data=='simulation':
-        #     gt_importance_subj = gt_importance[subject,:]
         if not gt_importance_subj is None:
             # Shade the state on simulation data plots
             if gt_importance_subj.shape[0]==3:
                 gt_importance_subj =gt_importance_subj.transpose(1,0)
-            if not self.spike_data:
+            if not self.data=='simulation_spike':
                 for ax in [ax1]:#, ax2, ax3, ax4, ax5]:
                     prev_color = 'g' if np.argmax(gt_importance_subj[:, 1])<np.argmax(gt_importance_subj[:, 2]) else 'y'
                     for ttt in range(1,len(t)+1):
-                        if gt_importance_subj[ttt, 1]==1:
+                        if gt_importance_subj[ttt,1]==1:
                             ax.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
                             prev_color = 'g'
-                        elif gt_importance_subj[ttt, 2]==1:
+                        elif gt_importance_subj[ttt,2]==1:
                             ax.axvspan(ttt-1,ttt,facecolor='y',alpha=0.3)
                             prev_color = 'y'
                         elif not prev_color is None:
                             ax.axvspan(ttt - 1, ttt, facecolor=prev_color, alpha=0.3)
             else:
+                
                 for ttt in range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
                         ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
-
+                '''
                 for ttt in  range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
                         ax2.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
@@ -852,6 +845,8 @@ class FeatureGeneratorExplainer(Experiment):
                 for ttt in range(1,len(t)+1):
                     if gt_importance_subj[ttt]==1:
                         ax4.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
+                '''
+                #print('not plotting ground truth for spike data')
 
 
         # Augmented feature occlusion
@@ -873,7 +868,7 @@ class FeatureGeneratorExplainer(Experiment):
                             label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ_aug[imp_f, imp_t]))
             # ax3.annotate('%.2f' % importance_occ_aug[imp_f, imp_t], (imp_t-.5, importance_occ_aug[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
         pos = ax3.get_position() # get the original position
-        ax3.text(pos.x0 - .2, pos.y0 +.1, 'AFO', transform=ax3.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        ax3.text(pos.x0 - .22, pos.y0 +.1, 'AFO', transform=ax3.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
         # Feature occlusion
         for ind, sig in max_imp_occ[0:n_feats_to_plot]:
@@ -960,12 +955,12 @@ class FeatureGeneratorExplainer(Experiment):
         f.set_figwidth(60)
         #plt.savefig(os.path.join('./examples',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')#,
                     #bbox_inches='tight')
-        plt.savefig(os.path.join('/scratch/gobi1/sana/TSX_results',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')
+        plt.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')
         fig_legend = plt.figure(figsize=(13, 1.2))
         handles, labels = ax1.get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         #fig_legend.savefig(os.path.join('./examples', data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
-        fig_legend.savefig(os.path.join('/scratch/gobi1/sana/TSX_results',data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
+        fig_legend.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results',data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
         return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
     def final_reported_plots(self, samples_to_analyze):
@@ -1236,7 +1231,7 @@ class FeatureGeneratorExplainer(Experiment):
             tvec = range(1,signal.shape[1])
 
         for t in tvec:
-            if self.simulation:
+            if 'simulation' in self.data:
                 if not learned_risk:
                     risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
                 else:
@@ -1271,7 +1266,7 @@ class FeatureGeneratorExplainer(Experiment):
                 predicted_signal_conditional = signal[:,0:t+1].clone()
                 predicted_signal_conditional[:, -1] = x_hat_t_cond
 
-                if self.simulation and not learned_risk:
+                if 'simulation' in self.data and not learned_risk:
                     # predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
                     conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.cpu().detach().numpy(), t)
                 else:
@@ -1323,7 +1318,7 @@ class FeatureGeneratorExplainer(Experiment):
         if tvec is None:
             tvec = range(1,signal.shape[1])
         for t in tvec:
-            if self.simulation:
+            if 'simulation' in self.data:
                 if not learned_risk:
                     risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
                 else:
@@ -1372,7 +1367,7 @@ class FeatureGeneratorExplainer(Experiment):
                     predicted_signal = signal[:,0:t+self.generator.prediction_size].clone()
                     predicted_signal[:,t:t+self.generator.prediction_size] = predicted_signal_t.view(-1, 1)
 
-                if self.simulation:
+                if 'simulation' in self.data:
                     if not learned_risk:
                         predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
                     else:

@@ -23,7 +23,7 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
 # Filter requirements.
 order = 6
 fs = 30.0       # sample rate, Hz
-cutoff = 6.8 # desired cutoff frequency of the filter, Hz
+cutoff = 4 # desired cutoff frequency of the filter, Hz
 
 # Get the filter coefficients so we can check its frequency response.
 b, a = butter_lowpass(cutoff, fs, order)
@@ -237,14 +237,14 @@ if __name__=='__main__':
     n_samples = 3000
     x_train_n,y_train,x_test_n,y_test,thresholds_train,thresholds_test, gt_importance_train, gt_importance_test = main(n_samples=n_samples, plot=False)
     print(x_train_n.shape)
-    if not os.path.exists('./data_generator/data/simulated_data'):
-        os.mkdir('./data_generator/data/simulated_data')
-    save_data('./data_generator/data/simulated_data/x_train.pkl', x_train_n)
-    save_data('./data_generator/data/simulated_data/y_train.pkl', y_train)
-    save_data('./data_generator/data/simulated_data/x_test.pkl', x_test_n)
-    save_data('./data_generator/data/simulated_data/y_test.pkl', y_test)
-    save_data('./data_generator/data/simulated_data/thresholds_train.pkl', thresholds_train)
-    save_data('./data_generator/data/simulated_data/thresholds_test.pkl', thresholds_test)
-    save_data('./data_generator/data/simulated_data/gt_train.pkl', gt_importance_train)
-    save_data('./data_generator/data/simulated_data/gt_test.pkl', gt_importance_test)
+    if not os.path.exists('./data/simulated_spike_data'):
+        os.mkdir('./data/simulated_spike_data')
+    save_data('./data/simulated_spike_data/x_train.pkl', x_train_n)
+    save_data('./data/simulated_spike_data/y_train.pkl', y_train)
+    save_data('./data/simulated_spike_data/x_test.pkl', x_test_n)
+    save_data('./data/simulated_spike_data/y_test.pkl', y_test)
+    save_data('./data/simulated_spike_data/thresholds_train.pkl', thresholds_train)
+    save_data('./data/simulated_spike_data/thresholds_test.pkl', thresholds_test)
+    save_data('./data/simulated_spike_data/gt_train.pkl', gt_importance_train)
+    save_data('./data/simulated_spike_data/gt_test.pkl', gt_importance_test)
     print(gt_importance_train.shape)

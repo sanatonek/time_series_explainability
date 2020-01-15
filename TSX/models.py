@@ -231,7 +231,7 @@ class EncoderRNN(nn.Module):
                                        nn.LeakyReLU(),
                                        #nn.Dropout(0.5),
                                        nn.Linear(200, 1))
-        elif data=='simulation':
+        elif 'simulation' in data:
             self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
                                        nn.ReLU(),
                                        nn.Dropout(0.5),
