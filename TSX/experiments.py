@@ -20,6 +20,8 @@ import lime
 import lime.lime_tabular
 from TSX.temperature_scaling import ModelWithTemperature
 
+USER = 'sana'
+
 font={'family': 'normal','weight': 'bold','size':82}
 matplotlib.rc('font',**font)
 #generic plot configs
@@ -696,7 +698,7 @@ class FeatureGeneratorExplainer(Experiment):
                         torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind),self.generator_type))))
 
             t0 = time.time()
-            label, importance[i, :] = self._get_feature_importance_FFC( signals, sig_ind=sig_ind, n_samples=10, learned_risk=self.learned_risk)
+            label, importance[i, :] = self._get_feature_importance_FFC( signals, sig_ind=sig_ind, n_samples=50, learned_risk=self.learned_risk)
             # label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
             #     signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)#,tvec=tvec)
             t1 = time.time()
@@ -731,7 +733,7 @@ class FeatureGeneratorExplainer(Experiment):
         else:
             cv= 0
 
-        with open(os.path.join('/scratch/gobi1/shalmali/',data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
+        with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
         ## Plot heatmaps
         import seaborn as sns
@@ -742,12 +744,12 @@ class FeatureGeneratorExplainer(Experiment):
             heatmap_fig = plt.figure(figsize=(15, 1) if data=='simulation' else (16,9))
             plt.yticks(rotation=0)
             imp_plot = sns.heatmap(all_importances[imp_plot_ind], yticklabels=feature_map[data], square=True if data=='mimic' else False)#, vmin=0, vmax=1)
-            heatmap_fig.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results/',data, 'heatmap_'+str(subject)+'_'+all_importance_labels[imp_plot_ind]+'.pdf'))
+            heatmap_fig.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, 'heatmap_'+str(subject)+'_'+all_importance_labels[imp_plot_ind]+'.pdf'))
         if data=='simulation':
                 heatmap_gt = plt.figure(figsize=(20, 1))
                 plt.yticks(rotation=0)
                 imp_plot = sns.heatmap(gt_importance_subj, yticklabels=feature_map[data])
-                heatmap_gt.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results/',data, 'heatmap_'+str(subject)+'_ground_truth.pdf'))
+                heatmap_gt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, 'heatmap_'+str(subject)+'_ground_truth.pdf'))
         if not plot:
             return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
@@ -955,12 +957,12 @@ class FeatureGeneratorExplainer(Experiment):
         f.set_figwidth(60)
         #plt.savefig(os.path.join('./examples',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')#,
                     #bbox_inches='tight')
-        plt.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')
+        plt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results'%USER,data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')
         fig_legend = plt.figure(figsize=(13, 1.2))
         handles, labels = ax1.get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         #fig_legend.savefig(os.path.join('./examples', data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
-        fig_legend.savefig(os.path.join('/scratch/gobi1/shalmali/TSX_results',data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
+        fig_legend.savefig(os.path.join('/scratch/gobi1/%s/TSX_results'%USER,data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
         return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
     def final_reported_plots(self, samples_to_analyze):
@@ -1170,7 +1172,7 @@ class FeatureGeneratorExplainer(Experiment):
                 k_count+=1
 
             plt.tight_layout()
-            plt.savefig('/scratch/gobi1/shalmali/ghg/feature_imp_ghg_%d.pdf'%(subject),dpi=300,orientation='landscape')
+            plt.savefig('/scratch/gobi1/%s/TSX_results/ghg/feature_imp_ghg_%d.pdf'%(USER, subject),dpi=300,orientation='landscape')
 
             fig, ax_list = plt.subplots(1,len(tvec),figsize=(8,2))
             k_count=0
@@ -1183,7 +1185,7 @@ class FeatureGeneratorExplainer(Experiment):
                 k_count+=1
 
             plt.tight_layout()
-            plt.savefig('/scratch/gobi1/shalmali/ghg/feature_occ_ghg_%d.pdf'%(subject),dpi=300,orientation='landscape')
+            plt.savefig('/scratch/gobi1/%s/TSX_results/ghg/feature_occ_ghg_%d.pdf'%(USER, subject),dpi=300,orientation='landscape')
  
             fig, ax_list = plt.subplots(1,len(tvec),figsize=(8,2))
             k_count=0
@@ -1197,7 +1199,7 @@ class FeatureGeneratorExplainer(Experiment):
                 k_count+=1
 
             plt.tight_layout()
-            plt.savefig('/scratch/gobi1/shalmali/ghg/feature_imp_comb_ghg_%d.pdf'%(subject),dpi=300,orientation='landscape')
+            plt.savefig('/scratch/gobi1/%s/TSX_results/ghg/feature_imp_comb_ghg_%d.pdf'%(USER, subject),dpi=300,orientation='landscape')
 
 
             with open('./results/ghg_mse.pkl','wb') as f:
@@ -1293,9 +1295,10 @@ class FeatureGeneratorExplainer(Experiment):
             probability_all = torch.Tensor([(1-risk), risk])
             # print(probability_subsection)
             # print(probability_all)
-            div = torch.nn.functional.kl_div(probability_all, probability_subsection)
+            div = (probability_all * (probability_all / probability_subsection).log()).sum()
+            # div = torch.nn.functional.kl_div(probability_all, probability_subsection)
             # print('KL divergence: ', div)
-            imp = -1*div
+            imp = div
 
             # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))
             # conditional_entropy = np.mean(-1*(np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks))) - (np.multiply((1-conditional_predicted_risks), np.log2(1-conditional_predicted_risks))))
