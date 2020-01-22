@@ -322,9 +322,9 @@ def load_data(batch_size, path='./data/', **kwargs):
     p_data.train_data = p_data.train_data[:,features,:]
     p_data.test_data = p_data.test_data[:,features,:]
     p_data.feature_size = len(features)
-    #x_train = x_train[:,features,:]
-    #x_test = x_test[:,features,:]
-    n_train = int(0.8 * len(x_train))
+    x_train = p_data.train_data[:,features,:]
+    x_test = p_data.test_data[:,features,:]
+    n_train = int(0.8 * len(p_data.train_data))
     if 'cv' in kwargs.keys():
         kf = KFold(n_splits=5, random_state=42)
         train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
@@ -466,6 +466,7 @@ def test_cond(mean, covariance, sig_ind, x_ind):
     mean_cond = mean_1 + torch.bmm(cov_1_2, (x_ind - mean[:, sig_ind]).unsqueeze(-1)) / cov_2_2
     covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
     return mean_cond, covariance_cond
+
 
 
 

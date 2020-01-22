@@ -358,6 +358,113 @@ class FeatureGeneratorExplainer(Experiment):
                 self.feature_map = feature_map_ghg
                 self.risk_predictor = self.risk_predictor.to(self.device)
 
+    def select_top_features(self, samples_to_analyze, sub_features = [[0],[1],[2]], alpha=0.01):
+        check_path = glob.glob(os.path.join(self.ckpt_path,'*_generator.pt'))[0]
+        selected_subgroups = {}
+        if not os.path.exists(check_path):
+            raise RuntimeError('No saved checkpoint for this model')
+
+        if not 'simulation' in self.data:
+            self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_RNN.pt')))
+            self.risk_predictor.to(self.device)
+            self.risk_predictor.eval()
+            _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
+        else: #simulated data
+            if self.learned_risk:
+                self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
+                self.risk_predictor.to(self.device)
+                self.risk_predictor.eval()
+                _, _, _, auc,  _ = test_model_rt(self.risk_predictor, self.test_loader)
+        print("\n ** Risk predictor model AUC:%.2f"%(auc))
+
+        testset = list(self.test_loader.dataset)
+        if 'simulation' in self.data:
+            if self.data=='simulation_spike':
+                with open(os.path.join('./data/simulated_spike_data/thresholds_test.pkl'), 'rb') as f:
+                    th = pkl.load(f)
+                with open(os.path.join('./data/simulated_spike_data/gt_test.pkl'), 'rb') as f:
+                    gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+            else:
+                with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
+                    gt_importance = pkl.load(f)
+
+            #For simulated data this is the last entry - end of 48 hours that's the actual outcome
+            label = np.array([x[1][-1] for x in testset])
+            high_risk = np.where(label==1)[0]
+            if len(samples_to_analyze)==0:
+                samples_to_analyze = np.random.choice(range(len(label)), len(label), replace=False)
+        else:
+            gt_importance = None
+            if self.data=='ghg':
+                label = np.array([x[1][-1] for x in testset])
+                high_risk = np.arange(label.shape[0])
+                samples_to_analyze = np.random.choice(high_risk, len(high_risk), replace=False)
+
+
+        print('\n********** Visualizing a few samples **********')
+        self.risk_predictor.to(self.device)
+        self.risk_predictor.eval()
+        if self.data=='mimic':
+            signals_to_analyze = range(0, self.timeseries_feature_size)
+        elif 'simulation' in self.data:
+            signals_to_analyze = range(0,3)
+        elif self.data=='ghg':
+            signals_to_analyze = range(0,15)
+
+        if self.data=='ghg':
+            self.replace_and_predict(signals_to_analyze, sensitivity_analysis, data=self.data, tvec=tvec)
+
+        else:
+            for sub_ind, sample_ID in enumerate(samples_to_analyze):
+                print('Fetching importance results for sample %d' % sample_ID)
+                if not os.path.exists('./examples'):
+                    os.mkdir('./examples')
+                if not os.path.exists(os.path.join('./examples',self.data)):
+                    os.mkdir(os.path.join('./examples',self.data))
+
+                testset = list(self.test_loader.dataset)
+                signals, label_o = testset[sample_ID]
+                if self.data=='mimic':
+                    print('Did this patient die? ', {1: 'yes', 0: 'no'}[label_o.item()])
+                self.generator.load_state_dict(
+                    torch.load(os.path.join('./ckpt/%s/%s.pt' % (self.data, self.generator_type))))
+
+                import itertools
+                tvec = range(1,signals.shape[1])
+                imps= []
+                top_subfeatures = []
+                # sub_groups = []
+                for t in tvec:
+                    loss = []
+                    # Greedy algorithm to select sub_group
+                    sub_groups = list(itertools.chain.from_iterable(itertools.combinations(list(range(signals.shape[-2])), r)
+                                                              for r in range(signals.shape[-2] + 1)))[1:]
+                    for sub_group in sub_groups:
+                        imp = self._get_feature_importance_FFC(signals, sig_ind=sub_group, n_samples=50,
+                                                               learned_risk=self.learned_risk, at_time=t)
+                        imps.append(imp)
+                        # sub_groups.append(sub_group)
+                        loss.append(imp + alpha*len(sub_group))
+                    top_subfeatures.append(sub_groups[np.argmin(loss)])
+
+
+                # importance = []
+                # for i, sig_ind in enumerate(sub_features):
+                #     label, subset_importance = self._get_feature_importance_FFC( signals, sig_ind=sig_ind, n_samples=50, learned_risk=self.learned_risk)
+                #     importance.append(subset_importance)
+                # importance = np.stack(importance)
+                #
+                # top_subfeatures = []
+                # for each_time in range(importance.shape[1]):
+                #     best = np.argmin(importance[:,each_time])
+                #     top_subfeatures.append(sub_features[best])
+                # # print(top_subfeatures)
+
+                with open(os.path.join('/scratch/gobi1/%s/TSX_results/' % USER, self.data, 'top_features_' + str(sample_ID) + '.pkl'), 'wb') as f:
+                    pkl.dump(top_subfeatures, f, protocol=pkl.HIGHEST_PROTOCOL)
+                selected_subgroups[sample_ID] = top_subfeatures
+        return selected_subgroups
+
     def run(self, train,n_epochs, samples_to_analyze, plot=True, sanity_check=None, **kwargs):
         """ Run feature generator experiment
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
@@ -645,7 +752,6 @@ class FeatureGeneratorExplainer(Experiment):
                         json.dump(importance_labels, f)
         return np.array(all_FFC_importance), np.array(all_AFO_importance), np.array(all_FO_importance), np.array(all_lime_importance), sensitivity_analysis
 
-
     def plot_baseline(self, subject, signals_to_analyze, sensitivity_analysis_importance, retain_style=False, plot=False,  n_important_features=3,data='mimic',gt_importance_subj=None,lime_imp=None,tvec=None,**kwargs):
         """ Plot importance score across all baseline methods
         :param subject: ID of the subject to analyze
@@ -666,6 +772,7 @@ class FeatureGeneratorExplainer(Experiment):
         
         tvec = range(1,signals.shape[1])
         importance = np.zeros((self.timeseries_feature_size, len(tvec)))
+        importance_cond = np.zeros((self.timeseries_feature_size, len(tvec)))
         mean_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
         std_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
         importance_occ = np.zeros((self.timeseries_feature_size, len(tvec)))
@@ -698,7 +805,7 @@ class FeatureGeneratorExplainer(Experiment):
                         torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind),self.generator_type))))
 
             t0 = time.time()
-            label, importance[i, :] = self._get_feature_importance_FFC( signals, sig_ind=sig_ind, n_samples=50, learned_risk=self.learned_risk)
+            label, importance_cond[i, :], importance[i,:] = self._get_feature_importance_FFC( signals, sig_ind=[sig_ind], n_samples=50, learned_risk=self.learned_risk)
             # label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
             #     signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)#,tvec=tvec)
             t1 = time.time()
@@ -724,6 +831,9 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
+        import scipy
+        importance = scipy.special.softmax(importance, axis=0)
+        importance_cond = scipy.special.softmax(-1*importance_cond, axis=0)
         print('Execution time of FFC for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FFC_exe_time)), np.std(np.array(FFC_exe_time))) )
         print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
         print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
@@ -734,7 +844,7 @@ class FeatureGeneratorExplainer(Experiment):
             cv= 0
 
         with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
-            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
         ## Plot heatmaps
         import seaborn as sns
         sns.set()
@@ -1224,89 +1334,125 @@ class FeatureGeneratorExplainer(Experiment):
         print("Training time for %s = "%(self.generator_type), time.time()-train_start_time)
 
 
-    def _get_feature_importance_FFC(self, signal, sig_ind, n_samples=10, learned_risk=True, tvec=None):
+    def _get_feature_importance_FFC(self, signal, sig_ind, n_samples=10, learned_risk=True, tvec=None, at_time=None):
         self.generator.eval()
         # signal = signal.to(self.device)
         risks = []
         importance = []
+        importance_FFC = []
         if tvec is None:
             tvec = range(1,signal.shape[1])
 
-        for t in tvec:
+        if at_time is None:
+            for t in tvec:
+                if 'simulation' in self.data:
+                    if not learned_risk:
+                        risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
+                    else:
+                        risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t+1)).item()
+                else:
+                    risk = self.risk_predictor(signal[:,0:t+self.generator.prediction_size].view(1, signal.shape[0], t+self.generator.prediction_size)).item()
+
+                generator_predicted_risks = []
+                conditional_predicted_risks = []
+
+                # dist_mean, dist_covariance = self.generator.likelihood_distribution(signal[:, :t].unsqueeze(0))
+                # dist = torch.distributions.multivariate_normal.MultivariateNormal(loc=dist_mean, covariance_matrix=dist_covariance)
+                # mean_cond, covariance_cond = test_cond(dist_mean, dist_covariance, sig_ind, signal[sig_ind,t].unsqueeze(0).to(self.device))
+                # dist_cond = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond[:,:,0],
+                #                                                                        covariance_matrix=covariance_cond)
+                for _ in range(n_samples):
+                    # Replace signal with random sample from the distribution if feature_occlusion==True,
+                    # else use the generator model to estimate the value
+                    # x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
+
+                    # Definition I
+                    # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
+                    # Definition II
+                    x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], sig_ind)
+                    x_hat_t_FFC, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind[0], 'm1')
+                    # print(signal[:,t], x_hat_t_cond)
+
+                    # x_hat_t = dist.rsample()
+                    # sample_cond = dist_cond.rsample()
+                    # x_hat_t_cond = torch.cat([sample_cond[0, 0:sig_ind], signal[sig_ind,t].unsqueeze(-1).to(self.device), sample_cond[0, sig_ind:]])
+
+                    predicted_signal_FFC = signal[:,0:t+1].clone()
+                    predicted_signal_FFC[:,-1] = x_hat_t_FFC
+                    predicted_signal_conditional = signal[:,0:t+1].clone()
+                    predicted_signal_conditional[:, -1] = x_hat_t_cond
+
+                    if 'simulation' in self.data and not learned_risk:
+                        predicted_risk_FFC = self.risk_predictor(predicted_signal_FFC.cpu().detach().numpy(), t)
+                        conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.cpu().detach().numpy(), t)
+                    else:
+                        predicted_risk_FFC = self.risk_predictor(predicted_signal_FFC.unsqueeze(0).to(self.device)).item()
+                        conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.unsqueeze(0).to(self.device)).item()
+                    generator_predicted_risks.append(predicted_risk_FFC)
+                    conditional_predicted_risks.append(conditional_predicted_risk)
+
+                # Definition I
+                # conditional_predicted_risks = np.array(conditional_predicted_risks)
+                # entropy = -1 * risk * np.log2(risk) - (1.-risk)*np.log2(1.-risk)
+                # conditional_entropy = -1 * np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks)) - np.multiply((1.-conditional_predicted_risks), np.log2((1.-conditional_predicted_risks)))
+                # imp = max(0,np.mean(conditional_entropy - entropy))
+
+                # Definition II
+                # generator_predicted_risks = np.array(generator_predicted_risks)
+                # conditional_predicted_risks = np.array(conditional_predicted_risks)
+                # entropy = -1*(np.mean(generator_predicted_risks)*np.log2(np.mean(generator_predicted_risks))) - (np.mean(1.-generator_predicted_risks) * np.log2(np.mean(1.-generator_predicted_risks)))
+                # conditional_entropy = -1*(np.mean(conditional_predicted_risks)*np.log2(np.mean(conditional_predicted_risks))) - (np.mean(1.-conditional_predicted_risks) * np.log2(np.mean(1.-conditional_predicted_risks)))
+                # imp = entropy - conditional_entropy
+
+                # KL divergence
+                probability_subsection = torch.Tensor([1-np.mean(conditional_predicted_risk), np.mean(conditional_predicted_risk)])
+                probability_subsection_FFC = torch.Tensor([1-np.mean(generator_predicted_risks), np.mean(generator_predicted_risks)])
+                probability_all = torch.Tensor([(1-risk), risk])
+                # print(probability_subsection)
+                # print(probability_all)
+                div = (probability_all * (probability_all / probability_subsection).log()).sum()
+                div_FFC = (probability_subsection_FFC * (probability_subsection_FFC / probability_all).log()).sum()
+                # div = torch.nn.functional.kl_div(probability_all, probability_subsection)
+                # print('KL divergence: ', div)
+                imp = div
+
+                # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))
+                # conditional_entropy = np.mean(-1*(np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks))) - (np.multiply((1-conditional_predicted_risks), np.log2(1-conditional_predicted_risks))))
+                importance.append(imp)
+                importance_FFC.append(div_FFC)
+                risks.append(risk)
+            return risks, importance, importance_FFC
+        else:
             if 'simulation' in self.data:
                 if not learned_risk:
-                    risk = self.risk_predictor(signal.cpu().detach().numpy(), t)
+                    risk = self.risk_predictor(signal.cpu().detach().numpy(), at_time)
                 else:
-                    risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t+1)).item()
+                    risk = self.risk_predictor(signal[:, 0:at_time + 1].view(1, signal.shape[0], at_time + 1)).item()
             else:
-                risk = self.risk_predictor(signal[:,0:t+self.generator.prediction_size].view(1, signal.shape[0], t+self.generator.prediction_size)).item()
+                risk = self.risk_predictor(signal[:, 0:at_time + self.generator.prediction_size]
+                                           .view(1, signal.shape[0], at_time + self.generator.prediction_size)).item()
 
-            generator_predicted_risks = []
             conditional_predicted_risks = []
-
-            # dist_mean, dist_covariance = self.generator.likelihood_distribution(signal[:, :t].unsqueeze(0))
-            # dist = torch.distributions.multivariate_normal.MultivariateNormal(loc=dist_mean, covariance_matrix=dist_covariance)
-            # mean_cond, covariance_cond = test_cond(dist_mean, dist_covariance, sig_ind, signal[sig_ind,t].unsqueeze(0).to(self.device))
-            # dist_cond = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond[:,:,0],
-            #                                                                        covariance_matrix=covariance_cond)
             for _ in range(n_samples):
                 # Replace signal with random sample from the distribution if feature_occlusion==True,
                 # else use the generator model to estimate the value
-                # x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
-
-                # Definition I
-                # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
-                # Definition II
-                x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
-
-                # x_hat_t = dist.rsample()
-                # sample_cond = dist_cond.rsample()
-                # x_hat_t_cond = torch.cat([sample_cond[0, 0:sig_ind], signal[sig_ind,t].unsqueeze(-1).to(self.device), sample_cond[0, sig_ind:]])
-
-                # predicted_signal = signal[:,0:t+1].clone()
-                # predicted_signal[:,-1] = x_hat_t
-                predicted_signal_conditional = signal[:,0:t+1].clone()
+                x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :at_time].unsqueeze(0), signal[:, at_time], sig_ind)
+                predicted_signal_conditional = signal[:, 0:at_time + 1].clone()
                 predicted_signal_conditional[:, -1] = x_hat_t_cond
 
                 if 'simulation' in self.data and not learned_risk:
-                    # predicted_risk = self.risk_predictor(predicted_signal.cpu().detach().numpy(), t)
-                    conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.cpu().detach().numpy(), t)
+                    conditional_predicted_risk = self.risk_predictor(
+                        predicted_signal_conditional.cpu().detach().numpy(), at_time)
                 else:
-                    # predicted_risk = self.risk_predictor(predicted_signal.unsqueeze(0).to(self.device)).item()
-                    conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.unsqueeze(0).to(self.device)).item()
-                # generator_predicted_risks.append(predicted_risk)
+                    conditional_predicted_risk = self.risk_predictor(
+                        predicted_signal_conditional.unsqueeze(0).to(self.device)).item()
                 conditional_predicted_risks.append(conditional_predicted_risk)
 
-            # Definition I
-            # conditional_predicted_risks = np.array(conditional_predicted_risks)
-            # entropy = -1 * risk * np.log2(risk) - (1.-risk)*np.log2(1.-risk)
-            # conditional_entropy = -1 * np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks)) - np.multiply((1.-conditional_predicted_risks), np.log2((1.-conditional_predicted_risks)))
-            # imp = max(0,np.mean(conditional_entropy - entropy))
-
-            # Definition II
-            # generator_predicted_risks = np.array(generator_predicted_risks)
-            # conditional_predicted_risks = np.array(conditional_predicted_risks)
-            # entropy = -1*(np.mean(generator_predicted_risks)*np.log2(np.mean(generator_predicted_risks))) - (np.mean(1.-generator_predicted_risks) * np.log2(np.mean(1.-generator_predicted_risks)))
-            # conditional_entropy = -1*(np.mean(conditional_predicted_risks)*np.log2(np.mean(conditional_predicted_risks))) - (np.mean(1.-conditional_predicted_risks) * np.log2(np.mean(1.-conditional_predicted_risks)))
-            # imp = entropy - conditional_entropy
-
             # KL divergence
-            probability_subsection = torch.Tensor([1-np.mean(conditional_predicted_risk), np.mean(conditional_predicted_risk)])
-            probability_all = torch.Tensor([(1-risk), risk])
-            # print(probability_subsection)
-            # print(probability_all)
+            probability_subsection = torch.Tensor([1 - np.mean(conditional_predicted_risk), np.mean(conditional_predicted_risk)])
+            probability_all = torch.Tensor([(1 - risk), risk])
             div = (probability_all * (probability_all / probability_subsection).log()).sum()
-            # div = torch.nn.functional.kl_div(probability_all, probability_subsection)
-            # print('KL divergence: ', div)
-            imp = div
-
-            # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))
-            # conditional_entropy = np.mean(-1*(np.multiply(conditional_predicted_risks, np.log2(conditional_predicted_risks))) - (np.multiply((1-conditional_predicted_risks), np.log2(1-conditional_predicted_risks))))
-            importance.append(imp)
-
-            risks.append(risk)
-        return risks, importance
-
+            return div
 
     def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True, tvec=None, method='m1'):
         self.generator.eval()

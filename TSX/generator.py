@@ -221,6 +221,32 @@ class JointFeatureGenerator(torch.nn.Module):
         mean, covariance = self.likelihood_distribution(past)
         likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean, covariance_matrix=covariance)
         return likelihood.rsample()
+
+    def forward_conditional(self, past, current, sig_inds):
+        if current.shape[-1]==len(sig_inds):
+            return current, current
+        past = past.to(self.device)
+        current = current.to(self.device)
+        if len(current.shape) is 1:
+            current = current.unsqueeze(0)
+        mean, covariance = self.likelihood_distribution(past)  # P(X_t|X_0:t-1)
+        sig_inds_comp = list(set(range(past.shape[-2]))-set(sig_inds))
+        ind_len = len(sig_inds)
+        ind_len_not = len(sig_inds_comp)
+        x_ind = current[:, sig_inds].view(-1,ind_len)
+        mean_1 = mean[:, sig_inds_comp].view(-1,ind_len_not)  # torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
+        cov_1_2 = covariance[:, sig_inds_comp, :][:,:,sig_inds].view(-1,ind_len_not, ind_len)        #torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]),1).unsqueeze(-1)
+        cov_2_2 = covariance[:, sig_inds, :][:,:,sig_inds].view(-1,ind_len, ind_len)   #covariance[:, sig_ind, sig_ind]
+        cov_1_1 = covariance[:, sig_inds_comp, :][:,:,sig_inds_comp].view(-1,ind_len_not, ind_len_not)   #torch.cat(([covariance[:, 0:sig_ind, :], covariance[:, sig_ind + 1:, :]]), 1)
+                                                                #cov_1_1 = torch.cat(([cov_1_1[:, :, 0:sig_ind], cov_1_1[:, :, sig_ind + 1:]]), 2)
+        mean_cond = mean_1 + torch.bmm( (torch.bmm(cov_1_2, torch.inverse(cov_2_2))), (x_ind - mean[:, sig_inds]).view(-1,ind_len,1)).squeeze(-1)
+        covariance_cond = cov_1_1 - torch.bmm( torch.bmm(cov_1_2, torch.inverse(cov_2_2)), torch.transpose(cov_1_2, 2, 1) )  #torch.transpose(cov_1_2, 2, 1)) / cov_2_2
+        likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond.squeeze(-1),
+                                                                               covariance_matrix=covariance_cond)
+        sample = likelihood.rsample()
+        full_sample = current.clone()
+        full_sample[:,sig_inds_comp] = sample
+        return full_sample, mean[:,sig_inds_comp]
     
 
 class DLMGenerator(torch.nn.Module):

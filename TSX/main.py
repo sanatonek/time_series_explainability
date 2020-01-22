@@ -68,7 +68,6 @@ def main(experiment, train, uncertainty_score, data, generator_type, predictor_m
     #         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=[i,i+1,i+2,i+3,i+4], plot=False)
     else:
         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data],cv=cv)
-
     # span = []
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # # # import matplotlib.pyplot as plt
