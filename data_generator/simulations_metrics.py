@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from sklearn import metrics
 import pickle as pkl
 import glob
+import os,sys
 
 def parse_lime_results(arr,Tt,n_features):
     lime_res = np.zeros((n_features,Tt))
@@ -24,9 +25,11 @@ def parse_lime_results(arr,Tt,n_features):
 
 
 #preprocess before metric collection
-data='simulation_spike'
-#filelist = glob.glob('/scratch/gobi1/shalmali/'+data+'/results_*.pkl')
-filelist = glob.glob('/scratch/gobi1/sana/TSX_results/simulation_non_stationary/results_*.pkl')
+data='simulation'
+fpath='/scratch/gobi1/shalmali/TSX_results/'
+filelist = glob.glob(os.path.join(fpath,data,'results_*cv_0.pkl'))
+#print(filelist)
+#filelist = glob.glob('/scratch/gobi1/sana/TSX_results/simulation_non_stationary/results_*.pkl')
 
 N=len(filelist)
 with open(filelist[0],'rb') as f:
@@ -44,6 +47,13 @@ precision_ffc=[]
 recall_ffc=[]
 auc_ffc=[]
 auprc_ffc=[]
+
+tpr_cond=[]
+fpr_cond=[]
+precision_cond=[]
+recall_cond=[]
+auc_cond=[]
+auprc_cond=[]
 
 tpr_afo=[]
 fpr_afo=[]
@@ -86,6 +96,7 @@ for cv in range(1):
     #for n,file in enumerate(filelist):
     y_true=np.zeros(n_features*N*Tt)
     y_ffc=np.zeros(n_features*N*Tt)
+    y_cond=np.zeros(n_features*N*Tt)
     y_afo=np.zeros(n_features*N*Tt)
     y_suresh=np.zeros(n_features*N*Tt)
     y_sens=np.zeros(n_features*N*Tt)
@@ -94,6 +105,7 @@ for cv in range(1):
 
     y_binary_ffc=np.zeros(n_features*N*Tt)
     y_binary_afo=np.zeros(n_features*N*Tt)
+    y_binary_cond=np.zeros(n_features*N*Tt)
     y_binary_suresh=np.zeros(n_features*N*Tt)
     y_binary_sens=np.zeros(n_features*N*Tt)
     y_binary_lime=np.zeros(n_features*N*Tt)
@@ -120,6 +132,9 @@ for cv in range(1):
         
         with open(file,'rb') as f:
             arr = pkl.load(f)
+           
+        if len(arr.keys())<7:
+            continue
         #print(file)
         n_obs=Tt*n_features
 
@@ -134,6 +149,8 @@ for cv in range(1):
         y_ffc[nn*n_obs:(nn+1)*n_obs] = arr['FFC']['imp'].flatten()
         y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(1000*y_ffc[nn*n_obs:(nn+1)*n_obs]))
         y_afo[nn*n_obs:(nn+1)*n_obs] = arr['AFO']['imp'].flatten()
+        
+        y_cond[nn*n_obs:(nn+1)*n_obs] = arr['conditional']['imp'].flatten()
         y_suresh[nn*n_obs:(nn+1)*n_obs] = arr['Suresh_et_al']['imp'].flatten()
         y_sens[nn*n_obs:(nn+1)*n_obs] = arr['Sens']['imp'][:,1:].flatten()
         y_lime[nn*n_obs:(nn+1)*n_obs] = parse_lime_results(arr,Tt,n_features).flatten()
@@ -147,9 +164,9 @@ for cv in range(1):
         y_binary_ffc[y_binary_ffc>=th] = 1
         y_binary_ffc[y_binary_ffc<th] = 1
 
-        #y_binary_true_gen[nn*n_obs:(nn+1)*n_obs] = arr_true.flatten()
-        #y_binary_true_gen[y_binary_true_gen>=th] = 1
-        #y_binary_true_gen[y_binary_true_gen<th] = 1
+        y_binary_cond[nn*n_obs:(nn+1)*n_obs] = arr['conditional']['imp'].flatten()
+        y_binary_cond[y_binary_true_gen>=th] = 1
+        y_binary_cond[y_binary_true_gen<th] = 1
 
         y_binary_afo[nn*n_obs:(nn+1)*n_obs] = arr['AFO']['imp'].flatten()
         y_binary_afo[y_binary_afo>=th] = 1
@@ -170,6 +187,7 @@ for cv in range(1):
 
     #print metrics
     auc_ffc_cv= metrics.roc_auc_score(y_true, y_ffc)
+    auc_cond_cv= metrics.roc_auc_score(y_true, y_cond)
     auc_afo_cv= metrics.roc_auc_score(y_true, y_afo)
     auc_suresh_cv= metrics.roc_auc_score(y_true, y_suresh)
     auc_sens_cv= metrics.roc_auc_score(y_true, y_sens)
@@ -179,6 +197,7 @@ for cv in range(1):
 
     # recall/sensitivity
     report_ffc = metrics.classification_report(y_true, y_binary_ffc,output_dict=True)['1.0']
+    report_cond = metrics.classification_report(y_true, y_binary_cond,output_dict=True)['1.0']
     report_afo = metrics.classification_report(y_true, y_binary_afo,output_dict=True)['1.0']
     report_suresh = metrics.classification_report(y_true, y_binary_suresh,output_dict=True)['1.0']
     report_sens = metrics.classification_report(y_true, y_binary_sens,output_dict=True)['1.0']
@@ -189,6 +208,7 @@ for cv in range(1):
     # auprc
     auprc_ffc_cv= metrics.average_precision_score(y_true, y_ffc)
     auprc_afo_cv= metrics.average_precision_score(y_true, y_afo)
+    auprc_cond_cv= metrics.average_precision_score(y_true, y_cond)
     auprc_suresh_cv= metrics.average_precision_score(y_true, y_suresh)
     auprc_sens_cv= metrics.average_precision_score(y_true, y_sens)
     auprc_lime_cv= metrics.average_precision_score(y_true, y_lime)
@@ -214,6 +234,11 @@ for cv in range(1):
     recall_ffc.append(report_ffc['recall'])
     auc_ffc.append(auc_ffc_cv)
     auprc_ffc.append(auprc_ffc_cv)
+    
+    precision_cond.append(report_cond['precision'])
+    recall_cond.append(report_cond['recall'])
+    auc_cond.append(auc_cond_cv)
+    auprc_cond.append(auprc_cond_cv)
 
     precision_afo.append(report_afo['precision'])
     recall_afo.append(report_afo['recall'])
@@ -242,6 +267,7 @@ for cv in range(1):
     
 print('---------------------------------------------------thr:', th)
 print('FFC & ', round(np.mean(auc_ffc),4), '+-' ,round(np.std(auc_ffc),4) ,' & ',  round(np.mean(auprc_ffc),4),'+-',round(np.std(auprc_ffc),4) ,'\\\\')
+print('Cond & ', round(np.mean(auc_cond),4), '+-' ,round(np.std(auc_cond),4) ,' & ',  round(np.mean(auprc_cond),4),'+-',round(np.std(auprc_cond),4) ,'\\\\')
 print('AFO & ', round(np.mean(auc_afo),4), '+-' ,round(np.std(auc_afo),4) ,' & ',  round(np.mean(auprc_afo),4),'+-',round(np.std(auprc_afo),4) ,'\\\\')
 print('FO & ', round(np.mean(auc_fo),4), '+-' ,round(np.std(auc_fo),4) ,' & ',  round(np.mean(auprc_fo),4),'+-',round(np.std(auprc_fo),4) ,'\\\\')
 print('Sens & ', round(np.mean(auc_sens),4), '+-' ,round(np.std(auc_sens),4) ,' & ',  round(np.mean(auprc_sens),4),'+-',round(np.std(auprc_sens),4) ,'\\\\')

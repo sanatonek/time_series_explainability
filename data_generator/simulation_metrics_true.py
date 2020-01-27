@@ -22,8 +22,8 @@ def parse_lime_results(arr,Tt,n_features):
 
 
 #preprocess before metric collection
-data='simulation_non_stationary'
-filelist = glob.glob('/scratch/gobi1/sana/TSX_results/'+data+'/results_*.pkl')
+data='simulation'
+filelist = glob.glob('/scratch/gobi1/shalmali/TSX_results/'+data+'/results_*cv_0.pkl')
 
 N=len(filelist)
 with open(filelist[0],'rb') as f:
@@ -33,12 +33,14 @@ n_features,Tt = arr['FFC']['imp'].shape
 
 y_true=np.zeros(n_features*N*Tt)
 y_ffc=np.zeros(n_features*N*Tt)
+y_cond=np.zeros(n_features*N*Tt)
 y_afo=np.zeros(n_features*N*Tt)
 y_suresh=np.zeros(n_features*N*Tt)
 y_sens=np.zeros(n_features*N*Tt)
 y_lime=np.zeros(n_features*N*Tt)
 
 y_binary_ffc=np.zeros(n_features*N*Tt)
+y_binary_cond=np.zeros(n_features*N*Tt)
 y_binary_afo=np.zeros(n_features*N*Tt)
 y_binary_suresh=np.zeros(n_features*N*Tt)
 y_binary_sens=np.zeros(n_features*N*Tt)
