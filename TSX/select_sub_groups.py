@@ -58,7 +58,7 @@ def main(data, generator_type, all_samples, cv=0):
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
-        exp.select_top_features(samples_to_analyze = range(0, len(exp.test_loader.dataset) // 2))
+        exp.select_top_features(samples_to_analyze = range(0, len(exp.test_loader.dataset) // 2), sub_features=[[0], [1], [2], [0,1], [0,2], [1,2], [0,1,2]])
     else:
         exp.select_top_features(samples_to_analyze[data], sub_features=[[0], [1], [2], [0,1], [0,2], [1,2], [0,1,2]])
         # print(sub_groups[samples_to_analyze[2]])

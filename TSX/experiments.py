@@ -832,8 +832,10 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
         import scipy
-        importance = scipy.special.softmax(importance, axis=0)
-        importance_cond = scipy.special.softmax(-1*importance_cond, axis=0)
+        importance = -1*importance # 1./(1+np.exp(-2*importance))
+        #importance = scipy.special.softmax(importance, axis=0)
+        importance_cond = 1./(1+np.exp(-2*importance_cond))#1./(1+np.exp(10*importance_cond))
+        #importance_cond = scipy.special.softmax(-1*importance_cond, axis=0)
         print('Execution time of FFC for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FFC_exe_time)), np.std(np.array(FFC_exe_time))) )
         print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
         print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
@@ -1011,6 +1013,9 @@ class FeatureGeneratorExplainer(Experiment):
             if ref_ind not in important_signals:
                 important_signals.append(ref_ind)
             c = color_map[ref_ind]
+            #ax5.plot(importance_cond[ind,:], linewidth=3,
+            #         linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+            #         color=c, label='%s' % (self.feature_map[ref_ind]))
             ax5.plot(abs(sensitivity_analysis_importance[ind, 1:]), linewidth=3,
                      linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
                      color=c, label='%s' % (self.feature_map[ref_ind]))
@@ -1369,7 +1374,7 @@ class FeatureGeneratorExplainer(Experiment):
                     # Definition I
                     # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
                     # Definition II
-                    x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], sig_ind)
+                    x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
                     x_hat_t_FFC, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind[0], 'm1')
                     # print(signal[:,t], x_hat_t_cond)
 
@@ -1410,7 +1415,8 @@ class FeatureGeneratorExplainer(Experiment):
                 probability_all = torch.Tensor([(1-risk), risk])
                 # print(probability_subsection)
                 # print(probability_all)
-                div = (probability_all * (probability_all / probability_subsection).log()).sum()
+                # div = (probability_all * (probability_all / probability_subsection).log()).sum()
+                div = (probability_subsection * (probability_subsection / probability_all).log()).sum()
                 div_FFC = (probability_subsection_FFC * (probability_subsection_FFC / probability_all).log()).sum()
                 # div = torch.nn.functional.kl_div(probability_all, probability_subsection)
                 # print('KL divergence: ', div)
