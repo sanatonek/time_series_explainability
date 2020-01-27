@@ -22,7 +22,7 @@ import lime
 import lime.lime_tabular
 from TSX.temperature_scaling import ModelWithTemperature
 
-USER = 'sana'
+USER = 'shalmali'
 
 font={'family': 'normal','weight': 'bold','size':82}
 matplotlib.rc('font',**font)
