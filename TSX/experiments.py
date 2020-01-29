@@ -2,7 +2,7 @@ import torch
 import os,sys,glob
 from abc import ABC, abstractmethod
 from TSX.utils import train_reconstruction, test_reconstruction, train_model, train_model_rt, train_model_rt_rg, test, test_model_rt_rg, logistic, test_model_rt, test, test_cond
-from TSX.models import EncoderRNN, RiskPredictor, LR, RnnVAE
+from TSX.models import EncoderRNN, RiskPredictor, LR, AttentionModel
 from TSX.generator import FeatureGenerator, train_joint_feature_generator, train_feature_generator, CarryForwardGenerator, DLMGenerator, JointFeatureGenerator
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -138,6 +138,7 @@ class EncoderPredictor(Experiment):
             self.model = EncoderRNN(feature_size, encoding_size, rnn=rnn_type, regres=True, return_all=False,data=data)
         elif model=='LR':
             self.model = LR(feature_size)
+        self.attention_model = AttentionModel(encoding_size, feature_size, data)
         self.model_type = model
         self.experiment = experiment
         self.data = data
@@ -284,7 +285,7 @@ class BaselineExplainer(Experiment):
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, generator_type='RNN_generator', experiment='feature_generator_explainer', data='mimic', conditional=True,**kwargs):
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, generator_type='RNN_generator', predictor_model='RNN', experiment='feature_generator_explainer', data='mimic', conditional=True,**kwargs):
         """
         :param train_loader:
         :param valid_loader:
@@ -321,6 +322,7 @@ class FeatureGeneratorExplainer(Experiment):
         self.patient_data = patient_data
         self.experiment = experiment
         self.historical = historical
+        self.predictor_model = predictor_model
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
         self.ckpt_path = os.path.join('./ckpt/', self.data)
@@ -346,11 +348,15 @@ class FeatureGeneratorExplainer(Experiment):
                 if self.data=='simulation_spike':
                     self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
                 else:
-                    self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
+                    if self.predictor_model=='RNN':
+                        self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
+                        self.attention_risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
             self.feature_map = feature_map_simulation
         else:
             if self.data=='mimic':
-                self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True,data=data)
+                if self.predictor_model=='RNN':
+                    self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True,data=data)
+                    self.attention_risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=150, data=data)
                 self.feature_map = feature_map_mimic
                 self.risk_predictor = self.risk_predictor.to(self.device)
             elif self.data=='ghg':
@@ -511,8 +517,9 @@ class FeatureGeneratorExplainer(Experiment):
                         opt = torch.optim.Adam(self.risk_predictor.parameters(), lr=0.0001, weight_decay=1e-3)
                         train_model(self.risk_predictor, shuffled_trainloader, self.valid_loader, opt, n_epochs, self.device, self.experiment, data=self.data)
                     else:
-                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_RNN.pt')))
-
+                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_%s.pt'%self.predictor_model)))
+                        self.attention_risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
+                        self.attention_risk_predictor.to(self.device)
                     # Calibrate model
                     # self.risk_predictor = self.risk_predictor.to(self.device)
                     # _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
@@ -556,7 +563,10 @@ class FeatureGeneratorExplainer(Experiment):
                                            self.device, self.experiment, data=self.data)
                         else:
                             self.risk_predictor.load_state_dict(
-                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
+                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_%s.pt'%self.predictor_model)))
+                            self.attention_risk_predictor.load_state_dict(
+                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
+                        self.attention_risk_predictor.to(self.device)
 
                         # Calibrate model
                         # self.risk_predictor = self.risk_predictor.to(self.device)
@@ -773,6 +783,7 @@ class FeatureGeneratorExplainer(Experiment):
         tvec = range(1,signals.shape[1])
         importance = np.zeros((self.timeseries_feature_size, len(tvec)))
         importance_cond = np.zeros((self.timeseries_feature_size, len(tvec)))
+        attention_importance = np.zeros((self.timeseries_feature_size, len(tvec)))
         mean_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
         std_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
         importance_occ = np.zeros((self.timeseries_feature_size, len(tvec)))
@@ -825,13 +836,13 @@ class FeatureGeneratorExplainer(Experiment):
                                                                                                             n_samples=10,
                                                                                                             mode='augmented_feature_occlusion',
                                                                                                             learned_risk=self.learned_risk,tvec=tvec)
+            attention_importance[i,:] = self.attention_risk_predictor.get_attention_weights(signals.unsqueeze(0)).detach().cpu().numpy()[0,1:]
             AFO_exe_time.append(time.time()-t0)
             max_imp_FCC.append((i, max(importance[i, :])))
             max_imp_occ.append((i, max(importance_occ[i, :])))
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-        import scipy
         importance = -1*importance # 1./(1+np.exp(-2*importance))
         #importance = scipy.special.softmax(importance, axis=0)
         importance_cond = 1./(1+np.exp(-2*importance_cond))#1./(1+np.exp(10*importance_cond))
@@ -846,7 +857,10 @@ class FeatureGeneratorExplainer(Experiment):
             cv= 0
 
         with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
-            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj},f,protocol=pkl.HIGHEST_PROTOCOL)
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk},
+                      'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
+                      'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj,
+                      'attention':{'imp': attention_importance,'std':[]}}, f,protocol=pkl.HIGHEST_PROTOCOL)
         ## Plot heatmaps
         import seaborn as sns
         sns.set()
@@ -866,7 +880,7 @@ class FeatureGeneratorExplainer(Experiment):
             return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
 
-        f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
+        f, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(6)
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
         t = np.arange(signals.shape[1]-1)
         ## Pick the most influential signals and plot their importance over time
@@ -910,17 +924,17 @@ class FeatureGeneratorExplainer(Experiment):
             if ref_ind not in important_signals:
                 important_signals.append(ref_ind)
             c = color_map[ref_ind]
-            ax2.errorbar(t, importance[ind, :], yerr=std_predicted_risk[ind, :],
+            ax2.errorbar(t, 1./(1+np.exp(3*importance[ind, :])), yerr=std_predicted_risk[ind, :],
                          marker=markers[list(important_signals).index(ref_ind) % len(markers)],
                          markersize=9, markeredgecolor='k', linewidth=3, elinewidth=1,
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
                          label='%s' % (self.feature_map[ref_ind]))
         max_ts = importance.reshape(-1).argsort()[-1*n_output_importance:][::-1]
         max_ts = [(t//(importance.shape[-1]), t%(importance.shape[-1]) ) for t in max_ts]
-        for imp_f, imp_t in max_ts:
-            imp_f, imp_t = int(imp_f), int(imp_t)
-            c = color_map[imp_f]
-            ax2.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, hatch='/', label='%s score: %.3f' % (self.feature_map[imp_f], importance[imp_f, imp_t]))
+        # for imp_f, imp_t in max_ts:
+        #     imp_f, imp_t = int(imp_f), int(imp_t)
+        #     c = color_map[imp_f]
+        #     ax2.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, hatch='/', label='%s score: %.3f' % (self.feature_map[imp_f], importance[imp_f, imp_t]))
             # ax2.annotate('%.2f'%importance[imp_f, imp_t], (imp_t-.5, importance[imp_f, imp_t]+.1), fontsize=26, fontweight='bold')
         pos = ax2.get_position() # get the original position
         ax2.text(pos.x0 - .22, pos.y0 +.1, 'FFC', transform=ax2.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
@@ -975,11 +989,11 @@ class FeatureGeneratorExplainer(Experiment):
                          markersize=9, markeredgecolor='k', color=c, label='%s' % (self.feature_map[ref_ind]))
         max_ts = importance_occ_aug.reshape(-1).argsort()[-1 * n_output_importance:][::-1]
         max_ts = [(t // (importance_occ_aug.shape[-1]), t % (importance_occ_aug.shape[-1])) for t in max_ts]
-        for imp_f, imp_t in max_ts:
-            imp_f, imp_t = int(imp_f), int(imp_t)
-            c = color_map[imp_f]
-            ax3.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
-                            label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ_aug[imp_f, imp_t]))
+        # for imp_f, imp_t in max_ts:
+        #     imp_f, imp_t = int(imp_f), int(imp_t)
+        #     c = color_map[imp_f]
+        #     ax3.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
+        #                     label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ_aug[imp_f, imp_t]))
             # ax3.annotate('%.2f' % importance_occ_aug[imp_f, imp_t], (imp_t-.5, importance_occ_aug[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
         pos = ax3.get_position() # get the original position
         ax3.text(pos.x0 - .22, pos.y0 +.1, 'AFO', transform=ax3.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
@@ -998,11 +1012,11 @@ class FeatureGeneratorExplainer(Experiment):
 
         max_ts = importance_occ.reshape(-1).argsort()[-1 * n_output_importance:][::-1]
         max_ts = [(t // (importance_occ.shape[-1]), t % (importance_occ.shape[-1])) for t in max_ts]
-        for imp_f, imp_t in max_ts:
-            imp_f, imp_t = int(imp_f), int(imp_t)
-            c = color_map[imp_f]
-            ax4.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
-                            label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ[imp_f, imp_t]))
+        # for imp_f, imp_t in max_ts:
+        #     imp_f, imp_t = int(imp_f), int(imp_t)
+        #     c = color_map[imp_f]
+        #     ax4.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
+        #                     label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ[imp_f, imp_t]))
             # ax4.annotate('%.2f' % importance_occ[imp_f, imp_t], (imp_t-.5, importance_occ[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
         pos = ax4.get_position() # get the original position
         ax4.text(pos.x0 - .2, pos.y0 +.25, 'FO', transform=ax4.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
@@ -1013,9 +1027,6 @@ class FeatureGeneratorExplainer(Experiment):
             if ref_ind not in important_signals:
                 important_signals.append(ref_ind)
             c = color_map[ref_ind]
-            #ax5.plot(importance_cond[ind,:], linewidth=3,
-            #         linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
-            #         color=c, label='%s' % (self.feature_map[ref_ind]))
             ax5.plot(abs(sensitivity_analysis_importance[ind, 1:]), linewidth=3,
                      linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
                      color=c, label='%s' % (self.feature_map[ref_ind]))
@@ -1025,19 +1036,28 @@ class FeatureGeneratorExplainer(Experiment):
             sensitivity_analysis_importance = sensitivity_analysis_importance[:,1:]
         max_ts = sensitivity_analysis_importance.reshape(-1).argsort()[-1 * n_output_importance:][::-1]
         max_ts = [(t // (sensitivity_analysis_importance.shape[-1]), t % (sensitivity_analysis_importance.shape[-1])) for t in max_ts]
-        for imp_f, imp_t in max_ts:
-            imp_f, imp_t = int(imp_f), int(imp_t)
-            c = color_map[imp_f]
-            ax5.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
-                            label='%s score: %.3f' % (self.feature_map[imp_f], sensitivity_analysis_importance[imp_f, imp_t]))
-            # ax5.annotate('%.2f' % sensitivity_analysis_importance[imp_f, imp_t], (imp_t-.5, sensitivity_analysis_importance[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
+        # for imp_f, imp_t in max_ts:
+        #     imp_f, imp_t = int(imp_f), int(imp_t)
+        #     c = color_map[imp_f]
+        #     ax5.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
+        #                     label='%s score: %.3f' % (self.feature_map[imp_f], sensitivity_analysis_importance[imp_f, imp_t]))
+        #     ax5.annotate('%.2f' % sensitivity_analysis_importance[imp_f, imp_t], (imp_t-.5, sensitivity_analysis_importance[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
         pos = ax5.get_position() # get the original position 
         ax5.text(pos.x0 - .2, pos.y0 +.5, 'SA', transform=ax5.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+
+        # Attention
+        for ind, sig in max_imp_sen[0:n_feats_to_plot]:
+            ax6.plot(attention_importance[ind,:], linewidth=3,
+                    linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+                    color=c, label='%s' % (self.feature_map[ref_ind]))
+        pos = ax6.get_position() # get the original position
+        ax6.text(pos.x0 - .2, pos.y0 +.5, 'ATT', transform=ax6.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+
 
         # Plot the original signals
         important_signals = np.unique(important_signals)
         max_plot = (torch.max(torch.abs(signals[important_signals,:]))).item()
-        # max_plot = max( max(signals.cpu().numpy()[important_signals,:]). abs(min(signals.cpu().numpy()[important_signals,:])))
+        # max_plot = max( max(signals.cpu().numpy()[ihandlesmportant_signals,:]). abs(min(signals.cpu().numpy()[important_signals,:])))
         for i, ref_ind in enumerate(important_signals):
             c = color_map[ref_ind]
             #ax1.plot(np.array(signals[ref_ind, 1:] / max(abs(signals[ref_ind, 1:]))), linewidth=3,
@@ -1049,13 +1069,13 @@ class FeatureGeneratorExplainer(Experiment):
                 ax1.plot(np.array(signals[ref_ind, 1:]), linewidth=3, linestyle=l_style[i % len(l_style)],
                          color=c, label='%s' % (self.feature_map[ref_ind]))
 
-        for ax in [ax1, ax2, ax3, ax4, ax5]:
+        for ax in [ax1, ax2, ax3, ax4, ax5, ax6]:
             ax.grid()
             ax.tick_params(axis='both', labelsize=36)
             if ax!=ax1:
                 ax.set_ylabel('importance', fontweight='bold', fontsize=32)
-                if self.data == 'simulation' and ax!=ax5:
-                    ax.set_ylim(top=.8)
+                if self.data == 'simulation' and ax!=ax5 and ax!=ax6:
+                    ax.set_ylim(top=1.)
 
 
         ax1.plot(np.array(label), '--', linewidth=6, label='Risk score', c='black')
@@ -1065,10 +1085,10 @@ class FeatureGeneratorExplainer(Experiment):
         # ax3.set_title('AFO', fontweight='bold', fontsize=34)
         # ax4.set_title('FO', fontweight='bold', fontsize=34)
         # ax5.set_title('Sensitivity analysis', fontweight='bold', fontsize=34)
-        ax5.set_xlabel('time', fontweight='bold', fontsize=32)
+        ax6.set_xlabel('time', fontweight='bold', fontsize=32)
         ax1.set_ylabel('signal value', fontweight='bold',fontsize=32)
 
-        f.set_figheight(25)
+        f.set_figheight(30)
         f.set_figwidth(60)
         #plt.savefig(os.path.join('./examples',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')#,
                     #bbox_inches='tight')

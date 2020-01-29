@@ -54,7 +54,7 @@ def main(experiment, train, uncertainty_score, data, generator_type, predictor_m
     elif experiment == 'risk_predictor':
         exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, configs['encoding_size'], rnn_type=configs['rnn_type'], data=data, model=predictor_model)
     elif experiment == 'feature_generator_explainer':
-        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
+        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data, predictor_model=predictor_model,
                                         generator_hidden_size=configs['encoding_size'], prediction_size=1, historical=(configs['historical']==1),
                                         generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type)
     elif experiment == 'lime_explainer':
@@ -63,11 +63,11 @@ def main(experiment, train, uncertainty_score, data, generator_type, predictor_m
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
-        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=range(0, len(exp.test_loader.dataset)//2), plot=True,cv=cv)
+        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=range(0, len(exp.test_loader.dataset)), plot=False, cv=cv)
     #     for i in range(0,len(exp.test_loader.dataset),5):
     #         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=[i,i+1,i+2,i+3,i+4], plot=False)
     else:
-        exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data],cv=cv)
+        exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data], cv=cv)
     # span = []
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # # # import matplotlib.pyplot as plt

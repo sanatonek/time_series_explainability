@@ -5,6 +5,7 @@
 
 
 import numpy as np
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 #get_ipython().run_line_magic('matplotlib', 'inline')
@@ -105,10 +106,12 @@ for cv in range(1):
     y_suresh_rk=np.zeros((n_features, N*Tt)).T
     y_sens_rk=np.zeros((n_features, N*Tt)).T
 
+
     for nn, n in enumerate(list(range(0,N))):
     #for nn,file in enumerate(filelist):
         #if cv==0:
-        file = glob.glob(os.path.join(fpath,data,'results_'+ str(n) + '.pkl'))[0]
+        # file = glob.glob(os.path.join(fpath,data,'results_'+ str(n) + '.pkl'))[0]
+        file = glob.glob(os.path.join('/scratch/gobi1/sana/TSX_results', data, 'results_*cv_1.pkl'))[0]
         #print(file)
         #else:
         #print(fpath, data)
@@ -129,6 +132,7 @@ for cv in range(1):
             y_true[nn*n_obs:(nn+1)*n_obs] = gt_array.flatten()
 
         y_ffc[nn*n_obs:(nn+1)*n_obs] = arr['FFC']['imp'].flatten()
+        y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(1000*y_ffc[nn*n_obs:(nn+1)*n_obs]))
         y_afo[nn*n_obs:(nn+1)*n_obs] = arr['AFO']['imp'].flatten()
         y_suresh[nn*n_obs:(nn+1)*n_obs] = arr['Suresh_et_al']['imp'].flatten()
         y_sens[nn*n_obs:(nn+1)*n_obs] = arr['Sens']['imp'][:,1:].flatten()
