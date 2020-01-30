@@ -100,11 +100,11 @@ auc_true_gen=[]
 auprc_true_gen=[]
 th=0.5
 
-for cv in range(1):
+for cv in [0,2]:
     #for th in thrs:
     #for n,file in enumerate(filelist):
     filelist=[]
-    for n in range(0,15):
+    for n in range(0,100):
         filelist.append(glob.glob(os.path.join(fpath,data,predictor_model,'results_'+str(n)+'cv_'+str(cv)+'.pkl'))[0])
     N=len(filelist)
 
@@ -140,7 +140,6 @@ for cv in range(1):
         #if cv==0:
         # file = glob.glob(os.path.join(fpath,data,'results_'+ str(n) + '.pkl'))[0]
         #file = glob.glob(os.path.join('/scratch/gobi1/sana/TSX_results', data, 'results_*cv_0.pkl'))[0]
-        print(fname)
         #else:
         #print(fpath, data)
         #print(os.path.join(fpath,data,'/results_'+str(n)+ 'cv_'+str(cv)+'.pkl'))
@@ -164,7 +163,6 @@ for cv in range(1):
         #    y_true[nn*n_obs:(nn+1)*n_obs] = gt_array.flatten()
 
         y_ffc[nn*n_obs:(nn+1)*n_obs] = np.clip(arr['FFC']['imp'].flatten(),0,10**8)
-        print(y_ffc)
         #y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(1000*y_ffc[nn*n_obs:(nn+1)*n_obs]))
         #y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(0.00000005*y_ffc[nn*n_obs:(nn+1)*n_obs]))
         #print(np.where(np.isnan(y_ffc)),np.where(np.isinf(y_ffc)))

@@ -26,7 +26,7 @@ def parse_lime_results(arr,Tt,n_features):
 #preprocess before metric collection
 data='simulation_spike'
 fpath='/scratch/gobi1/shalmali/TSX_results/'
-predictor_model='RNN'
+predictor_model='attention'
 filelist = glob.glob(os.path.join(fpath,data,predictor_model,'results_*cv_0.pkl'))
 #print(filelist)
 #filelist = glob.glob('/scratch/gobi1/sana/TSX_results/simulation_non_stationary/results_*.pkl')
@@ -99,7 +99,7 @@ auprc_true_gen=[]
 th=0.5
 
 n_features=1
-for cv in range(2, 3):
+for cv in [0,1,2]:
     #for th in thrs:
     #for n,file in enumerate(filelist):
     y_true=np.zeros(n_features*N*Tt)
@@ -130,8 +130,7 @@ for cv in range(2, 3):
 
 
     filelist = glob.glob(os.path.join(fpath,data,predictor_model,'results_*cv_'+str(cv)+'.pkl'))
-    for nn, n in enumerate(list(range(2,50))):
-    #for nn,file in enumerate(filelist):
+    for nn,fname in enumerate(filelist):
         #if cv==0:
         # file = glob.glob(os.path.join(fpath,data,'results_'+ str(n) + '.pkl'))[0]
         #file = glob.glob(os.path.join('/scratch/gobi1/sana/TSX_results', data, 'results_*cv_0.pkl'))[0]
@@ -139,9 +138,7 @@ for cv in range(2, 3):
         #else:
         #print(fpath, data)
         #print(os.path.join(fpath,data,'/results_'+str(n)+ 'cv_'+str(cv)+'.pkl'))
-        file = glob.glob(os.path.join(fpath,data,predictor_model,'results_'+str(n)+ 'cv_'+str(cv)+'.pkl'))[0]
-        
-        with open(file,'rb') as f:
+        with open(fname,'rb') as f:
             arr = pkl.load(f)
            
         if len(arr.keys())<7:
@@ -230,11 +227,11 @@ for cv in range(2, 3):
     auprc_true_gen.append(auprc_true_gen_cv)
     
 print('---------------------------------------------------thr:', th)
-print('FFC & ', round(np.mean(auc_ffc),4), '+-' ,round(np.std(auc_ffc),4) ,' & ',  round(np.mean(auprc_ffc),4),'+-',round(np.std(auprc_ffc),4) ,'\\\\')
-print('Cond & ', round(np.mean(auc_cond),4), '+-' ,round(np.std(auc_cond),4) ,' & ',  round(np.mean(auprc_cond),4),'+-',round(np.std(auprc_cond),4) ,'\\\\')
-print('AFO & ', round(np.mean(auc_afo),4), '+-' ,round(np.std(auc_afo),4) ,' & ',  round(np.mean(auprc_afo),4),'+-',round(np.std(auprc_afo),4) ,'\\\\')
-print('FO & ', round(np.mean(auc_fo),4), '+-' ,round(np.std(auc_fo),4) ,' & ',  round(np.mean(auprc_fo),4),'+-',round(np.std(auprc_fo),4) ,'\\\\')
-print('Sens & ', round(np.mean(auc_sens),4), '+-' ,round(np.std(auc_sens),4) ,' & ',  round(np.mean(auprc_sens),4),'+-',round(np.std(auprc_sens),4) ,'\\\\')
-print('Attention & ', round(np.mean(auc_att),4), '+-' ,round(np.std(auc_att),4) ,' & ',  round(np.mean(auprc_att),4),'+-',round(np.std(auprc_att),4) ,'\\\\')
-print('True Gen & ', round(np.mean(auc_true_gen),4), '+-' ,round(np.std(auc_true_gen),4) ,' & ',  round(np.mean(auprc_true_gen),4),'+-',round(np.std(auprc_true_gen),4) ,'\\\\')
+print('FFC & ', round(np.mean(auc_ffc),4), '$\pm$' ,round(np.std(auc_ffc),4) ,' & ',  round(np.mean(auprc_ffc),4),'$\pm$',round(np.std(auprc_ffc),4) ,'\\\\')
+print('Cond & ', round(np.mean(auc_cond),4), '$\pm$' ,round(np.std(auc_cond),4) ,' & ',  round(np.mean(auprc_cond),4),'$\pm$',round(np.std(auprc_cond),4) ,'\\\\')
+print('AFO & ', round(np.mean(auc_afo),4), '$\pm$' ,round(np.std(auc_afo),4) ,' & ',  round(np.mean(auprc_afo),4),'$\pm$',round(np.std(auprc_afo),4) ,'\\\\')
+print('FO & ', round(np.mean(auc_fo),4), '$\pm$' ,round(np.std(auc_fo),4) ,' & ',  round(np.mean(auprc_fo),4),'$\pm$',round(np.std(auprc_fo),4) ,'\\\\')
+print('Sens & ', round(np.mean(auc_sens),4), '$\pm$' ,round(np.std(auc_sens),4) ,' & ',  round(np.mean(auprc_sens),4),'$\pm$',round(np.std(auprc_sens),4) ,'\\\\')
+print('Attention & ', round(np.mean(auc_att),4), '$\pm$' ,round(np.std(auc_att),4) ,' & ',  round(np.mean(auprc_att),4),'$\pm$',round(np.std(auprc_att),4) ,'\\\\')
+print('True Gen & ', round(np.mean(auc_true_gen),4), '$\pm$' ,round(np.std(auc_true_gen),4) ,' & ',  round(np.mean(auprc_true_gen),4),'$\pm$',round(np.std(auprc_true_gen),4) ,'\\\\')
 

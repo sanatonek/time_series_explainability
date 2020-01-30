@@ -339,13 +339,14 @@ class FeatureGeneratorExplainer(Experiment):
                     if self.predictor_model == 'RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
                     elif self.predictor_model == 'attention':
-                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=50, data=data)
+                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=10, data=data)
+                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=10, data=data)
                 else:
                     if self.predictor_model == 'RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
                     elif self.predictor_model == 'attention':
                         self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
-            self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
+                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
             self.feature_map = feature_map_simulation
             self.risk_predictor = self.risk_predictor.to(self.device)
             self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
@@ -1001,7 +1002,7 @@ class FeatureGeneratorExplainer(Experiment):
             ax.tick_params(axis='both', labelsize=36)
             if ax!=ax1:
                 ax.set_ylabel('importance', fontweight='bold', fontsize=32)
-                if 'simulation' in self.data and ax!=ax5:# and ax!=ax6:
+                if 'simulation' in self.data and ax!=ax5 and ax!=ax6:
                     ax.set_ylim(top=1.)
 
 
