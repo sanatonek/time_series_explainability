@@ -138,7 +138,8 @@ class EncoderPredictor(Experiment):
             self.model = EncoderRNN(feature_size, encoding_size, rnn=rnn_type, regres=True, return_all=False,data=data)
         elif model=='LR':
             self.model = LR(feature_size)
-        self.attention_model = AttentionModel(encoding_size, feature_size, data)
+        elif model=='attention':
+            self.model = AttentionModel(encoding_size, feature_size, data)
         self.model_type = model
         self.experiment = experiment
         self.data = data
@@ -348,21 +349,21 @@ class FeatureGeneratorExplainer(Experiment):
                 if self.data=='simulation_spike':
                     self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
                 else:
-                    if self.predictor_model=='RNN':
-                        self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
-                        self.attention_risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
+                    self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
+            self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
             self.feature_map = feature_map_simulation
+            self.risk_predictor = self.risk_predictor.to(self.device)
+            self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
         else:
             if self.data=='mimic':
-                if self.predictor_model=='RNN':
-                    self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True,data=data)
-                    self.attention_risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=150, data=data)
+                self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True,data=data)
+                self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=150, data=data)
                 self.feature_map = feature_map_mimic
-                self.risk_predictor = self.risk_predictor.to(self.device)
             elif self.data=='ghg':
                 self.risk_predictor = EncoderRNN(self.input_size, hidden_size=500, rnn='LSTM', regres=True,data=data)
                 self.feature_map = feature_map_ghg
-                self.risk_predictor = self.risk_predictor.to(self.device)
+            self.risk_predictor = self.risk_predictor.to(self.device)
+            self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
 
     def select_top_features(self, samples_to_analyze, sub_features = [[0],[1],[2]], alpha=0.01):
         check_path = glob.glob(os.path.join(self.ckpt_path,'*_generator.pt'))[0]
@@ -517,17 +518,17 @@ class FeatureGeneratorExplainer(Experiment):
                         opt = torch.optim.Adam(self.risk_predictor.parameters(), lr=0.0001, weight_decay=1e-3)
                         train_model(self.risk_predictor, shuffled_trainloader, self.valid_loader, opt, n_epochs, self.device, self.experiment, data=self.data)
                     else:
-                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_%s.pt'%self.predictor_model)))
-                        self.attention_risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
-                        self.attention_risk_predictor.to(self.device)
+                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_RNN.pt')))
+                        self.attention_risk_predictor_attention.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
+                        # self.attention_risk_predictor.to(self.device)
                     # Calibrate model
                     # self.risk_predictor = self.risk_predictor.to(self.device)
                     # _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
                     # print('Precalibration auc: ', auc)
                     # self.risk_predictor = ModelWithTemperature(self.risk_predictor)
                     # self.risk_predictor.set_temperature(self.valid_loader)
-                        self.risk_predictor.to(self.device)
-                    self.risk_predictor.eval()
+                    self.risk_predictor.to(self.device).eval()
+                    self.risk_predictor_attention.to(self.device).eval()
                     _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
                     # print('Postcalibration auc: ', auc)
 
@@ -563,10 +564,9 @@ class FeatureGeneratorExplainer(Experiment):
                                            self.device, self.experiment, data=self.data)
                         else:
                             self.risk_predictor.load_state_dict(
-                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_%s.pt'%self.predictor_model)))
-                            self.attention_risk_predictor.load_state_dict(
+                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
+                            self.risk_predictor_attention.load_state_dict(
                                 torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
-                        self.attention_risk_predictor.to(self.device)
 
                         # Calibrate model
                         # self.risk_predictor = self.risk_predictor.to(self.device)
@@ -574,8 +574,8 @@ class FeatureGeneratorExplainer(Experiment):
                         # print('Precalibration auc: ', auc)
                         # self.risk_predictor = ModelWithTemperature(self.risk_predictor)
                         # self.risk_predictor.set_temperature(self.valid_loader)
-                        self.risk_predictor.to(self.device)
-                        self.risk_predictor.eval()
+                        self.risk_predictor.to(self.device).eval()
+                        self.risk_predictor_attention.to(self.device).eval()
                         _, _, _, auc,  _ = test_model_rt(self.risk_predictor, self.test_loader)
                         # print('Postcalibration auc: ', auc)
 
@@ -836,7 +836,7 @@ class FeatureGeneratorExplainer(Experiment):
                                                                                                             n_samples=10,
                                                                                                             mode='augmented_feature_occlusion',
                                                                                                             learned_risk=self.learned_risk,tvec=tvec)
-            attention_importance[i,:] = self.attention_risk_predictor.get_attention_weights(signals.unsqueeze(0)).detach().cpu().numpy()[0,1:]
+            attention_importance[i,:] = self.risk_predictor_attention.get_attention_weights(signals.unsqueeze(0)).detach().cpu().numpy()[0,1:].reshape(-1,)
             AFO_exe_time.append(time.time()-t0)
             max_imp_FCC.append((i, max(importance[i, :])))
             max_imp_occ.append((i, max(importance_occ[i, :])))
@@ -861,6 +861,10 @@ class FeatureGeneratorExplainer(Experiment):
                       'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
                       'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj,
                       'attention':{'imp': attention_importance,'std':[]}}, f,protocol=pkl.HIGHEST_PROTOCOL)
+
+        if not plot:
+            return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
+
         ## Plot heatmaps
         import seaborn as sns
         sns.set()
@@ -876,9 +880,6 @@ class FeatureGeneratorExplainer(Experiment):
                 plt.yticks(rotation=0)
                 imp_plot = sns.heatmap(gt_importance_subj, yticklabels=feature_map[data])
                 heatmap_gt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, 'heatmap_'+str(subject)+'_ground_truth.pdf'))
-        if not plot:
-            return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
-
 
         f, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(6)
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
