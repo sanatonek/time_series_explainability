@@ -347,7 +347,11 @@ class FeatureGeneratorExplainer(Experiment):
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
                 if self.data=='simulation_spike':
-                    self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
+                    if self.predictor_model=='RNN':
+                        self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
+                    else:
+                        self.risk_predictor = AttentionModel(feature_size=feature_size,hidden_size=50,data=data)
+                    self.attention_risk_predictor = AttentionModel(feature_size=feature_size,hidden_size=50,data=data)
                 else:
                     self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
             self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
@@ -857,7 +861,7 @@ class FeatureGeneratorExplainer(Experiment):
         else:
             cv= 10
 
-        with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
+        with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,self.predictor_model,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk},
                       'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
                       'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj,
