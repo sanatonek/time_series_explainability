@@ -780,7 +780,6 @@ class FeatureGeneratorExplainer(Experiment):
             cv = kwargs['cv']
         else:
             cv= 10
-        #print(gt_importance_subj)
         with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,self.predictor_model,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk},
                       'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
