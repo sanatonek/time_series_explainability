@@ -16,7 +16,8 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
 
 MIMIC_TEST_SAMPLES = list(range(70))
 SIMULATION_SAMPLES = [7, 23, 78, 95, 120, 157, 51, 11, 101, 48]
-samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
+#SIMULATION_SAMPLES = []
+samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':range(100)}
 
 
 def main(experiment, train, data, generator_type, predictor_model, all_samples,cv=0):
@@ -64,11 +65,10 @@ def main(experiment, train, data, generator_type, predictor_model, all_samples,c
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
-        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=list(range(359,len(exp.test_loader.dataset))),
+        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=list(range(0,len(exp.test_loader.dataset))),
                 plot=False, cv=cv)
     else:
         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
-
 
     # span = []
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
