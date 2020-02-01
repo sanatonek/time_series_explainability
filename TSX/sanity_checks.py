@@ -8,7 +8,8 @@ import json
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import pearsonr as pearson_corr
+from scipy.signal import correlate as correlate
+from scipy.stats import spearmanr
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone',
@@ -38,7 +39,7 @@ MIMIC_TEST_SAMPLES = [3095, 1971, 1778, 1477, 3022, 8, 262, 3437, 1534, 619, 207
                       # 712, 60, 2918, 3646, 1152, 4055, 3190, 3505, 3165, 977, 4058, 3913, 502, 2264, 3031, 2237, 4326,
                       # 1623, 144, 4171, 2029]
 
-SIMULATION_SAMPLES = [101, 48, 88]#, 192, 143, 166, 18, 58, 172, 132]
+SIMULATION_SAMPLES = np.random.choice(100, 80)#[101, 48]#, 88]#, 192, 143, 166, 18, 58, 172, 132]
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
 
 
@@ -93,17 +94,32 @@ def main(train, data, all_samples, check):
                 train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data], plot=False, sanity_check=check)
             FFC_importance, AFO_importance, FO_importance, lime_importance, sensitivity_analysis = exp.run(
                 train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data], plot=False)
-            FFC_corr, _ = pearson_corr(FFC_importance_rndm.reshape(-1,), FFC_importance.reshape(-1,))
-            AFO_corr, _ = pearson_corr(AFO_importance_rndm.reshape(-1,), AFO_importance.reshape(-1,))
-            FO_corr, _  = pearson_corr(FO_importance_rndm.reshape(-1,), FO_importance.reshape(-1,))
-            # lime_corr = pearson_corr(lime_importance_rndm.reshape(-1,), lime_importance.reshape(-1,))
-            sens_corr, _ = pearson_corr(sensitivity_analysis_rndm.reshape(-1,), sensitivity_analysis.reshape(-1,))
-            print(FFC_corr, AFO_corr, FO_corr, sens_corr)
+
+            FFC_importance_rndm = np.nan_to_num(FFC_importance_rndm)
+            AFO_importance_rndm = np.nan_to_num(AFO_importance_rndm)
+            FO_importance_rndm = np.nan_to_num(FO_importance_rndm)
+            sensitivity_analysis_rndm = np.nan_to_num(sensitivity_analysis_rndm)
+
+            FFC_corr = []
+            AFO_corr = []
+            FO_corr = []
+            sens_corr = []
+            for sig in range(len(FFC_importance)):
+                FFC_corr.append(spearmanr(FFC_importance_rndm[sig].reshape(-1,), FFC_importance[sig].reshape(-1,))[0])
+                AFO_corr.append(spearmanr(AFO_importance_rndm[sig].reshape(-1,), AFO_importance[sig].reshape(-1,))[0])
+                FO_corr.append(spearmanr(FO_importance_rndm[sig].reshape(-1,), FO_importance[sig].reshape(-1,))[0])
+                sens_corr.append(spearmanr(sensitivity_analysis_rndm[sig].reshape(-1,), sensitivity_analysis[sig].reshape(-1,))[0])
+
+            # FFC_corr, _ = pearson_corr(FFC_importance_rndm.reshape(-1,), FFC_importance.reshape(-1,))
+            # AFO_corr, _ = pearson_corr(AFO_importance_rndm.reshape(-1,), AFO_importance.reshape(-1,))
+            # FO_corr, _  = pearson_corr(FO_importance_rndm.reshape(-1,), FO_importance.reshape(-1,))
+            # # lime_corr = pearson_corr(lime_importance_rndm.reshape(-1,), lime_importance.reshape(-1,))
+            # sens_corr, _ = pearson_corr(sensitivity_analysis_rndm.reshape(-1,), sensitivity_analysis.reshape(-1,))
             with open('./output/%s_%s_check_correlations.txt'%(data, check), 'w') as f:
-                f.write('FFC: %f'%FFC_corr)
-                f.write('\nAFO: %f'%AFO_corr)
-                f.write('\nFO: %f'%FO_corr)
-                f.write('\nSensitivity analysis: %f'%sens_corr)
+                f.write('FFC: %f'%np.mean(FFC_corr))
+                f.write('\nAFO: %f'%np.mean(AFO_corr))
+                f.write('\nFO: %f'%np.mean(FO_corr))
+                f.write('\nSensitivity analysis: %f'%np.mean(sens_corr))
 
     elif check == 'randomized_model':
         exp_RNN = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
@@ -137,30 +153,34 @@ def main(train, data, all_samples, check):
             FO_distance.append(np.linalg.norm((FO_importance[s] - FO_importance_rndm[s])))
             AFO_distance.append(np.linalg.norm((AFO_importance[s] - AFO_importance_rndm[s])))
             sensitivity_distance.append(np.linalg.norm((sensitivity_analysis[s] - sensitivity_analysis_rndm[s])))
+        print("FFC correlation: %.3f +- %.3f" % (np.mean(FFC_corr), np.std(FFC_corr)))
+        print("AFO correlation: %.3f +- %.3f" % (np.mean(AFO_corr), np.std(AFO_corr)))
+        print("FO correlation: %.3f +- %.3f" % (np.mean(FO_corr), np.std(FO_corr)))
+        print("Sensitivity correlation: %.3f +- %.3f" % (np.mean(sens_corr), np.std(sens_corr)))
+
         print("FFC l2 distance: %.3f +- %.3f"%(np.mean(np.array(FFC_distance)),np.std(np.array(FFC_distance))) )
         print("AFO l2 distance: %.3f +- %.3f"%(np.mean(np.array(AFO_distance)),np.std(np.array(AFO_distance))))
         print("FO l2 distance: %.3f +- %.3f"%(np.mean(np.array(FO_distance)),np.std(np.array(FO_distance))))
         print("Sensitivity l2 distance: %.3f +- %.3f"%(np.mean(np.array(sensitivity_distance)),np.std(np.array(sensitivity_distance))))
 
-
-        f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
-        ax1.plot(FFC_importance[0,2,:], c='g', label='trained model')
-        ax1.plot(FFC_importance_rndm[0, 2, :], c='r', label=check)
-        ax1.set_title("FFC")
-        ax2.plot(AFO_importance[0,2,:], c='g', label='trained model')
-        ax2.plot(AFO_importance_rndm[0, 2, :], c='r', label=check)
-        ax2.set_title("AFO")
-        ax3.plot(FO_importance[0,2,:], c='g', label='trained model')
-        ax3.plot(FO_importance_rndm[0, 2, :], c='r', label=check)
-        ax3.set_title("FO")
-        ax4.plot(sensitivity_analysis[0,2,:], c='g', label='trained model')
-        ax4.plot(sensitivity_analysis_rndm[0, 2, :], c='r', label=check)
-        ax4.set_title("Sensitivity analysis")
-
-        ax1.legend()
-        f.set_figheight(15)
-        f.set_figwidth(20)
-        plt.savefig(os.path.join('./examples',data,'sanity_check_%s.pdf'%check), dpi=300, orientation='landscape')
+        # f, (ax1, ax2, ax3, ax4) = plt.subplots(4)
+        # ax1.plot(FFC_importance[0,2,:], c='g', label='trained model')
+        # ax1.plot(FFC_importance_rndm[0, 2, :], c='r', label=check)
+        # ax1.set_title("FFC")
+        # ax2.plot(AFO_importance[0,2,:], c='g', label='trained model')
+        # ax2.plot(AFO_importance_rndm[0, 2, :], c='r', label=check)
+        # ax2.set_title("AFO")
+        # ax3.plot(FO_importance[0,2,:], c='g', label='trained model')
+        # ax3.plot(FO_importance_rndm[0, 2, :], c='r', label=check)
+        # ax3.set_title("FO")
+        # ax4.plot(sensitivity_analysis[0,2,:], c='g', label='trained model')
+        # ax4.plot(sensitivity_analysis_rndm[0, 2, :], c='r', label=check)
+        # ax4.set_title("Sensitivity analysis")
+        #
+        # ax1.legend()
+        # f.set_figheight(15)
+        # f.set_figwidth(20)
+        # plt.savefig(os.path.join('./examples',data,'sanity_check_%s.pdf'%check), dpi=300, orientation='landscape')
 
 
 if __name__ == '__main__':
@@ -170,4 +190,5 @@ if __name__ == '__main__':
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--all_samples', action='store_true')
     args = parser.parse_args()
+    np.random.seed(123456)
     main(train=args.train, data=args.data, all_samples=args.all_samples, check=args.check)

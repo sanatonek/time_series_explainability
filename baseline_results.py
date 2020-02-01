@@ -36,6 +36,7 @@ def choose_scaling_param(data):
     filelist = glob.glob(os.path.join('/scratch/gobi1/%s/TSX_results' % USER, data, 'results_*cv_1.pkl'))
 
     N = len(filelist)
+    print(N)
     with open(filelist[0], 'rb') as f:
         arr = pkl.load(f)
 
@@ -53,7 +54,7 @@ def choose_scaling_param(data):
     auc = []
     scaling_params = [0.1, 1, 10, 100, 1e3, 1e5]
     for alpha in scaling_params:
-        y_ffc_scaled = 1. / (1. + np.exp(alpha * y_ffc))
+        y_ffc_scaled = 2. / (1. + np.exp(-1*alpha * y_ffc)) - 1.
         auc.append(auc_score(gt_importance.reshape(-1, ), y_ffc_scaled.reshape(-1, )))
 
     return scaling_params[np.argmax(auc)], auc
@@ -71,7 +72,7 @@ def main(data, alpha):
     auprc_sens = []
     auprc_lime = []
 
-    for cv in [0,1,2,3,4]:
+    for cv in [0, 1, 2, 3, 4]:
         filelist = glob.glob(os.path.join('/scratch/gobi1/%s/TSX_results'%USER, data, 'results_*cv_%s.pkl'%str(cv)))
 
         N = len(filelist)
@@ -92,7 +93,7 @@ def main(data, alpha):
             with open(file, 'rb') as f:
                 arr = pkl.load(f)
 
-            y_ffc[n, :, :] = 1./(1.+np.exp(alpha*arr['FFC']['imp']))
+            y_ffc[n, :, :] = 2./(1.+np.exp(-1*alpha*arr['FFC']['imp'])) - 1
             y_afo[n, :, :] = arr['AFO']['imp']
             y_suresh[n, :, :] = arr['Suresh_et_al']['imp']
             y_sens[n, :, :] = arr['Sens']['imp'][:, 1:]

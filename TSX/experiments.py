@@ -356,7 +356,10 @@ class FeatureGeneratorExplainer(Experiment):
             self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
         else:
             if self.data=='mimic':
-                self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True,data=data)
+                if self.predictor_model == 'RNN':
+                    self.risk_predictor = EncoderRNN(self.input_size, hidden_size=150, rnn='GRU', regres=True,data=data)
+                elif self.predictor_model == 'attention':
+                    self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=150, data=data)
                 self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=150, data=data)
                 self.feature_map = feature_map_mimic
             elif self.data=='ghg':
@@ -365,20 +368,20 @@ class FeatureGeneratorExplainer(Experiment):
             self.risk_predictor = self.risk_predictor.to(self.device)
             self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
 
-    def select_top_features(self, samples_to_analyze, sub_features = [[0],[1],[2]], alpha=0.01):
+    def select_top_features(self, samples_to_analyze, sub_features, alpha=0.01):
         check_path = glob.glob(os.path.join(self.ckpt_path,'*_generator.pt'))[0]
         selected_subgroups = {}
         if not os.path.exists(check_path):
             raise RuntimeError('No saved checkpoint for this model')
 
         if not 'simulation' in self.data:
-            self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_RNN.pt')))
+            self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_%s.pt'%self.predictor_model)))
             self.risk_predictor.to(self.device)
             self.risk_predictor.eval()
             _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
         else: #simulated data
             if self.learned_risk:
-                self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
+                self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_%s.pt'%self.predictor_model)))
                 self.risk_predictor.to(self.device)
                 self.risk_predictor.eval()
                 _, _, _, auc,  _ = test_model_rt(self.risk_predictor, self.test_loader)
@@ -437,22 +440,23 @@ class FeatureGeneratorExplainer(Experiment):
                     torch.load(os.path.join('./ckpt/%s/%s.pt' % (self.data, self.generator_type))))
 
                 import itertools
-                tvec = range(1,signals.shape[1])
-                imps= []
+                tvec = range(1, signals.shape[-1])
+                imps= np.zeros((len(sub_features), signals.shape[-1]-1))#[]
                 top_subfeatures = []
+                top_subfeatures_scores = []
                 # sub_groups = []
-                for t in tvec:
-                    loss = []
+                # for t in tvec:
+                #     loss = []
                     # Greedy algorithm to select sub_group
-                    sub_groups = list(itertools.chain.from_iterable(itertools.combinations(list(range(signals.shape[-2])), r)
-                                                              for r in range(signals.shape[-2] + 1)))[1:]
-                    for sub_group in sub_groups:
-                        imp = self._get_feature_importance_FFC(signals, sig_ind=sub_group, n_samples=50,
-                                                               learned_risk=self.learned_risk, at_time=t)
-                        imps.append(imp)
+                    # sub_groups = list(itertools.chain.from_iterable(itertools.combinations(list(range(signals.shape[-2])), r)
+                    #                                           for r in range(signals.shape[-2] + 1)))[1:]
+                for s, sub_group in enumerate(sub_features):
+                    _, _, imp = self._get_feature_importance_FFC(signals, sig_ind=sub_group, n_samples=50, learned_risk=self.learned_risk)
+                    imps[s,:] = imp
                         # sub_groups.append(sub_group)
-                        loss.append(imp + alpha*len(sub_group))
-                    top_subfeatures.append(sub_groups[np.argmin(loss)])
+                        # loss.append(imp + alpha*len(sub_group))
+                top_subfeatures.append([sub_features[top] for top in np.argmax(imps, axis=0)])
+                top_subfeatures_scores.append(np.min(imps, axis=0))
 
 
                 # importance = []
@@ -468,8 +472,8 @@ class FeatureGeneratorExplainer(Experiment):
                 # # print(top_subfeatures)
 
                 with open(os.path.join('/scratch/gobi1/%s/TSX_results/' % USER, self.data, 'top_features_' + str(sample_ID) + '.pkl'), 'wb') as f:
-                    pkl.dump(top_subfeatures, f, protocol=pkl.HIGHEST_PROTOCOL)
-                selected_subgroups[sample_ID] = top_subfeatures
+                    pkl.dump({'feauture_set':top_subfeatures, 'importance':top_subfeatures_scores}, f, protocol=pkl.HIGHEST_PROTOCOL)
+                selected_subgroups[sample_ID] = zip(top_subfeatures, top_subfeatures_scores)
         return selected_subgroups
 
     def run(self, train,n_epochs, samples_to_analyze, plot=True, sanity_check=None, **kwargs):
@@ -518,8 +522,8 @@ class FeatureGeneratorExplainer(Experiment):
                         opt = torch.optim.Adam(self.risk_predictor.parameters(), lr=0.0001, weight_decay=1e-3)
                         train_model(self.risk_predictor, shuffled_trainloader, self.valid_loader, opt, n_epochs, self.device, self.experiment, data=self.data)
                     else:
-                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_RNN.pt')))
-                        self.attention_risk_predictor_attention.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
+                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_%s.pt'%self.predictor_model)))
+                        self.risk_predictor_attention.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
                         # self.attention_risk_predictor.to(self.device)
                     # Calibrate model
                     # self.risk_predictor = self.risk_predictor.to(self.device)
@@ -564,7 +568,7 @@ class FeatureGeneratorExplainer(Experiment):
                                            self.device, self.experiment, data=self.data)
                         else:
                             self.risk_predictor.load_state_dict(
-                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
+                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_%s.pt'%self.predictor_model)))
                             self.risk_predictor_attention.load_state_dict(
                                 torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
 
@@ -843,10 +847,7 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-        importance = -1*importance # 1./(1+np.exp(-2*importance))
-        #importance = scipy.special.softmax(importance, axis=0)
         importance_cond = 1./(1+np.exp(-2*importance_cond))#1./(1+np.exp(10*importance_cond))
-        #importance_cond = scipy.special.softmax(-1*importance_cond, axis=0)
         print('Execution time of FFC for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FFC_exe_time)), np.std(np.array(FFC_exe_time))) )
         print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
         print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
@@ -854,14 +855,15 @@ class FeatureGeneratorExplainer(Experiment):
         if 'cv' in kwargs.keys():
             cv = kwargs['cv']
         else:
-            cv= 0
+            cv= 10
 
         with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk},
                       'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
                       'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj,
                       'attention':{'imp': attention_importance,'std':[]}}, f,protocol=pkl.HIGHEST_PROTOCOL)
-
+        
+        importance = 2./(1+np.exp(-5*importance)) - 1.
         if not plot:
             return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
@@ -881,7 +883,7 @@ class FeatureGeneratorExplainer(Experiment):
                 imp_plot = sns.heatmap(gt_importance_subj, yticklabels=feature_map[data])
                 heatmap_gt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, 'heatmap_'+str(subject)+'_ground_truth.pdf'))
 
-        f, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(6)
+        f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
         t = np.arange(signals.shape[1]-1)
         ## Pick the most influential signals and plot their importance over time
@@ -925,7 +927,7 @@ class FeatureGeneratorExplainer(Experiment):
             if ref_ind not in important_signals:
                 important_signals.append(ref_ind)
             c = color_map[ref_ind]
-            ax2.errorbar(t, 1./(1+np.exp(3*importance[ind, :])), yerr=std_predicted_risk[ind, :],
+            ax2.errorbar(t, importance[ind, :], yerr=std_predicted_risk[ind, :],
                          marker=markers[list(important_signals).index(ref_ind) % len(markers)],
                          markersize=9, markeredgecolor='k', linewidth=3, elinewidth=1,
                          linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)], color=c,
@@ -937,8 +939,8 @@ class FeatureGeneratorExplainer(Experiment):
         #     c = color_map[imp_f]
         #     ax2.axvspan(imp_t-1, imp_t+1, facecolor=c, alpha=0.3, hatch='/', label='%s score: %.3f' % (self.feature_map[imp_f], importance[imp_f, imp_t]))
             # ax2.annotate('%.2f'%importance[imp_f, imp_t], (imp_t-.5, importance[imp_f, imp_t]+.1), fontsize=26, fontweight='bold')
-        pos = ax2.get_position() # get the original position
-        ax2.text(pos.x0 - .22, pos.y0 +.1, 'FFC', transform=ax2.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        # pos = ax2.get_position() # get the original position
+        # ax2.text(pos.x0 - .22, pos.y0 +.1, 'FFC', transform=ax2.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
 
         if not gt_importance_subj is None:
@@ -996,8 +998,8 @@ class FeatureGeneratorExplainer(Experiment):
         #     ax3.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
         #                     label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ_aug[imp_f, imp_t]))
             # ax3.annotate('%.2f' % importance_occ_aug[imp_f, imp_t], (imp_t-.5, importance_occ_aug[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
-        pos = ax3.get_position() # get the original position
-        ax3.text(pos.x0 - .22, pos.y0 +.1, 'AFO', transform=ax3.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        # pos = ax3.get_position() # get the original position
+        # ax3.text(pos.x0 - .22, pos.y0 +.1, 'AFO', transform=ax3.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
         # Feature occlusion
         for ind, sig in max_imp_occ[0:n_feats_to_plot]:
@@ -1019,8 +1021,8 @@ class FeatureGeneratorExplainer(Experiment):
         #     ax4.axvspan(imp_t - 1, imp_t + 1, facecolor=c, alpha=0.3, hatch='/',
         #                     label='%s score: %.3f' % (self.feature_map[imp_f], importance_occ[imp_f, imp_t]))
             # ax4.annotate('%.2f' % importance_occ[imp_f, imp_t], (imp_t-.5, importance_occ[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
-        pos = ax4.get_position() # get the original position
-        ax4.text(pos.x0 - .2, pos.y0 +.25, 'FO', transform=ax4.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        # pos = ax4.get_position() # get the original position
+        # ax4.text(pos.x0 - .2, pos.y0 +.25, 'FO', transform=ax4.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
         # Sensitivity analysis
         for ind, sig in max_imp_sen[0:n_feats_to_plot]:
@@ -1044,15 +1046,15 @@ class FeatureGeneratorExplainer(Experiment):
         #                     label='%s score: %.3f' % (self.feature_map[imp_f], sensitivity_analysis_importance[imp_f, imp_t]))
         #     ax5.annotate('%.2f' % sensitivity_analysis_importance[imp_f, imp_t], (imp_t-.5, sensitivity_analysis_importance[imp_f, imp_t] + .1), fontsize=26, fontweight='bold')
         pos = ax5.get_position() # get the original position 
-        ax5.text(pos.x0 - .2, pos.y0 +.5, 'SA', transform=ax5.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        # ax5.text(pos.x0 - .2, pos.y0 +.5, 'SA', transform=ax5.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
         # Attention
-        for ind, sig in max_imp_sen[0:n_feats_to_plot]:
-            ax6.plot(attention_importance[ind,:], linewidth=3,
-                    linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
-                    color=c, label='%s' % (self.feature_map[ref_ind]))
-        pos = ax6.get_position() # get the original position
-        ax6.text(pos.x0 - .2, pos.y0 +.5, 'ATT', transform=ax6.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        # for ind, sig in max_imp_sen[0:n_feats_to_plot]:
+        #     ax6.plot(attention_importance[ind,:], linewidth=3,
+        #             linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+        #             color=c, label='%s' % (self.feature_map[ref_ind]))
+        # pos = ax6.get_position() # get the original position
+        # ax6.text(pos.x0 - .2, pos.y0 +.5, 'ATT', transform=ax6.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
 
         # Plot the original signals
@@ -1070,27 +1072,28 @@ class FeatureGeneratorExplainer(Experiment):
                 ax1.plot(np.array(signals[ref_ind, 1:]), linewidth=3, linestyle=l_style[i % len(l_style)],
                          color=c, label='%s' % (self.feature_map[ref_ind]))
 
-        for ax in [ax1, ax2, ax3, ax4, ax5, ax6]:
+        for ax in [ax1, ax2, ax3, ax4, ax5]:#, ax6]:
             ax.grid()
             ax.tick_params(axis='both', labelsize=36)
             if ax!=ax1:
                 ax.set_ylabel('importance', fontweight='bold', fontsize=32)
-                if self.data == 'simulation' and ax!=ax5 and ax!=ax6:
+                if self.data == 'simulation' and ax!=ax5:# and ax!=ax6:
                     ax.set_ylim(top=1.)
 
 
         ax1.plot(np.array(label), '--', linewidth=6, label='Risk score', c='black')
 
-        ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=34)
-        # ax2.set_title('FFC', fontweight='bold', fontsize=34) # TODO change the title depending on the type of generator is being used
-        # ax3.set_title('AFO', fontweight='bold', fontsize=34)
-        # ax4.set_title('FO', fontweight='bold', fontsize=34)
-        # ax5.set_title('Sensitivity analysis', fontweight='bold', fontsize=34)
-        ax6.set_xlabel('time', fontweight='bold', fontsize=32)
+        ax1.set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=40)
+        ax2.set_title('Feature importance FIT', fontweight='bold', fontsize=40)
+        ax3.set_title('Feature importance AFO', fontweight='bold', fontsize=40)
+        ax4.set_title('Feature importance FO', fontweight='bold', fontsize=40)
+        ax5.set_title('Feature importance Sensitivity analysis', fontweight='bold', fontsize=40)
+        ax5.set_xlabel('time', fontweight='bold', fontsize=32)
         ax1.set_ylabel('signal value', fontweight='bold',fontsize=32)
 
         f.set_figheight(30)
         f.set_figwidth(60)
+        plt.subplots_adjust(hspace=.6)
         #plt.savefig(os.path.join('./examples',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')#,
                     #bbox_inches='tight')
         plt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results'%USER,data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')
@@ -1142,7 +1145,7 @@ class FeatureGeneratorExplainer(Experiment):
                 ax1.tick_params(axis='both', labelsize=26)
             f.set_figheight(25)
             f.set_figwidth(30)
-            plt.subplots_adjust(hspace=0.5)
+            plt.subplots_adjust(hspace=1.)
             plt.savefig(os.path.join('./examples', self.data, 'baselines_%d_%s.pdf' % (subject, self.generator_type)), dpi=300,
                         orientation='landscape',
                         bbox_inches='tight')
@@ -1307,7 +1310,7 @@ class FeatureGeneratorExplainer(Experiment):
                         ax_list[t_num].set_title("day %d"%(int(t_val/4)))
                 k_count+=1
 
-            plt.tight_layout()
+            plt.tight_layout(pad=5.)
             plt.savefig('/scratch/gobi1/%s/TSX_results/ghg/feature_imp_ghg_%d.pdf'%(USER, subject),dpi=300,orientation='landscape')
 
             fig, ax_list = plt.subplots(1,len(tvec),figsize=(8,2))
@@ -1320,7 +1323,7 @@ class FeatureGeneratorExplainer(Experiment):
                         ax_list[t_num].set_title("day %d"%(t_val/4))
                 k_count+=1
 
-            plt.tight_layout()
+            plt.tight_layout(pad=5.)
             plt.savefig('/scratch/gobi1/%s/TSX_results/ghg/feature_occ_ghg_%d.pdf'%(USER, subject),dpi=300,orientation='landscape')
  
             fig, ax_list = plt.subplots(1,len(tvec),figsize=(8,2))
@@ -1334,7 +1337,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                 k_count+=1
 
-            plt.tight_layout()
+            plt.tight_layout(pad=5.)
             plt.savefig('/scratch/gobi1/%s/TSX_results/ghg/feature_imp_comb_ghg_%d.pdf'%(USER, subject),dpi=300,orientation='landscape')
 
 
@@ -1390,13 +1393,16 @@ class FeatureGeneratorExplainer(Experiment):
                 for _ in range(n_samples):
                     # Replace signal with random sample from the distribution if feature_occlusion==True,
                     # else use the generator model to estimate the value
-                    # x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
-
+                    x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
                     # Definition I
                     # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
                     # Definition II
                     x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
-                    x_hat_t_FFC, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind[0], 'm1')
+                    # x_hat_t_FFC, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind[0], 'm1')
+                    x_hat_t_FFC = signal[:,t].clone()
+                    # x_hat_t_FFC[sig_ind]=torch.Tensor([1])
+                    x_hat_t_FFC[sig_ind] = x_hat_t[0,sig_ind].detach().cpu()
+                    # print(x_hat_t_FFC)
                     # print(signal[:,t], x_hat_t_cond)
 
                     # x_hat_t = dist.rsample()
@@ -1438,9 +1444,9 @@ class FeatureGeneratorExplainer(Experiment):
                 # print(probability_all)
                 # div = (probability_all * (probability_all / probability_subsection).log()).sum()
                 div = (probability_subsection * (probability_subsection / probability_all).log()).sum()
-                div_FFC = (probability_subsection_FFC * (probability_subsection_FFC / probability_all).log()).sum()
-                # div = torch.nn.functional.kl_div(probability_all, probability_subsection)
-                # print('KL divergence: ', div)
+                # div_FFC = (probability_subsection_FFC * (probability_subsection_FFC / probability_all).log()).sum().item()
+                div_FFC = (probability_all * (probability_all/probability_subsection_FFC).log()).sum().item()
+                # div_FFC = torch.nn.functional.kl_div(probability_subsection, probability_all)
                 imp = div
 
                 # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))
