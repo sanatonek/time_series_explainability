@@ -18,7 +18,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
 
 MIMIC_TEST_SAMPLES = [3095, 1971, 1778, 1477, 3022, 8, 262, 3437, 1534, 619, 2076, 1801, 4006, 6, 1952, 2582, 4552]
 
-SIMULATION_SAMPLES = [51, 11, 101, 48]
+SIMULATION_SAMPLES = [7,23]#[7, 23, 78, 95, 120, 157, 51, 11, 101, 48]
 samples_to_analyze = {'mimic': MIMIC_TEST_SAMPLES, 'simulation': SIMULATION_SAMPLES, 'ghg': [], 'simulation_spike': []}
 
 
@@ -60,7 +60,8 @@ def main(data, generator_type, all_samples, cv=0):
         print('Number of test samples: ', len(exp.test_loader.dataset))
         exp.select_top_features(samples_to_analyze = range(0, len(exp.test_loader.dataset) // 2), sub_features=[[0], [1], [2], [0,1], [0,2], [1,2], [0,1,2]])
     else:
-        exp.select_top_features(samples_to_analyze[data], sub_features=[[0], [1], [2], [0,1], [0,2], [1,2], [0,1,2]])
+        imp = exp.select_top_features(samples_to_analyze[data], sub_features=[[0], [1], [2], [0,1], [0,2], [1,2], [0,1,2]])
+        print(imp[1])
         # print(sub_groups[samples_to_analyze[2]])
 
 
