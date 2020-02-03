@@ -350,11 +350,11 @@ class FeatureGeneratorExplainer(Experiment):
                     if self.predictor_model=='RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
                     else:
-                        self.risk_predictor = AttentionModel(feature_size=feature_size,hidden_size=50,data=data)
-                    self.attention_risk_predictor = AttentionModel(feature_size=feature_size,hidden_size=50,data=data)
+                        self.risk_predictor = AttentionModel(feature_size=feature_size,hidden_size=10,data=data)
+                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size,hidden_size=10,data=data)
                 else:
                     self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
-            self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
+                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
             self.feature_map = feature_map_simulation
             self.risk_predictor = self.risk_predictor.to(self.device)
             self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
@@ -398,6 +398,7 @@ class FeatureGeneratorExplainer(Experiment):
                     th = pkl.load(f)
                 with open(os.path.join('./data/simulated_spike_data/gt_test.pkl'), 'rb') as f:
                     gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+                    #print(gt_importance)
             else:
                 with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
                     gt_importance = pkl.load(f)
@@ -475,16 +476,17 @@ class FeatureGeneratorExplainer(Experiment):
                 #     top_subfeatures.append(sub_features[best])
                 # # print(top_subfeatures)
 
-                with open(os.path.join('/scratch/gobi1/%s/TSX_results/' % USER, self.data, 'top_features_' + str(sample_ID) + '.pkl'), 'wb') as f:
+                with open(os.path.join('/scratch/gobi1/%s/TSX_results/' % USER, self.data,self.predictor_model , 'top_features_' + str(sample_ID) + '.pkl'), 'wb') as f:
                     pkl.dump({'feauture_set':top_subfeatures, 'importance':top_subfeatures_scores}, f, protocol=pkl.HIGHEST_PROTOCOL)
                 selected_subgroups[sample_ID] = zip(top_subfeatures, top_subfeatures_scores)
         return selected_subgroups
 
-    def run(self, train,n_epochs, samples_to_analyze, plot=True, sanity_check=None, **kwargs):
+    def run(self, train,n_epochs, samples_to_analyze=range(100), plot=True, sanity_check=None, **kwargs):
         """ Run feature generator experiment
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
 
         """
+        print('running for ', len(samples_to_analyze))
         testset = list(self.test_loader.dataset)
         cv = kwargs['cv'] if 'cv' in kwargs.keys() else 0
         if train and self.generator_type!='carry_forward_generator':
@@ -571,6 +573,7 @@ class FeatureGeneratorExplainer(Experiment):
                             train_model_rt(self.risk_predictor, shuffled_trainloader, self.valid_loader, opt, n_epochs,
                                            self.device, self.experiment, data=self.data)
                         else:
+                            #print(self.ckpt_path)
                             self.risk_predictor.load_state_dict(
                                 torch.load(os.path.join(self.ckpt_path, 'risk_predictor_%s.pt'%self.predictor_model)))
                             self.risk_predictor_attention.load_state_dict(
@@ -600,6 +603,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                     with open(os.path.join('./data/simulated_spike_data/gt_test.pkl'), 'rb') as f:
                         gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+                        #print(gt_importance)
                 else:
                     with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
                         gt_importance = pkl.load(f)
@@ -717,7 +721,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                     top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = self.plot_baseline(
                         sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=self.data, plot=plot, 
-                        gt_importance_subj=gt_importance[sample_ID] if self.data == 'simulation' else None,lime_imp=lime_imp,tvec=tvec,cv=cv)
+                        gt_importance_subj=gt_importance[sample_ID] if 'simulation' in self.data else None,lime_imp=lime_imp,tvec=tvec,cv=cv)
                     all_FFC_importance.append(importance)
                     all_AFO_importance.append(importance_occ_aug)
                     all_FO_importance.append(importance_occ)
@@ -860,7 +864,7 @@ class FeatureGeneratorExplainer(Experiment):
             cv = kwargs['cv']
         else:
             cv= 10
-
+        #print(gt_importance_subj)
         with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,self.predictor_model,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk},
                       'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
@@ -877,17 +881,17 @@ class FeatureGeneratorExplainer(Experiment):
         all_importances = np.stack([importance, importance_occ, importance_occ_aug, abs(sensitivity_analysis_importance[:len(importance),1:])], axis=0)
         all_importance_labels = ['FFC', 'FO', 'AFO', 'Sens']
         for imp_plot_ind in range(4):
-            heatmap_fig = plt.figure(figsize=(15, 1) if data=='simulation' else (16,9))
+            heatmap_fig = plt.figure(figsize=(15, 1) if 'simulation' in data else (16,9))
             plt.yticks(rotation=0)
             imp_plot = sns.heatmap(all_importances[imp_plot_ind], yticklabels=feature_map[data], square=True if data=='mimic' else False)#, vmin=0, vmax=1)
-            heatmap_fig.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, 'heatmap_'+str(subject)+'_'+all_importance_labels[imp_plot_ind]+'.pdf'))
-        if data=='simulation':
+            heatmap_fig.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, self.predictor_model,'heatmap_'+str(subject)+'_'+all_importance_labels[imp_plot_ind]+'.pdf'))
+        if 'simulation' in data:
                 heatmap_gt = plt.figure(figsize=(20, 1))
                 plt.yticks(rotation=0)
                 imp_plot = sns.heatmap(gt_importance_subj, yticklabels=feature_map[data])
-                heatmap_gt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, 'heatmap_'+str(subject)+'_ground_truth.pdf'))
+                heatmap_gt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data, self.predictor_model,'heatmap_'+str(subject)+'_ground_truth.pdf'))
 
-        f, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5)
+        f, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(6)
         props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
         t = np.arange(signals.shape[1]-1)
         ## Pick the most influential signals and plot their importance over time
@@ -946,7 +950,7 @@ class FeatureGeneratorExplainer(Experiment):
         # pos = ax2.get_position() # get the original position
         # ax2.text(pos.x0 - .22, pos.y0 +.1, 'FFC', transform=ax2.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
-
+        #print(gt_importance_subj)
         if not gt_importance_subj is None:
             # Shade the state on simulation data plots
             if gt_importance_subj.shape[0]==3:
@@ -966,7 +970,7 @@ class FeatureGeneratorExplainer(Experiment):
             else:
                 
                 for ttt in range(1,len(t)+1):
-                    if gt_importance_subj[ttt]==1:
+                    if gt_importance_subj[ttt,1]==1:
                         ax1.axvspan(ttt-1,ttt,facecolor='g',alpha=0.3)
                 '''
                 for ttt in  range(1,len(t)+1):
@@ -1052,13 +1056,13 @@ class FeatureGeneratorExplainer(Experiment):
         pos = ax5.get_position() # get the original position 
         # ax5.text(pos.x0 - .2, pos.y0 +.5, 'SA', transform=ax5.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
-        # Attention
-        # for ind, sig in max_imp_sen[0:n_feats_to_plot]:
-        #     ax6.plot(attention_importance[ind,:], linewidth=3,
-        #             linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
-        #             color=c, label='%s' % (self.feature_map[ref_ind]))
-        # pos = ax6.get_position() # get the original position
-        # ax6.text(pos.x0 - .2, pos.y0 +.5, 'ATT', transform=ax6.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
+        #Attention
+        for ind, sig in max_imp_sen[0:n_feats_to_plot]:
+            ax6.plot(attention_importance[ind,:], linewidth=3,
+                     linestyle=l_style[list(important_signals).index(ref_ind) % len(l_style)],
+                     color=c, label='%s' % (self.feature_map[ref_ind]))
+        pos = ax6.get_position() # get the original position
+        ax6.text(pos.x0 - .2, pos.y0 +.5, 'ATT', transform=ax6.transAxes, fontsize=46, fontweight='bold', va='top', bbox=props)
 
 
         # Plot the original signals
@@ -1076,12 +1080,12 @@ class FeatureGeneratorExplainer(Experiment):
                 ax1.plot(np.array(signals[ref_ind, 1:]), linewidth=3, linestyle=l_style[i % len(l_style)],
                          color=c, label='%s' % (self.feature_map[ref_ind]))
 
-        for ax in [ax1, ax2, ax3, ax4, ax5]:#, ax6]:
+        for ax in [ax1, ax2, ax3, ax4, ax5, ax6]:
             ax.grid()
             ax.tick_params(axis='both', labelsize=36)
             if ax!=ax1:
                 ax.set_ylabel('importance', fontweight='bold', fontsize=32)
-                if self.data == 'simulation' and ax!=ax5:# and ax!=ax6:
+                if 'simulation' in self.data and ax!=ax5:# and ax!=ax6:
                     ax.set_ylim(top=1.)
 
 
@@ -1098,14 +1102,15 @@ class FeatureGeneratorExplainer(Experiment):
         f.set_figheight(30)
         f.set_figwidth(60)
         plt.subplots_adjust(hspace=.6)
+        #print('plotting features!!')
         #plt.savefig(os.path.join('./examples',data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')#,
                     #bbox_inches='tight')
-        plt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results'%USER,data,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')
+        plt.savefig(os.path.join('/scratch/gobi1/%s/TSX_results'%USER,data,self.predictor_model,'feature_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, orientation='landscape')
         fig_legend = plt.figure(figsize=(13, 1.2))
         handles, labels = ax1.get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         #fig_legend.savefig(os.path.join('./examples', data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
-        fig_legend.savefig(os.path.join('/scratch/gobi1/%s/TSX_results'%USER,data, 'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
+        fig_legend.savefig(os.path.join('/scratch/gobi1/%s/TSX_results'%USER,data, self.predictor_model,'legend_%d_%s.pdf' %(subject, self.generator_type)), dpi=300, bbox_inches='tight')
         return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
     def final_reported_plots(self, samples_to_analyze):
@@ -1441,16 +1446,16 @@ class FeatureGeneratorExplainer(Experiment):
                 # imp = entropy - conditional_entropy
 
                 # KL divergence
-                probability_subsection = torch.Tensor([1-np.mean(conditional_predicted_risk), np.mean(conditional_predicted_risk)])
-                probability_subsection_FFC = torch.Tensor([1-np.mean(generator_predicted_risks), np.mean(generator_predicted_risks)])
-                probability_all = torch.Tensor([(1-risk), risk])
+                probability_subsection = torch.Tensor([1-np.clip(np.mean(conditional_predicted_risk),10**-6,1), np.clip(np.mean(conditional_predicted_risk),10**-6,1)])
+                probability_subsection_FFC = torch.Tensor([1-np.clip(np.mean(generator_predicted_risks),10**-6,1), np.clip(np.mean(generator_predicted_risks),10**-6,1)])
+                probability_all = torch.Tensor([(1-np.clip(risk,10**-6,1)), np.clip(risk,10**-6,1)])
                 # print(probability_subsection)
                 # print(probability_all)
                 # div = (probability_all * (probability_all / probability_subsection).log()).sum()
                 div = (probability_subsection * (probability_subsection / probability_all).log()).sum()
                 # div_FFC = (probability_subsection_FFC * (probability_subsection_FFC / probability_all).log()).sum().item()
                 div_FFC = (probability_all * (probability_all/probability_subsection_FFC).log()).sum().item()
-                # div_FFC = torch.nn.functional.kl_div(probability_subsection, probability_all)
+                #div_FFC = torch.nn.functional.kl_div(size_average=0)(probability_all.unsqueeze(0).log(), probability_subsection.unsqueeze(0))
                 imp = div
 
                 # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))

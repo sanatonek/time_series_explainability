@@ -403,7 +403,7 @@ class AttentionModel(torch.nn.Module):
         attn_weight_vector = F.tanh(self.W_s1(lstm_output))
         attn_weight_vector = torch.nn.Softmax(dim=1)(attn_weight_vector)
         scaled_latent = lstm_output*attn_weight_vector
-        return torch.sum(scaled_latent, axis=1), attn_weight_vector
+        return torch.sum(scaled_latent, dim=1), attn_weight_vector
 
     def forward(self, input):
         input = input.to(self.device)

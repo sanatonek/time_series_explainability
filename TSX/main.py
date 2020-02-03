@@ -20,7 +20,7 @@ MIMIC_TEST_SAMPLES = [3095, 1971, 1778, 1477, 3022, 8, 262, 3437, 1534, 619, 207
 
 SIMULATION_SAMPLES = [7, 23, 78, 95, 120, 157, 51, 11, 101, 48]
 #SIMULATION_SAMPLES = []
-samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
+samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':range(100)}
 
 
 def main(experiment, train, uncertainty_score, data, generator_type, predictor_model, all_samples,cv=0):
@@ -63,11 +63,11 @@ def main(experiment, train, uncertainty_score, data, generator_type, predictor_m
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
-        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=range(0, len(exp.test_loader.dataset)), plot=False, cv=cv)
+        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=range(0, 100), plot=False, cv=cv)
     #     for i in range(0,len(exp.test_loader.dataset),5):
     #         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=[i,i+1,i+2,i+3,i+4], plot=False)
     else:
-        exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data], cv=cv)
+        exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data], cv=cv,plot=True)
     # span = []
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # # # import matplotlib.pyplot as plt

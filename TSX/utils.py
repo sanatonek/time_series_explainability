@@ -112,7 +112,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=3):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=5):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
@@ -124,8 +124,8 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
-            for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2, num=num)]:
+            for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
+            #for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2, num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])
 

@@ -8,7 +8,6 @@ import numpy as np
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
-#get_ipython().run_line_magic('matplotlib', 'inline')
 from sklearn import metrics
 import pickle as pkl
 import glob
@@ -27,7 +26,6 @@ def parse_lime_results(arr,Tt,n_features):
 #preprocess before metric collection
 data='simulation_spike'
 fpath='/scratch/gobi1/shalmali/TSX_results/'
-#predictor_model='attention'
 predictor_model='RNN'
 filelist = glob.glob(os.path.join(fpath,data,predictor_model,'results_*cv_0.pkl'))
 #print(filelist)
@@ -100,14 +98,10 @@ auc_true_gen=[]
 auprc_true_gen=[]
 th=0.5
 
-for cv in range(1):
+n_features=1
+for cv in range(2, 3):
     #for th in thrs:
     #for n,file in enumerate(filelist):
-    filelist=[]
-    for n in range(0,15):
-        filelist.append(glob.glob(os.path.join(fpath,data,predictor_model,'results_'+str(n)+'cv_'+str(cv)+'.pkl'))[0])
-    N=len(filelist)
-
     y_true=np.zeros(n_features*N*Tt)
     y_ffc=np.zeros(n_features*N*Tt)
     y_att=np.zeros(n_features*N*Tt)
@@ -135,18 +129,19 @@ for cv in range(1):
     y_sens_rk=np.zeros((n_features, N*Tt)).T
 
 
-    #for nn, n in enumerate(list(range(0,40))):
-    for nn,fname in enumerate(filelist):
+    filelist = glob.glob(os.path.join(fpath,data,predictor_model,'results_*cv_'+str(cv)+'.pkl'))
+    for nn, n in enumerate(list(range(2,50))):
+    #for nn,file in enumerate(filelist):
         #if cv==0:
         # file = glob.glob(os.path.join(fpath,data,'results_'+ str(n) + '.pkl'))[0]
         #file = glob.glob(os.path.join('/scratch/gobi1/sana/TSX_results', data, 'results_*cv_0.pkl'))[0]
-        print(fname)
+        #print(file)
         #else:
         #print(fpath, data)
         #print(os.path.join(fpath,data,'/results_'+str(n)+ 'cv_'+str(cv)+'.pkl'))
-        #fname = glob.glob(os.path.join(fpath,data,predictor_model,'results_'+str(n)+ 'cv_'+str(cv)+'.pkl'))[0]
+        file = glob.glob(os.path.join(fpath,data,predictor_model,'results_'+str(n)+ 'cv_'+str(cv)+'.pkl'))[0]
         
-        with open(fname,'rb') as f:
+        with open(file,'rb') as f:
             arr = pkl.load(f)
            
         if len(arr.keys())<7:
@@ -157,29 +152,27 @@ for cv in range(1):
         #if data!='simulation_spike':
             #print(arr.keys())
         #print(y_true)
-        y_true[nn*n_obs:(nn+1)*n_obs] = arr['gt'][:,1:].flatten()
+        y_true[nn*n_obs:(nn+1)*n_obs] = np.max(arr['gt'][:,1:],axis=0).flatten()
         #else:
         #    gt_array = np.zeros((n_features,Tt))
         #    gt_array[0,:] = arr['gt'][1:]
         #    y_true[nn*n_obs:(nn+1)*n_obs] = gt_array.flatten()
 
-        y_ffc[nn*n_obs:(nn+1)*n_obs] = np.clip(arr['FFC']['imp'].flatten(),0,10**8)
-        print(y_ffc)
-        #y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(1000*y_ffc[nn*n_obs:(nn+1)*n_obs]))
-        #y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(0.00000005*y_ffc[nn*n_obs:(nn+1)*n_obs]))
-        #print(np.where(np.isnan(y_ffc)),np.where(np.isinf(y_ffc)))
-        y_afo[nn*n_obs:(nn+1)*n_obs] = arr['AFO']['imp'].flatten()
-        y_att[nn*n_obs:(nn+1)*n_obs] = arr['attention']['imp'].flatten()
-        y_cond[nn*n_obs:(nn+1)*n_obs] = arr['conditional']['imp'].flatten()
-        y_suresh[nn*n_obs:(nn+1)*n_obs] = arr['Suresh_et_al']['imp'].flatten()
-        y_sens[nn*n_obs:(nn+1)*n_obs] = arr['Sens']['imp'][:,1:].flatten()
-        y_lime[nn*n_obs:(nn+1)*n_obs] = parse_lime_results(arr,Tt,n_features).flatten()
+        y_ffc[nn*n_obs:(nn+1)*n_obs] = np.max(arr['FFC']['imp'],axis=0).flatten()
+        #print(y_ffc)
+        #y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(100*y_ffc[nn*n_obs:(nn+1)*n_obs]))
+        #y_ffc[nn * n_obs:(nn + 1) * n_obs] = 1./(1.+np.exp(100*y_ffc[nn*n_obs:(nn+1)*n_obs]))
+        #print(y_ffc)
+        y_afo[nn*n_obs:(nn+1)*n_obs] = np.max(arr['AFO']['imp'],axis=0).flatten()
+        y_att[nn*n_obs:(nn+1)*n_obs] = np.sum(arr['attention']['imp'],axis=0).flatten()
+        y_cond[nn*n_obs:(nn+1)*n_obs] = np.max(arr['conditional']['imp'],axis=0).flatten()
+        y_suresh[nn*n_obs:(nn+1)*n_obs] = np.max(arr['Suresh_et_al']['imp'],axis=0).flatten()
+        y_sens[nn*n_obs:(nn+1)*n_obs] = np.max(arr['Sens']['imp'][:,1:],axis=0).flatten()
 
         #file = glob.glob('/scratch/gobi1/shalmali/'+data+'/results_true_'+str(n)+'.pkl')[0]
         #with open(file,'rb') as f:
         #    arr_true = pkl.load(f)
         #y_true_gen[nn*n_obs:(nn+1)*n_obs] = arr_true.flatten()
-
 
     #print metrics
     auc_ffc_cv= metrics.roc_auc_score(y_true, y_ffc)
@@ -188,9 +181,7 @@ for cv in range(1):
     auc_afo_cv= metrics.roc_auc_score(y_true, y_afo)
     auc_suresh_cv= metrics.roc_auc_score(y_true, y_suresh)
     auc_sens_cv= metrics.roc_auc_score(y_true, y_sens)
-    auc_lime_cv= metrics.roc_auc_score(y_true, y_lime)
     auc_true_gen_cv= metrics.roc_auc_score(y_true, y_true_gen)
-
 
     # auprc
     auprc_ffc_cv= metrics.average_precision_score(y_true, y_ffc)
@@ -199,7 +190,6 @@ for cv in range(1):
     auprc_att_cv= metrics.average_precision_score(y_true, y_att)
     auprc_suresh_cv= metrics.average_precision_score(y_true, y_suresh)
     auprc_sens_cv= metrics.average_precision_score(y_true, y_sens)
-    auprc_lime_cv= metrics.average_precision_score(y_true, y_lime)
     auprc_true_gen_cv= metrics.average_precision_score(y_true, y_true_gen)
 
     '''
@@ -236,9 +226,6 @@ for cv in range(1):
     auc_sens.append(auc_sens_cv)
     auprc_sens.append(auprc_sens_cv)
 
-    auc_lime.append(auc_lime_cv)
-    auprc_lime.append(auprc_lime_cv)
-
     auc_true_gen.append(auc_true_gen_cv)
     auprc_true_gen.append(auprc_true_gen_cv)
     
@@ -249,6 +236,5 @@ print('AFO & ', round(np.mean(auc_afo),4), '+-' ,round(np.std(auc_afo),4) ,' & '
 print('FO & ', round(np.mean(auc_fo),4), '+-' ,round(np.std(auc_fo),4) ,' & ',  round(np.mean(auprc_fo),4),'+-',round(np.std(auprc_fo),4) ,'\\\\')
 print('Sens & ', round(np.mean(auc_sens),4), '+-' ,round(np.std(auc_sens),4) ,' & ',  round(np.mean(auprc_sens),4),'+-',round(np.std(auprc_sens),4) ,'\\\\')
 print('Attention & ', round(np.mean(auc_att),4), '+-' ,round(np.std(auc_att),4) ,' & ',  round(np.mean(auprc_att),4),'+-',round(np.std(auprc_att),4) ,'\\\\')
-print('LIME & ', round(np.mean(auc_lime),4), '+-' ,round(np.std(auc_lime),4) ,' & ',  round(np.mean(auprc_lime),4),'+-',round(np.std(auprc_lime),4), '\\\\')
 print('True Gen & ', round(np.mean(auc_true_gen),4), '+-' ,round(np.std(auc_true_gen),4) ,' & ',  round(np.mean(auprc_true_gen),4),'+-',round(np.std(auprc_true_gen),4) ,'\\\\')
 
