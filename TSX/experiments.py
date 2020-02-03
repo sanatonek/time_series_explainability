@@ -1375,7 +1375,6 @@ class FeatureGeneratorExplainer(Experiment):
                 div = (probability_subsection * (probability_subsection / probability_all).log()).sum()
                 # div_FFC = (probability_subsection_FFC * (probability_subsection_FFC / probability_all).log()).sum().item()
                 div_FFC = (probability_all * (probability_all/probability_subsection_FFC).log()).sum().item()
-                #div_FFC = torch.nn.functional.kl_div(size_average=0)(probability_all.unsqueeze(0).log(), probability_subsection.unsqueeze(0))
                 imp = div
 
                 # entropy = np.mean(-1*(np.multiply(generator_predicted_risks, np.log2(generator_predicted_risks))) - (np.multiply((1.-generator_predicted_risks), np.log2(1.-generator_predicted_risks))))
