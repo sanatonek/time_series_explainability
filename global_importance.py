@@ -15,6 +15,7 @@ import glob
 import re
 sys.path.append(os.path.join(os.path.dirname(__file__),".."))
 
+
 feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE',
                      'HEMATOCRIT', 'HEMOGLOBIN', 'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT',
                      'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP', 'DiasBP', 'MeanBP', 'RespRate', 'SpO2','Glucose', 'Temp', 'gender','age','ethnicity','first_icu_stay']
@@ -50,9 +51,9 @@ def parse_lime_results(arr,Tt,n_features,data='ghg'):
             lime_res[int(feature_idx),i]=feature_val
     return lime_res
 
-def main(experiment, train, uncertainty_score, data,n_features_to_use=3):
+def main(experiment, train, user, data,n_features_to_use=3):
     #sys.stdout = open('/scratch/gobi1/shalmali/global_importance_'+data+'.txt', 'w')
-    filelist = glob.glob(os.path.join('/scratch/gobi1/shalmali/',data,'results_*.pkl'))
+    filelist = glob.glob(os.path.join('/scratch/gobi1/%s/TSX_results'%user,data,'results_*.pkl'))
     
     N=len(filelist)
     with open(filelist[0],'rb') as f:
@@ -74,7 +75,7 @@ def main(experiment, train, uncertainty_score, data,n_features_to_use=3):
         y_ffc[n,:] = arr['FFC']['imp'].sum(1)
         y_afo[n,:] = arr['AFO']['imp'].sum(1)
         y_suresh[n,:] = arr['Suresh_et_al']['imp'].sum(1)
-        y_sens[n,:] = arr['Sens']['imp'][:,1:].sum(1)
+        y_sens[n,:] = arr['Sens']['imp'][:len(arr['FFC']['imp']),1:].sum(1)
         y_lime[n,:] = parse_lime_results(arr,Tt,n_features,data=data).sum(1)
     
     y_rank_ffc = np.flip(np.argsort(y_ffc.sum(0)).flatten())# sorted in order of relevance
@@ -174,8 +175,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train an ICU mortality prediction model')
     parser.add_argument('--model', type=str, default='feature_generator_explainer', help='Prediction model')
     parser.add_argument('--data', type=str, default='mimic')
+    parser.add_argument('--user', type=str, default='sana')
     parser.add_argument('--n_features', type=int, default=5)
     parser.add_argument('--train', action='store_true')
-    parser.add_argument('--uncertainty', action='store_true')
     args = parser.parse_args()
-    main(args.model, train=args.train, uncertainty_score=args.uncertainty, data=args.data)
+    main(args.model, train=args.train, data=args.data, user=args.user)
