@@ -16,7 +16,7 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP', 'DiasBP', 'MeanBP', 'RespRate', 'SpO2',
                      'Glucose', 'Temp']
 
-MIMIC_TEST_SAMPLES = [3095, 1971, 1778, 1477, 3022, 8, 262, 3437, 1534, 619, 2076, 1801, 4006, 6, 1952, 2582, 4552]
+MIMIC_TEST_SAMPLES = list(range(70))#[3095, 1971, 1778, 1477, 3022, 8, 262, 3437, 1534, 619, 2076, 1801, 4006, 6, 1952, 2582, 4552]
 
 SIMULATION_SAMPLES = [7, 23, 78, 95, 120, 157, 51, 11, 101, 48]
 #SIMULATION_SAMPLES = []
@@ -60,6 +60,7 @@ def main(experiment, train, uncertainty_score, data, generator_type, predictor_m
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
 
+
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
@@ -91,30 +92,14 @@ def main(experiment, train, uncertainty_score, data, generator_type, predictor_m
     # print([x[0] for x in span[0:300]])
     # print([x[1] for x in span[0:300]])
 
-
-    
-    # if experiment=='feature_generator_explainer':
-    #     exp.final_reported_plots(samples_to_analyze=samples_to_analyze[data])
-
-    # For MIMIC experiment, extract population level importance for interventions
-    # print('********** Extracting population level intervention statistics **********')
-    # if data == 'mimic' and experiment == 'feature_generator_explainer':
-    #     for id in range(len(intervention_list)):
-    #         if not os.path.exists("./interventions/int_%d.pkl" % (id)):
-    #             exp.summary_stat(id)
-    #         exp.plot_summary_stat(id)
-
-    if uncertainty_score:
-        # Evaluate output uncertainty using deep KNN method
-        print('\n********** Uncertainty Evaluation: **********')
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        sample_ind = 1
-        n_nearest_neighbors = 10
-        dknn = DeepKnn(exp.model, p_data.train_data[0:int(0.8 * p_data.n_train), :, :],
-                    p_data.train_label[0:int(0.8 * p_data.n_train)], device)
-        knn_labels = dknn.evaluate_confidence(sample=p_data.test_data[sample_ind, :, :].reshape((1, -1, 48)),
-                                              sample_label=p_data.test_label[sample_ind],
-                                              _nearest_neighbors=n_nearest_neighbors, verbose=True)
+    if data=='mimic':
+        # For MIMIC experiment, extract population level importance for interventions
+        print('********** Extracting population level intervention statistics **********')
+        if data == 'mimic' and experiment == 'feature_generator_explainer':
+            for id in range(len(intervention_list)):
+                #if not os.path.exists("./interventions/int_%d.pkl" % (id)):
+                exp.summary_stat(id)
+                exp.plot_summary_stat(id)
 
 
 if __name__ == '__main__':

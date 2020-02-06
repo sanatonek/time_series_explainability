@@ -347,14 +347,16 @@ class FeatureGeneratorExplainer(Experiment):
                 self.risk_predictor = lambda signal,t:logistic(2.5*(signal[0, t] * signal[0, t] + signal[1,t] * signal[1,t] + signal[2, t] * signal[2, t] - 1))
             else:
                 if self.data=='simulation_spike':
-                    if self.predictor_model=='RNN':
+                    if self.predictor_model == 'RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
-                    else:
-                        self.risk_predictor = AttentionModel(feature_size=feature_size,hidden_size=10,data=data)
-                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size,hidden_size=10,data=data)
+                    elif self.predictor_model == 'attention':
+                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=50, data=data)
                 else:
-                    self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
-                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
+                    if self.predictor_model == 'RNN':
+                        self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
+                    elif self.predictor_model == 'attention':
+                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
+            self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
             self.feature_map = feature_map_simulation
             self.risk_predictor = self.risk_predictor.to(self.device)
             self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
@@ -509,7 +511,7 @@ class FeatureGeneratorExplainer(Experiment):
                             torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
                         for param in self.risk_predictor.parameters():
                             params = param.data.cpu().numpy().reshape(-1)
-                            np.random.shuffle(params)
+                            np.random.shuffle(params[:])
                             param.data = torch.Tensor(params.reshape(param.data.shape))
                             # param.data = torch.rand(param.data.size())
                     elif sanity_check == "randomized_model":
@@ -617,7 +619,7 @@ class FeatureGeneratorExplainer(Experiment):
                     samples_to_analyze = np.random.choice(range(len(label)), len(label), replace=False)
                 # samples_to_analyse = [101, 48, 88, 192, 143, 166, 18, 58, 172, 132]
             else:
-                gt_importance = None
+                # gt_importance = None
                 # if self.data=='mimic':
                     # samples_to_analyse = MIMIC_TEST_SAMPLES
                 if self.data=='ghg':
@@ -868,12 +870,15 @@ class FeatureGeneratorExplainer(Experiment):
         with open(os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,self.predictor_model,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
             pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk},
                       'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
-                      'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]},  'gt':gt_importance_subj,
-                      'attention':{'imp': attention_importance,'std':[]}}, f,protocol=pkl.HIGHEST_PROTOCOL)
+                      'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]}, 'attention':{'imp': attention_importance,'std':[]}, 'gt':gt_importance_subj}, f,protocol=pkl.HIGHEST_PROTOCOL)
         
-        importance = 2./(1+np.exp(-5*importance)) - 1.
+        # if self.data=='simulation':
+        #     importance = 2./(1+np.exp(-5*importance)) - 1.
+        # elif self.data=='mimic':
+        #     importance = 2./(1+np.exp(-1e5*importance)) - 1.
         if not plot:
             return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
+
 
         ## Plot heatmaps
         import seaborn as sns
@@ -1096,7 +1101,8 @@ class FeatureGeneratorExplainer(Experiment):
         ax3.set_title('Feature importance AFO', fontweight='bold', fontsize=40)
         ax4.set_title('Feature importance FO', fontweight='bold', fontsize=40)
         ax5.set_title('Feature importance Sensitivity analysis', fontweight='bold', fontsize=40)
-        ax5.set_xlabel('time', fontweight='bold', fontsize=32)
+        ax6.set_title('Feature importance Attention', fontweight='bold', fontsize=40)
+        ax6.set_xlabel('time', fontweight='bold', fontsize=32)
         ax1.set_ylabel('signal value', fontweight='bold',fontsize=32)
 
         f.set_figheight(30)
@@ -1406,7 +1412,10 @@ class FeatureGeneratorExplainer(Experiment):
                     # Definition I
                     # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
                     # Definition II
-                    x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
+                    # x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
+                    x_hat_t_cond = signal[:,t].clone()
+                    x_hat_t_cond[sig_ind] = signal[sig_ind,t-1]
+
                     # x_hat_t_FFC, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind[0], 'm1')
                     x_hat_t_FFC = signal[:,t].clone()
                     # x_hat_t_FFC[sig_ind]=torch.Tensor([1])
@@ -1637,19 +1646,21 @@ class FeatureGeneratorExplainer(Experiment):
             ind_list = np.where(np.sum(interventions[:,1:],axis=1)!=0)[0] ## Index of subject that have intervention=intervention_ID data recorded
 
             ## Sensitivity analysis
-            test_signals = torch.stack([testset[sample][0] for sample in ind_list])
-            sensitivity_analysis = np.zeros((test_signals.shape))
-            self.risk_predictor.train()
-            for t in range(1,test_signals.size(2)):
-                signal_t = torch.Tensor(test_signals[:,:,:t+1]).to(self.device).requires_grad_()
-                for s in range(len(ind_list)):
-                    out = self.risk_predictor(signal_t)
-                    out[s].backward()#retain_graph=True)
-                    sensitivity_analysis[s,:,t] = signal_t.grad.data[s,:,t].cpu().detach().numpy()
-                    signal_t.grad.data.zero_()
-            self.risk_predictor.eval()
+            # test_signals = torch.stack([testset[sample][0] for sample in ind_list])
+            # sensitivity_analysis = np.zeros((test_signals.shape))
+            # self.risk_predictor.train()
+            # for t in range(1,test_signals.size(2)):
+            #     signal_t = torch.Tensor(test_signals[:,:,:t+1]).to(self.device).requires_grad_()
+            #     for s in range(len(ind_list)):
+            #         out = self.risk_predictor(signal_t)
+            #         out[s].backward()#retain_graph=True)
+            #         sensitivity_analysis[s,:,t] = signal_t.grad.data[s,:,t].cpu().detach().numpy()
+            #         signal_t.grad.data.zero_()
+            # self.risk_predictor.eval()
 
             for ind, subject in enumerate(ind_list):
+                if subject>70:
+                    continue
                 label = labels[subject]
                 signal = signals[subject,:,:]
                 intervention = interventions[subject, 1:]
@@ -1671,22 +1682,30 @@ class FeatureGeneratorExplainer(Experiment):
                 prediction = int(self.risk_predictor(signal[:,:start_point+1].view(1,signal.shape[0],start_point+1)).item()>0.5)
                 if prediction<0.7 or prediction!=label:
                     continue
+
+                with open(os.path.join('/scratch/gobi1/%s/TSX_results' % USER, self.data, 'results_%scv_2.pkl'%subject), 'rb') as f:
+                    arr = pkl.load(f)
+                #
+                importance = arr['FFC']['imp'][:,:start_point+1]
+                importance_afo = arr['AFO']['imp'][:,:start_point+1]
+                importance_occ = arr['Suresh_et_al']['imp'][:,:start_point+1]
+                sensitivity_analysis = arr['Sens']['imp'][:,:start_point+1]
+
                 for i in range(27):
-                    label, importance[i, :], _, _ = self._get_feature_importance(signal[:,:start_point+1], sig_ind=i, n_samples=10,
-                                                                                mode='generator', learned_risk=self.learned_risk)
-                    _, importance_occ[i, :], _, _ = self._get_feature_importance(signal[:,:start_point+1], sig_ind=i, n_samples=10,
-                                                                                 mode="feature_occlusion", learned_risk=self.learned_risk)
-                    _, importance_afo[i, :], _, _ = self._get_feature_importance(signal[:,:start_point+1], sig_ind=i, n_samples=10,
-                                                                                 mode="augmented_feature_occlusion", learned_risk=self.learned_risk)
+                    # _, _, importance[i, :] = self._get_feature_importance_FFC(signal[:,:start_point+1], sig_ind=i, n_samples=10,learned_risk=self.learned_risk)
+                    # _, importance_occ[i, :], _, _ = self._get_feature_importance(signal[:,:start_point+1], sig_ind=i, n_samples=10,
+                    #                                                              mode="feature_occlusion", learned_risk=self.learned_risk)
+                    # _, importance_afo[i, :], _, _ = self._get_feature_importance(signal[:,:start_point+1], sig_ind=i, n_samples=10,
+                    #                                                              mode="augmented_feature_occlusion", learned_risk=self.learned_risk)
                     max_imp_FCC.append((i, max(importance[i, :])))
                     max_imp_occ.append((i, max(importance_occ[i, :])))
                     max_imp_afo.append((i, max(importance_afo[i, :])))
-                    max_imp_sen.append((i, sensitivity_analysis[ind,i,start_point+1]))
+                    max_imp_sen.append((i, sensitivity_analysis[i,start_point]))
+
                 max_imp_FCC.sort(key=lambda pair: pair[1], reverse=True)
                 max_imp_occ.sort(key=lambda pair: pair[1], reverse=True)
                 max_imp_sen.sort(key=lambda pair: pair[1], reverse=True)
                 max_imp_afo.sort(key=lambda pair: pair[1], reverse=True)
-                print(max_imp_afo)
 
                 df.loc[-1] = [subject,intervention_ID,'FCC',max_imp_FCC[0][0],max_imp_FCC[1][0],max_imp_FCC[2][0]]  # adding a row
                 df.index = df.index + 1
@@ -1727,7 +1746,7 @@ class FeatureGeneratorExplainer(Experiment):
         occ_dist = np.sort(np.array(occ_df[['top1', 'top2', 'top3']]).reshape(-1, ))
         sen_dist = np.sort(np.array(sen_df[['top1', 'top2', 'top3']]).reshape(-1, ))
 
-
+        import seaborn as sns; sns.set()
         fcc_top = self._create_pairs(self._find_count(fcc_dist))[0:4]
         afo_top = self._create_pairs(self._find_count(afo_dist))[0:4]
         occ_top = self._create_pairs(self._find_count(occ_dist))[0:4]
@@ -1742,10 +1761,10 @@ class FeatureGeneratorExplainer(Experiment):
         ax2.set_title('AFO', fontsize=32, fontweight='bold')
         ax3.set_title('FO', fontsize=32, fontweight='bold')
         ax4.set_title('Sensitivity analysis', fontsize=32, fontweight='bold')
-        ax1.tick_params(labelsize=30)
-        ax2.tick_params(labelsize=30)
-        ax3.tick_params(labelsize=30)
-        ax4.tick_params(labelsize=30)
+        ax1.tick_params(labelsize=26)
+        ax2.tick_params(labelsize=26)
+        ax3.tick_params(labelsize=26)
+        ax4.tick_params(labelsize=26)
         plt.subplots_adjust(hspace=0.6)
         f.set_figheight(12)
         f.set_figwidth(15)

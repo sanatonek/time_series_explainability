@@ -322,15 +322,15 @@ def load_data(batch_size, path='./data/', **kwargs):
     p_data.train_data = p_data.train_data[:,features,:]
     p_data.test_data = p_data.test_data[:,features,:]
     p_data.feature_size = len(features)
-    x_train = p_data.train_data[:,features,:]
-    x_test = p_data.test_data[:,features,:]
-    n_train = int(0.8 * len(p_data.train_data))
-    if 'cv' in kwargs.keys():
-        kf = KFold(n_splits=5, random_state=42)
-        train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
-    else:
-        train_idx = range(n_train)
-        valid_idx = range(ntrain,len(x_train))
+    # x_train = p_data.train_data[:,features,:]
+    # x_test = p_data.test_data[:,features,:]
+    # n_train = int(0.8 * len(p_data.train_data))
+    # if 'cv' in kwargs.keys():
+    #     kf = KFold(n_splits=5, random_state=42)
+    #     train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
+    # else:
+    #     train_idx = range(n_train)
+    #     valid_idx = range(n_train,len(x_train))
 
     n_train = int(0.8*p_data.n_train)
     if 'cv' in kwargs.keys():
