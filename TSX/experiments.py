@@ -1412,9 +1412,9 @@ class FeatureGeneratorExplainer(Experiment):
                     # Definition I
                     # x_hat_t_cond, _ = self.generator.forward(signal[:,t], signal[:, :t].unsqueeze(0), sig_ind, method='c1')
                     # Definition II
-                    # x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
-                    x_hat_t_cond = signal[:,t].clone()
-                    x_hat_t_cond[sig_ind] = signal[sig_ind,t-1]
+                    x_hat_t_cond, _ = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
+                    # x_hat_t_cond = signal[:,t].clone()
+                    # x_hat_t_cond[sig_ind] = signal[sig_ind,t-1]
 
                     # x_hat_t_FFC, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind[0], 'm1')
                     x_hat_t_FFC = signal[:,t].clone()
@@ -1683,7 +1683,7 @@ class FeatureGeneratorExplainer(Experiment):
                 if prediction<0.7 or prediction!=label:
                     continue
 
-                with open(os.path.join('/scratch/gobi1/%s/TSX_results' % USER, self.data, 'results_%scv_2.pkl'%subject), 'rb') as f:
+                with open(os.path.join('/scratch/gobi1/%s/TSX_results' % USER, self.data, 'results_%scv_1.pkl'%subject), 'rb') as f:
                     arr = pkl.load(f)
                 #
                 importance = arr['FFC']['imp'][:,:start_point+1]
