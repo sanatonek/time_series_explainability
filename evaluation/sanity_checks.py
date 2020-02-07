@@ -29,21 +29,7 @@ MIMIC_TEST_SAMPLES = [3095, 1971, 1778, 1477, 3022, 8, 262, 3437, 1534, 619, 207
                        2838, 1171, 2604, 2702, 3500, 80, 3824, 1672, 1526, 3713, 1527, 1411, 343, 82, 2644, 4199, 3055,
                        4007, 1138, 3087, 606, 1624, 1103, 816, 946, 3435, 1959, 581, 1235, 2238, 2964, 924, 3509, 4385,
                        345, 4061, 1310, 2553, 4483, 3589, 4517, 2799, 1991, 2599, 2745, 4564, 3569, 3484, 897, 304]
-                      #  3585, 1484, 687, 3783, 488, 3661, 2312, 4453, 1239, 3575, 4258, 4501, 1993, 2257, 4020, 673, 945,
-                      #  4430, 1835, 3558, 2331, 1361, 1769, 2176, 1826, 4494, 2330, 2689, 950, 2188, 1279, 4078, 283,
-                      #  3029, 4127, 4560, 2414, 3049, 4387, 210, 4195, 2208, 2015, 3319, 2752, 4474, 372, 3493, 4366,
-                      #  169, 2363, 2441, 4025, 1293, 1674, 4259, 168, 2260, 2868, 3882, 2040, 234, 988, 61, 3082, 1813,
-                      #  491, 4118, 3985, 2805, 723, 3355, 3752, 3077, 496, 629, 4155, 1289, 1943, 1187, 1572, 998, 303,
-                      #  682, 3968, 2080, 4526, 2383, 3088, 3937, 2010, 2780, 3081, 2628, 3776, 3275, 3057, 1987, 134,
-                      #  2571, 3013, 4423, 4402, 2591, 4161, 2588, 2470, 2818, 1333, 64, 4446, 3828, 3168, 1911, 1704,
-                      #  2171, 2335, 4105, 2085, 720, 728, 3218, 2032, 3513, 2491, 1381, 2910, 2075, 3462, 3644, 4469,
-                      #  2319, 2242, 1054, 1440, 1961, 1344, 1276, 798, 4221, 2501, 2170, 2933, 2031, 1717, 4417, 799,
-                      #  2284, 985, 4087, 1895, 3552, 902, 2475, 1355, 3809, 2299, 3604, 4236, 4256, 1966, 3313, 1863,
-                      #  2934, 4370, 3132, 3983, 711, 227, 2346, 2464, 2246, 4046, 4541, 170, 2410, 4211, 36, 986, 4442,
-                      # 712, 60, 2918, 3646, 1152, 4055, 3190, 3505, 3165, 977, 4058, 3913, 502, 2264, 3031, 2237, 4326,
-                      # 1623, 144, 4171, 2029]
-
-SIMULATION_SAMPLES = np.random.choice(100, 10)#[101, 48]#, 88]#, 192, 143, 166, 18, 58, 172, 132]
+SIMULATION_SAMPLES = np.random.choice(100, 10)
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
 
 
@@ -243,8 +229,8 @@ if __name__ == '__main__':
     parser.add_argument('--all_samples', action='store_true')
     args = parser.parse_args()
     np.random.seed(123456)
-    if (os.path.exists('/scratch/gobi1/sana/TSX_results/simulation/sanity_checks.pkl')):
-        with open('/scratch/gobi1/sana/TSX_results/simulation/sanity_checks.pkl', 'rb') as f:
+    if (os.path.exists('/scratch/gobi1/sana/TSX_results/simulation_change_back/sanity_checks.pkl')):
+        with open('/scratch/gobi1/sana/TSX_results/simulation_change_back/sanity_checks.pkl', 'rb') as f:
             arr = pkl.load(f)
         y = np.ones(arr['FFC'].shape[0]+1)
         y_std = np.zeros(arr['FFC'].shape[0] + 1)
@@ -257,10 +243,10 @@ if __name__ == '__main__':
         x = [0, .2, .4, .6, .8, 1.]
         plt.figure(figsize=(10, 5))
         plt.errorbar(x,y, yerr=y_std, linewidth=3, color='r', marker='o', label='FIT')
-        plt.errorbar(x, y_sens, yerr=y_std_sens, linewidth=3, color='b', marker='o', label='Sensitivity Analysis')
+        # plt.errorbar(x, y_sens, yerr=y_std_sens, linewidth=3, color='b', marker='o', label='Sensitivity Analysis')
         plt.title('FIT explanation parameter randomization test', fontweight='bold', fontsize=18)
         plt.xlabel('percentage of randomized weights', fontweight='bold', fontsize=14)
-        plt.ylabel('pearson rank correlation', fontweight='bold', fontsize=14)
+        plt.ylabel('Spearman rank correlation', fontweight='bold', fontsize=14)
         plt.legend()
         plt.savefig('/scratch/gobi1/sana/TSX_results/simulation/sanity_checks.pdf', dpi=400)
     else:
