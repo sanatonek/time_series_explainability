@@ -1,4 +1,4 @@
-from TSX.utils import load_data, load_simulated_data, load_ghg_data, test_model_rt
+from TSX.utils import load_data, load_simulated_data, load_ghg_data, test_model_rt, train_model
 from TSX.experiments import FeatureGeneratorExplainer, BaselineExplainer
 
 import torch
@@ -36,6 +36,7 @@ samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLE
 def main(train, data, all_samples, check):
     experiment = "saliency test"
     batch_size = 100
+    device = 'cpu' if torch.cuda.is_available() else 'cpu'
     generator_type = 'joint_RNN_generator'
     print('********** %s Experiment **********' % (experiment))
     with open('config.json') as config_file:
@@ -67,7 +68,121 @@ def main(train, data, all_samples, check):
     else:
         spike_data = False
 
-    if check=='randomized_param' or check=='randomized_data':
+
+    ## Sanity checks
+    if check=='randomized_data':
+        exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
+                                        generator_hidden_size=configs['encoding_size'], prediction_size=1,
+                                        historical=(configs['historical'] == 1),
+                                        generator_type=generator_type, data=data,
+                                        experiment=experiment + '_' + generator_type, spike_data=spike_data)
+        trainset = list(train_loader.dataset)
+        shuffled_labels = torch.stack([sample[1] for sample in trainset])
+        r = torch.randperm(len(shuffled_labels))
+        shuffled_labels = shuffled_labels[r]
+        signals = torch.stack([sample[0] for sample in trainset])
+        shuffled_trainset = torch.utils.data.TensorDataset(signals, shuffled_labels)
+        shuffled_trainloader = torch.utils.data.DataLoader(shuffled_trainset, batch_size=100)
+        exp.risk_predictor.train()
+        print("Training model on shuffled data ...")
+        opt = torch.optim.Adam(exp.risk_predictor.parameters(), lr=0.0001, weight_decay=1e-3)
+        train_model(exp.risk_predictor, shuffled_trainloader, valid_loader, opt, 100, device, data=data)
+        exp.risk_predictor.eval()
+        _, _, precision, auc, correct_label = test_model_rt(exp.risk_predictor, exp.test_loader)
+        with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'), 'rb') as f:
+            gt_importance = pkl.load(f)
+
+        ## Sensitivity analysis as a baseline
+        testset = [smpl[0] for smpl in exp.test_loader.dataset]
+        signal = torch.stack([testset[sample] for sample in samples_to_analyze[exp.data]])
+        tvec = list(range(1, signal.shape[2] + 1))
+        sensitivity_analysis = np.zeros((signal.shape))
+        exp.risk_predictor.train()
+        for t_ind, t in enumerate(tvec):
+            # print(t)
+            signal_t = torch.Tensor(signal[:, :, :t]).to(exp.device).requires_grad_()
+            out = exp.risk_predictor(signal_t)
+            for s in range(len(samples_to_analyze[exp.data])):
+                out[s].backward(retain_graph=True)
+                sensitivity_analysis[s, :, t_ind] = signal_t.grad.data[s, :, t_ind].cpu().detach().numpy()  # [:,0]
+            signal_t.grad.data.zero_()
+        exp.risk_predictor.eval()
+
+        all_FFC_importance = []
+        all_FO_importance = []
+        all_AFO_importance = []
+        FFC_importance = []
+        AFO_importance = []
+        FO_importance = []
+        sensitivity_analysis_importance = []
+
+        signals_to_analyze = range(0, 3)
+        for sub_ind, sample_ID in enumerate(samples_to_analyze[exp.data]):
+            top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = \
+                exp.plot_baseline(sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=exp.data,
+                                  plot=False,
+                                  gt_importance_subj=None, tvec=tvec, cv=50)
+            all_FFC_importance.append(importance)
+            all_AFO_importance.append(importance_occ_aug)
+            all_FO_importance.append(importance_occ)
+
+            with open(os.path.join(
+                    '/scratch/gobi1/sana/TSX_results/simulation_cv_results/results_%scv_0.pkl' % str(sample_ID)),
+                      'rb') as f:
+                arr = pkl.load(f)
+            FFC_importance.append(arr['FFC']['imp'])
+            AFO_importance.append(arr['AFO']['imp'])
+            FO_importance.append(arr['Suresh_et_al']['imp'])
+            sensitivity_analysis_importance.append(arr['Sens']['imp'])
+
+        FFC_importance_rndm = np.array(all_FFC_importance)
+        AFO_importance_rndm = np.array(all_AFO_importance)
+        FO_importance_rndm = np.array(all_FO_importance)
+        sensitivity_analysis_rndm = np.array(sensitivity_analysis)
+        FFC_importance = np.array(FFC_importance)
+        AFO_importance = np.array(AFO_importance)
+        FO_importance = np.array(FO_importance)
+        sensitivity_analysis_importance = np.array(sensitivity_analysis_importance)
+
+        FFC_importance_rndm = np.nan_to_num(FFC_importance_rndm)
+        AFO_importance_rndm = np.nan_to_num(AFO_importance_rndm)
+        FO_importance_rndm = np.nan_to_num(FO_importance_rndm)
+        sensitivity_analysis_rndm = np.nan_to_num(sensitivity_analysis_rndm)
+
+        FFC_corr = []
+        AFO_corr = []
+        FO_corr = []
+        sens_corr = []
+        for sig in range(len(FFC_importance)):
+            FFC_corr.append(spearmanr(FFC_importance_rndm[sig].reshape(-1, ), FFC_importance[sig].reshape(-1, ))[0])
+            AFO_corr.append(spearmanr(AFO_importance_rndm[sig].reshape(-1, ), AFO_importance[sig].reshape(-1, ))[0])
+            FO_corr.append(spearmanr(FO_importance_rndm[sig].reshape(-1, ), FO_importance[sig].reshape(-1, ))[0])
+            sens_corr.append(spearmanr(sensitivity_analysis_rndm[sig].reshape(-1, ),
+                                       sensitivity_analysis_importance[sig].reshape(-1, ))[0])
+
+        FFC_distance = []
+        FO_distance = []
+        AFO_distance = []
+        sensitivity_distance = []
+        for s in range(len(FFC_importance)):
+            FFC_distance.append(np.linalg.norm((FFC_importance[s] - FFC_importance_rndm[s])))
+            FO_distance.append(np.linalg.norm((FO_importance[s] - FO_importance_rndm[s])))
+            AFO_distance.append(np.linalg.norm((AFO_importance[s] - AFO_importance_rndm[s])))
+            sensitivity_distance.append(
+                np.linalg.norm((sensitivity_analysis_importance[s] - sensitivity_analysis_rndm[s])))
+
+        print("FFC correlation: %.3f +- %.3f" % (np.mean(FFC_corr), np.std(FFC_corr)))
+        print("AFO correlation: %.3f +- %.3f" % (np.mean(AFO_corr), np.std(AFO_corr)))
+        print("FO correlation: %.3f +- %.3f" % (np.mean(FO_corr), np.std(FO_corr)))
+        print("Sensitivity correlation: %.3f +- %.3f" % (np.mean(sens_corr), np.std(sens_corr)))
+
+        print("FFC l2 distance: %.3f +- %.3f" % (np.mean(np.array(FFC_distance)), np.std(np.array(FFC_distance))))
+        print("AFO l2 distance: %.3f +- %.3f" % (np.mean(np.array(AFO_distance)), np.std(np.array(AFO_distance))))
+        print("FO l2 distance: %.3f +- %.3f" % (np.mean(np.array(FO_distance)), np.std(np.array(FO_distance))))
+        print("Sensitivity l2 distance: %.3f +- %.3f" % (
+            np.mean(np.array(sensitivity_distance)), np.std(np.array(sensitivity_distance))))
+
+    elif check=='randomized_param':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
                                             generator_hidden_size=configs['encoding_size'], prediction_size=1,
                                             historical=(configs['historical'] == 1),
@@ -194,32 +309,6 @@ def main(train, data, all_samples, check):
                           'AFO': np.array(AFO_corr_all),
                           'FO': np.array(FO_corr_all),
                           'Sens': np.array(Sens_corr_all)}, f, protocol=pkl.HIGHEST_PROTOCOL)
-
-
-    elif check == 'randomized_model':
-        exp_RNN = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                            generator_hidden_size=configs['encoding_size'], prediction_size=1,
-                                            historical=(configs['historical'] == 1),
-                                            generator_type=generator_type, data=data,
-                                            experiment=experiment + '_' + generator_type, spike_data=spike_data)
-        exp_LR = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                            generator_hidden_size=configs['encoding_size'], prediction_size=1,
-                                            historical=(configs['historical'] == 1),
-                                            generator_type=generator_type, data=data,
-                                            experiment=experiment + '_' + generator_type, spike_data=spike_data)
-        if all_samples:
-            print('Experiment on all test data for %s'%check)
-            print('Number of test samples: ', len(exp_LR.test_loader.dataset))
-            exp_LR.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=range(0,len(exp_LR.test_loader.dataset)),
-                    sanity_check=check, plot=False)
-        else:
-            FFC_importance_rndm, AFO_importance_rndm, FO_importance_rndm, lime_importance_rndm, sensitivity_analysis_rndm = exp_LR.run(
-                train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data], sanity_check="randomized_model")
-            FFC_importance, AFO_importance, FO_importance, lime_importance, sensitivity_analysis = exp_RNN.run(
-                train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
-
-
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run multiple sanity checks on the data')
