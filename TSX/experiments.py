@@ -177,12 +177,6 @@ class EncoderPredictor(Experiment):
                                             self.experiment+'_'+self.model_type, data=self.data)
                 # Evaluate performance on held-out test set
                 _, _, _, auc, correct_label = test_model_rt(self.model, self.valid_loader)
-                print('Precalibration auc: ', auc)
-                #self.model = ModelWithTemperature(self.model)
-                #self.model.set_temperature(self.valid_loader)
-                #self.model.eval()
-                #_, _, _, auc, correct_label = test_model_rt(self.model, self.valid_loader)
-                print('\nPost calibration AUC: ', auc)
                 print('\nFinal performance on held out test set ===> AUC: ', auc)
 
             else:
@@ -268,13 +262,6 @@ class BaselineExplainer(Experiment):
         exec_time = np.array(exec_time)
         print("Execution time of lime for subject %d= %.3f +/- %.3f"%(test_sample, np.mean(exec_time), np.std(np.array(exec_time))))
         return explanation
-            # for t in range(test_signals.shape[-1]):
-            #     exp = self.explainer.explain_instance(test_signals[test_sample, :, t], self.predictor_wrapper, top_labels=2)
-            #     print("Most important features for sample %d: "%(test_sample), exp.as_list())
-            #     for f in range(test_signals.shape[1]):
-            #         imp = exp.as_list(f)
-            #         importance[test_sample_ind,f,t] = imp
-        # print(importance[0,2,10:13])
 
     def train(self, n_epochs, learn_rt=False):
         trainset = list(self.train_loader.dataset)
@@ -485,7 +472,7 @@ class FeatureGeneratorExplainer(Experiment):
                 selected_subgroups[sample_ID] = zip(top_subfeatures, top_subfeatures_scores)
         return selected_subgroups
 
-    def run(self, train,n_epochs, samples_to_analyze=range(100), plot=True, sanity_check=None, **kwargs):
+    def run(self, train,n_epochs, samples_to_analyze, plot=True, **kwargs):
         """ Run feature generator experiment
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
 
@@ -508,95 +495,19 @@ class FeatureGeneratorExplainer(Experiment):
 
             else:
                 if not 'simulation' in self.data:
-                    if sanity_check == "randomized_param": # Do not load learnt parameters if doing experiment with randomized parameters
-                        self.risk_predictor.load_state_dict(
-                            torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
-                        for param in self.risk_predictor.parameters():
-                            params = param.data.cpu().numpy().reshape(-1)
-                            np.random.shuffle(params[:])
-                            param.data = torch.Tensor(params.reshape(param.data.shape))
-                            # param.data = torch.rand(param.data.size())
-                    elif sanity_check == "randomized_model":
-                        self.risk_predictor = LR(self.feature_size)
-                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_LR.pt')))
-                    elif sanity_check == "randomized_data":
-                        trainset = list(self.train_loader.dataset)
-                        shuffled_labels = torch.stack([sample[1] for sample in trainset])
-                        r = torch.randperm(len(shuffled_labels))
-                        shuffled_labels = shuffled_labels[r]
-                        signals = torch.stack([sample[0] for sample in trainset])
-                        shuffled_trainset = torch.utils.data.TensorDataset(signals, shuffled_labels)
-                        shuffled_trainloader = torch.utils.data.DataLoader(shuffled_trainset, batch_size=100)
-                        self.risk_predictor.train()
-                        print("Training model on shuffled data ...")
-                        opt = torch.optim.Adam(self.risk_predictor.parameters(), lr=0.0001, weight_decay=1e-3)
-                        train_model(self.risk_predictor, shuffled_trainloader, self.valid_loader, opt, n_epochs, self.device, self.experiment, data=self.data)
-                    else:
-                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_%s.pt'%self.predictor_model)))
-                        self.risk_predictor_attention.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
-                        # self.attention_risk_predictor.to(self.device)
-                    # Calibrate model
-                    # self.risk_predictor = self.risk_predictor.to(self.device)
-                    # _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
-                    # print('Precalibration auc: ', auc)
-                    # self.risk_predictor = ModelWithTemperature(self.risk_predictor)
-                    # self.risk_predictor.set_temperature(self.valid_loader)
+                    self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path,'risk_predictor_%s.pt'%self.predictor_model)))
+                    self.risk_predictor_attention.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
                     self.risk_predictor.to(self.device).eval()
                     self.risk_predictor_attention.to(self.device).eval()
                     _, _, auc, correct_label, _ = test(self.test_loader, self.risk_predictor, self.device)
-                    # print('Postcalibration auc: ', auc)
-
 
                 else: #simulated data
                     if self.learned_risk:
-                        if sanity_check == "randomized_param":  # Do not load learnt parameters if doing experiment with randomized parameters
-                            self.risk_predictor.load_state_dict(
-                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_RNN.pt')))
-                            self.risk_predictor = self.risk_predictor.to(self.device)
-                            self.risk_predictor.eval()
-                            _, _, precision, auc, correct_label = test_model_rt(self.risk_predictor, self.test_loader)
-                            print("\nRisk predictor model AUC before randomization:%.2f" % (auc))
-                            for param in self.risk_predictor.parameters():
-                                # params = param.data.cpu().numpy().reshape(-1)
-                                # np.random.shuffle(params)
-                                # param.data = torch.Tensor(params.reshape(param.data.shape))
-                                param.data = torch.randn(param.data.size())
-                        elif sanity_check == "randomized_model":
-                            self.risk_predictor = LR(self.feature_size)
-                            self.risk_predictor.load_state_dict(
-                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_LR.pt')))
-                        elif sanity_check == "randomized_data":
-                            trainset = list(self.train_loader.dataset)
-                            shuffled_labels = np.random.randint(2, size=(len(trainset),trainset[0][1].shape[0]))
-                            signals = torch.stack([sample[0] for sample in trainset])
-                            shuffled_trainset = torch.utils.data.TensorDataset(signals, torch.Tensor(shuffled_labels))
-                            shuffled_trainloader = torch.utils.data.DataLoader(shuffled_trainset, batch_size=100)
-                            self.risk_predictor.train()
-                            opt = torch.optim.Adam(self.risk_predictor.parameters(), lr=0.001, weight_decay=0)
-                            print("Training model on shuffled data ...")
-                            train_model_rt(self.risk_predictor, shuffled_trainloader, self.valid_loader, opt, n_epochs,
-                                           self.device, self.experiment, data=self.data)
-                        else:
-                            #print(self.ckpt_path)
-                            self.risk_predictor.load_state_dict(
-                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_%s.pt'%self.predictor_model)))
-                            self.risk_predictor_attention.load_state_dict(
-                                torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
-
-                        # Calibrate model
-                        # self.risk_predictor = self.risk_predictor.to(self.device)
-                        # _, _, _,auc,  _ = test_model_rt(self.risk_predictor, self.test_loader)
-                        # print('Precalibration auc: ', auc)
-                        # self.risk_predictor = ModelWithTemperature(self.risk_predictor)
-                        # self.risk_predictor.set_temperature(self.valid_loader)
+                        self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_%s.pt'%self.predictor_model)))
+                        self.risk_predictor_attention.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor_attention.pt')))
                         self.risk_predictor.to(self.device).eval()
                         self.risk_predictor_attention.to(self.device).eval()
                         _, _, _, auc,  _ = test_model_rt(self.risk_predictor, self.test_loader)
-                        # print('Postcalibration auc: ', auc)
-
-
-                        # self.risk_predictor.eval()
-                        # _, _, precision, auc, correct_label = test_model_rt(self.risk_predictor, self.test_loader)
 
             print("\n ** Risk predictor model AUC:%.2f"%(auc))
 
