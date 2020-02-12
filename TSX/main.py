@@ -64,20 +64,11 @@ def main(experiment, train, data, generator_type, predictor_model, all_samples,c
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
-        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=list(range(len(exp.test_loader.dataset))),
+        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=list(range(359,len(exp.test_loader.dataset))),
                 plot=False, cv=cv)
     else:
         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
 
-    ## Run intervention analysis for MIMIC data
-    if data=='mimic':
-        # For MIMIC experiment, extract population level importance for interventions
-        print('********** Extracting population level intervention statistics **********')
-        if data == 'mimic' and experiment == 'feature_generator_explainer':
-            for id in range(len(intervention_list)):
-                #if not os.path.exists("./interventions/int_%d.pkl" % (id)):
-                exp.summary_stat(id)
-                exp.plot_summary_stat(id)
 
     # span = []
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
