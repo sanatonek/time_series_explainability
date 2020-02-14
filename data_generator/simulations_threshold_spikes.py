@@ -23,7 +23,7 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
 # Filter requirements.
 order = 6
 fs = 30.0       # sample rate, Hz
-cutoff = 4 # desired cutoff frequency of the filter, Hz
+cutoff = 6.8 # desired cutoff frequency of the filter, Hz
 
 # Get the filter coefficients so we can check its frequency response.
 b, a = butter_lowpass(cutoff, fs, order)
@@ -57,6 +57,7 @@ def main(n_samples, plot, Tt=80):
     n_train = int(0.8*n_samples)
     x_train = signal_in[0:n_train,:,:]
     thresholds_train = thresholds[0:n_train]
+    n_test = n_samples - n_train
 
     x_test = signal_in[n_train:,:,:]
     thresholds_test = thresholds[n_train:]
@@ -82,11 +83,11 @@ def main(n_samples, plot, Tt=80):
         x3_test_lpf = np.array([butter_lowpass_filter(x[2,:], cutoff, fs, order) for x in x_test_n])
         x_test_n = np.stack([x1_test_lpf, x2_test_lpf, x3_test_lpf],axis=1)
 
-    kappa=1.2
+    kappa=1.5
     y_train = []
     ground_truth_importance_train=[]
     ground_truth_importance_test=[]
-    pvec=[0.7,0.3]
+    pvec=[0.99,0.01]
     lamda_poisson = 3
     
     for i in range(n_train):
@@ -176,6 +177,12 @@ def main(n_samples, plot, Tt=80):
 
     ground_truth_importance_train = np.array(ground_truth_importance_train)
     ground_truth_importance_test = np.array(ground_truth_importance_test)
+    
+    ground_truth_imp_train_mat = np.zeros((n_train,3,Tt))
+    ground_truth_imp_test_mat = np.zeros((n_test,3,Tt))
+    
+    ground_truth_imp_train_mat[:,0,:] = ground_truth_importance_train
+    ground_truth_imp_test_mat[:,0,:] = ground_truth_importance_test
  
     if plot:
         for i in range(x_train_n.shape[0]):
@@ -195,7 +202,7 @@ def main(n_samples, plot, Tt=80):
             plt.legend()
             plt.show()
 
-    return x_train_n[:,:,:],y_train,x_test_n[:,:,:],y_test,thresholds_train,thresholds_test, ground_truth_importance_train[:,:], ground_truth_importance_test[:,:]
+    return x_train_n[:,:,:],y_train,x_test_n[:,:,:],y_test,thresholds_train,thresholds_test, ground_truth_imp_train_mat[:,:,:], ground_truth_imp_test_mat[:,:,:]
 
 def generate_sample(plot, Tt=80):
     trend_style='hill'
@@ -237,14 +244,14 @@ if __name__=='__main__':
     n_samples = 3000
     x_train_n,y_train,x_test_n,y_test,thresholds_train,thresholds_test, gt_importance_train, gt_importance_test = main(n_samples=n_samples, plot=False)
     print(x_train_n.shape)
-    if not os.path.exists('./data/simulated_spike_data'):
-        os.mkdir('./data/simulated_spike_data')
-    save_data('./data/simulated_spike_data/x_train.pkl', x_train_n)
-    save_data('./data/simulated_spike_data/y_train.pkl', y_train)
-    save_data('./data/simulated_spike_data/x_test.pkl', x_test_n)
-    save_data('./data/simulated_spike_data/y_test.pkl', y_test)
-    save_data('./data/simulated_spike_data/thresholds_train.pkl', thresholds_train)
-    save_data('./data/simulated_spike_data/thresholds_test.pkl', thresholds_test)
-    save_data('./data/simulated_spike_data/gt_train.pkl', gt_importance_train)
-    save_data('./data/simulated_spike_data/gt_test.pkl', gt_importance_test)
+    if not os.path.exists('./data_generator/data/simulated_data'):
+        os.mkdir('./data_generator/data/simulated_data')
+    save_data('./data_generator/data/simulated_data/x_train.pkl', x_train_n)
+    save_data('./data_generator/data/simulated_data/y_train.pkl', y_train)
+    save_data('./data_generator/data/simulated_data/x_test.pkl', x_test_n)
+    save_data('./data_generator/data/simulated_data/y_test.pkl', y_test)
+    save_data('./data_generator/data/simulated_data/thresholds_train.pkl', thresholds_train)
+    save_data('./data_generator/data/simulated_data/thresholds_test.pkl', thresholds_test)
+    save_data('./data_generator/data/simulated_data/gt_train.pkl', gt_importance_train)
+    save_data('./data_generator/data/simulated_data/gt_test.pkl', gt_importance_test)
     print(gt_importance_train.shape)

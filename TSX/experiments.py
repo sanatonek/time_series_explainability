@@ -1,34 +1,23 @@
 import torch
-import os,sys,glob
+import os, glob
 from abc import ABC, abstractmethod
-from TSX.utils import shade_state, train_model, train_model_rt, train_model_rt_rg, plot_importance, test_model_rt_rg, logistic, test_model_rt, test, test_cond
-from TSX.models import EncoderRNN, RiskPredictor, LR, AttentionModel
+from TSX.utils import train_model, train_model_rt, train_model_rt_rg, plot_importance, logistic, test_model_rt, test
+from TSX.models import EncoderRNN, LR, AttentionModel
 from TSX.generator import FeatureGenerator, train_joint_feature_generator, train_feature_generator, CarryForwardGenerator, DLMGenerator, JointFeatureGenerator
-import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
 import matplotlib.colors as mcolors
 import matplotlib
 import numpy as np
 import pickle as pkl
-import pandas as pd
-import matplotlib.image as mpimg
 import json
 import time
-from math import log
-from statistics import mean
 
 import lime
 import lime.lime_tabular
-from TSX.temperature_scaling import ModelWithTemperature
-
-USER = 'sana'
 
 font={'family': 'normal','weight': 'bold','size':82}
 matplotlib.rc('font',**font)
-#generic plot configs
-line_styles_map=['-','--','-.',':','-','--','-.',':','-','--','-.',':','-','--','-.',':']
-marker_styles_map=['o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h']
 
 #mimic plot configs
 xkcd_colors = mcolors.XKCD_COLORS
@@ -85,6 +74,8 @@ class Experiment(ABC):
         self.test_loader = test_loader
         self.data = data
         self.ckpt_path ='./ckpt/' + self.data
+        if not os.path.exists(self.ckpt_path):
+            os.mkdir(self.ckpt_path)
 
 
     @abstractmethod
@@ -119,7 +110,6 @@ class Baseline(Experiment):
         self.model = LR(feature_size).to(self.device)
         self.experiment = experiment
         self.data=data
-        self.ckpt_path ='./ckpt/' + self.data
 
     def run(self, train):
         if train:
@@ -193,7 +183,6 @@ class BaselineExplainer(Experiment):
         super(BaselineExplainer, self).__init__(train_loader, valid_loader, test_loader, data=data)
         self.experiment = experiment
         self.data_class = data_class
-        self.ckpt_path = os.path.join('./ckpt/', self.data)
         self.baseline_method = baseline_method
         self.input_size = feature_size
         self.learned_risk = True
@@ -211,8 +200,6 @@ class BaselineExplainer(Experiment):
             else:
                 self.risk_predictor = EncoderRNN(self.input_size, hidden_size=configs['encoding_size'],
                                                  rnn=configs['rnn_type'], regres=True, data=data)
-                # self.risk_predictor = EncoderRNN(configs['feature_size'], hidden_size=configs['encoding_size'],
-                #                                  rnn=configs['rnn_type'], regres=True, return_all=False, data=data)
             self.feature_map = feature_map_simulation
         else:
             if self.data == 'mimic':
@@ -225,7 +212,6 @@ class BaselineExplainer(Experiment):
                                                  rnn=configs['rnn_type'], regres=True, data=data)
                 self.feature_map = feature_map_ghg
                 self.risk_predictor = self.risk_predictor.to(self.device)
-        #self.risk_predictor.load_state_dict(torch.load(os.path.join(self.ckpt_path, 'risk_predictor.pt')))
         self.risk_predictor.to(self.device)
         self.risk_predictor.eval()
 
@@ -248,7 +234,6 @@ class BaselineExplainer(Experiment):
         testset = list(self.test_loader.dataset)
         test_signals = torch.stack(([x[0] for x in testset])).to(self.device)
         matrix_test_dataset = test_signals.cpu().numpy()
-        # importance = np.zeros((len(samples_to_analyze),test_signals.shape[1], test_signals.shape[2]))
         explanation = []
         exec_time = []
         for test_sample_ind, test_sample in enumerate(samples_to_analyze):
@@ -256,12 +241,11 @@ class BaselineExplainer(Experiment):
             lime_start = time.time()
             for tttt in range(matrix_test_dataset.shape[2]):
                 exp = self.explainer.explain_instance(np.mean(matrix_test_dataset[test_sample,:,:tttt+1],axis=1), self.predictor_wrapper, labels=['feature '+ str(i) for i in range(len(self.feature_map))], top_labels=2)
-                #print("Most important features for sample %d: " % (test_sample), exp.as_list())
                 exp_sample.append(exp.as_list())
             explanation.append(exp_sample)
             exec_time.append(time.time()-lime_start)
         exec_time = np.array(exec_time)
-        print("Execution time of lime for subject %d= %.3f +/- %.3f"%(test_sample, np.mean(exec_time), np.std(np.array(exec_time))))
+        # print("Execution time of lime for subject %d= %.3f +/- %.3f"%(test_sample, np.mean(exec_time), np.std(np.array(exec_time))))
         return explanation
 
     def train(self, n_epochs, learn_rt=False):
@@ -269,30 +253,17 @@ class BaselineExplainer(Experiment):
         signals = torch.stack(([x[0] for x in trainset])).to(self.device)
         matrix_train_dataset = signals.mean(dim=2).cpu().numpy()
         if self.baseline_method == 'lime':
-            #self.explainer = lime.lime_tabular.LimeTabularExplainer(matrix_train_dataset, discretize_continuous=True)
             self.explainer = lime.lime_tabular.LimeTabularExplainer(matrix_train_dataset, feature_names=self.feature_map+['gender', 'age', 'ethnicity', 'first_icu_stay'], discretize_continuous=True)
 
 
 class FeatureGeneratorExplainer(Experiment):
     """ Experiment for generating feature importance over time using a generative model
     """
-    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, generator_hidden_size=80, prediction_size=1, historical=False, generator_type='RNN_generator', predictor_model='RNN', experiment='feature_generator_explainer', data='mimic', conditional=True,**kwargs):
-        """
-        :param train_loader:
-        :param valid_loader:
-        :param test_loader:
-        :param feature_size: Size of input features
-        :param patient_data:
-        :param generator_hidden_size: Generator hidden size
-        :param prediction_size: Size of the prediction window. AKA number of samples the generator predicts
-        :param historical: (boolean) If True, use past history for the generator
-        :param simulation: (boolean) If True, run experiment on simulated data
-        :param experiment: Experiment name
-        """
+    def __init__(self,  train_loader, valid_loader, test_loader, feature_size, patient_data, output_path, generator_hidden_size=80, prediction_size=1, generator_type='RNN_generator', predictor_model='RNN', experiment='feature_generator_explainer', data='mimic', conditional=True,**kwargs):
         super(FeatureGeneratorExplainer, self).__init__(train_loader, valid_loader, test_loader, data)
         self.generator_type = generator_type
         if self.generator_type == 'RNN_generator':
-            self.generator = FeatureGenerator(feature_size, historical, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
+            self.generator = FeatureGenerator(feature_size, hidden_size=generator_hidden_size, prediction_size=prediction_size,data=data,conditional=conditional).to(self.device)
             self.conditional=conditional
         elif self.generator_type == 'carry_forward_generator':
             self.generator = CarryForwardGenerator(feature_size).to(self.device)
@@ -312,11 +283,12 @@ class FeatureGeneratorExplainer(Experiment):
         self.input_size = feature_size
         self.patient_data = patient_data
         self.experiment = experiment
-        self.historical = historical
         self.predictor_model = predictor_model
         self.prediction_size = prediction_size
         self.generator_hidden_size = generator_hidden_size
-        self.ckpt_path = os.path.join('./ckpt/', self.data)
+        self.output_path = os.path.join(output_path, data)
+        if not os.path.exists(self.output_path):
+            os.mkdir(self.output_path)
         if self.generator_type!='RNN_generator':
             self.conditional=None
 
@@ -340,13 +312,14 @@ class FeatureGeneratorExplainer(Experiment):
                     if self.predictor_model == 'RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
                     elif self.predictor_model == 'attention':
-                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=50, data=data)
+                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=10, data=data)
+                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=10, data=data)
                 else:
                     if self.predictor_model == 'RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)
                     elif self.predictor_model == 'attention':
                         self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
-            self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
+                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=100, data=data)
             self.feature_map = feature_map_simulation
             self.risk_predictor = self.risk_predictor.to(self.device)
             self.risk_predictor_attention = self.risk_predictor_attention.to(self.device)
@@ -389,7 +362,7 @@ class FeatureGeneratorExplainer(Experiment):
                 with open(os.path.join('./data/simulated_spike_data/thresholds_test.pkl'), 'rb') as f:
                     th = pkl.load(f)
                 with open(os.path.join('./data/simulated_spike_data/gt_test.pkl'), 'rb') as f:
-                    gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+                    gt_importance = pkl.load(f)
             else:
                 with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
                     gt_importance = pkl.load(f)
@@ -435,39 +408,18 @@ class FeatureGeneratorExplainer(Experiment):
                 self.generator.load_state_dict(
                     torch.load(os.path.join('./ckpt/%s/%s.pt' % (self.data, self.generator_type))))
 
-                import itertools
                 tvec = range(1, signals.shape[-1])
                 imps= np.zeros((len(sub_features), signals.shape[-1]-1))#[]
                 top_subfeatures = []
                 top_subfeatures_scores = []
-                # sub_groups = []
-                # for t in tvec:
-                #     loss = []
-                    # Greedy algorithm to select sub_group
-                    # sub_groups = list(itertools.chain.from_iterable(itertools.combinations(list(range(signals.shape[-2])), r)
-                    #                                           for r in range(signals.shape[-2] + 1)))[1:]
                 for s, sub_group in enumerate(sub_features):
-                    _, _, imp = self._get_feature_importance_FIT(signals, sig_ind=sub_group, n_samples=50, learned_risk=self.learned_risk)
+                    _, imp = self._get_feature_importance_FIT(signals, sig_ind=sub_group, n_samples=50, learned_risk=self.learned_risk)
                     imps[s,:] = imp
-                        # sub_groups.append(sub_group)
-                        # loss.append(imp + alpha*len(sub_group))
                 top_subfeatures.append([sub_features[top] for top in np.argmax(imps, axis=0)])
                 top_subfeatures_scores.append(np.min(imps, axis=0))
 
 
-                # importance = []
-                # for i, sig_ind in enumerate(sub_features):
-                #     label, subset_importance = self._get_feature_importance_FIT( signals, sig_ind=sig_ind, n_samples=50, learned_risk=self.learned_risk)
-                #     importance.append(subset_importance)
-                # importance = np.stack(importance)
-                #
-                # top_subfeatures = []
-                # for each_time in range(importance.shape[1]):
-                #     best = np.argmin(importance[:,each_time])
-                #     top_subfeatures.append(sub_features[best])
-                # # print(top_subfeatures)
-
-                with open(os.path.join('/scratch/gobi1/%s/TSX_results/' % USER, self.data, 'top_features_' + str(sample_ID) + '.pkl'), 'wb') as f:
+                with open(os.path.join(self.output_path,self.predictor_model , 'top_features_' + str(sample_ID) + '.pkl'), 'wb') as f:
                     pkl.dump({'feauture_set':top_subfeatures, 'importance':top_subfeatures_scores}, f, protocol=pkl.HIGHEST_PROTOCOL)
                 selected_subgroups[sample_ID] = zip(top_subfeatures, top_subfeatures_scores)
         return selected_subgroups
@@ -477,17 +429,14 @@ class FeatureGeneratorExplainer(Experiment):
         :param train: (boolean) If True, train the generators, if False, use saved checkpoints
 
         """
+        print('running for ', len(samples_to_analyze))
         testset = list(self.test_loader.dataset)
         cv = kwargs['cv'] if 'cv' in kwargs.keys() else 0
         if train and self.generator_type!='carry_forward_generator':
            self.train(n_features=self.timeseries_feature_size, n_epochs=n_epochs)
            return 0
         else:
-            # ckpt_path = os.path.join('./ckpt',self.data)
-            if self.historical:
-                check_path = glob.glob(os.path.join(self.ckpt_path,'*_generator.pt'))[0]
-            else:
-                check_path = glob.glob(os.path.join(self.ckpt_path,'*_generator.pt'))[0]
+            check_path = glob.glob(os.path.join(self.ckpt_path,'*_generator.pt'))[0]
 
             if not os.path.exists(check_path):
                 raise RuntimeError('No saved checkpoint for this model')
@@ -517,6 +466,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                     with open(os.path.join('./data/simulated_spike_data/gt_test.pkl'), 'rb') as f:
                         gt_importance = pkl.load(f)#Type dmesg and check the last few lines of output. If the disc or the connection to it is failing, it'll be noted there.load(f)
+                        #print(gt_importance)
                 else:
                     with open(os.path.join('./data/simulated_data/state_dataset_importance_test.pkl'),'rb') as f:
                         gt_importance = pkl.load(f)
@@ -594,7 +544,7 @@ class FeatureGeneratorExplainer(Experiment):
                             sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:, t_ind].cpu().detach().numpy()#[:,0]
                         signal_t.grad.data.zero_()
                     self.risk_predictor.eval()
-            print('Execution time of sensitivity = %.3f'%((time.time()-sensitivity_start)/float(len(samples_to_analyze))))
+            # print('Execution time of sensitivity = %.3f'%((time.time()-sensitivity_start)/float(len(samples_to_analyze))))
             print('\n********** Visualizing a few samples **********')
             all_FFC_importance = []
             all_FO_importance = []
@@ -612,13 +562,6 @@ class FeatureGeneratorExplainer(Experiment):
                 signals_to_analyze = range(0,15)
 
             if self.data=='ghg':
-                #GHG experiment variables
-                mse_vec=[]
-                mse_vec_occ=[]
-                mse_vec_su=[]
-                mse_vec_comb=[]
-                mse_vec_sens=[]
-
                 # Replace and Predict Experiment
                 self.replace_and_predict(signals_to_analyze, sensitivity_analysis, data=self.data, tvec=tvec)
             else:
@@ -634,7 +577,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                     top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = self.plot_baseline(
                         sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=self.data, plot=plot, 
-                        gt_importance_subj=gt_importance[sample_ID] if self.data == 'simulation' else None,lime_imp=lime_imp,tvec=tvec,cv=cv)
+                        gt_importance_subj=gt_importance[sample_ID] if 'simulation' in self.data else None,lime_imp=lime_imp,tvec=tvec,cv=cv)
                     all_FFC_importance.append(importance)
                     all_AFO_importance.append(importance_occ_aug)
                     all_FO_importance.append(importance_occ)
@@ -695,12 +638,11 @@ class FeatureGeneratorExplainer(Experiment):
         else:
             for feature_to_predict in range(0, n_features):
                 print('**** training to sample feature: ', feature_to_predict)
-                self.generator = FeatureGenerator(self.feature_size, self.historical,
-                                                  hidden_size=self.generator_hidden_size,
+                self.generator = FeatureGenerator(self.feature_size, hidden_size=self.generator_hidden_size,
                                                   prediction_size=self.prediction_size, data=self.data,
                                                   conditional=self.conditional).to(self.device)
                 train_feature_generator(self.generator, self.train_loader, self.valid_loader, self.generator_type,
-                                        feature_to_predict, n_epochs=n_epochs, historical=self.historical)
+                                        feature_to_predict, n_epochs=n_epochs)
         print("Training time for %s = " % (self.generator_type), time.time() - train_start_time)
 
 
@@ -724,9 +666,7 @@ class FeatureGeneratorExplainer(Experiment):
         
         tvec = range(1,signals.shape[1])
         importance = np.zeros((self.timeseries_feature_size, len(tvec)))
-        importance_cond = np.zeros((self.timeseries_feature_size, len(tvec)))
         attention_importance = np.zeros((self.timeseries_feature_size, len(tvec)))
-        mean_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
         std_predicted_risk = np.zeros((self.timeseries_feature_size, len(tvec)))
         importance_occ = np.zeros((self.timeseries_feature_size, len(tvec)))
         std_predicted_risk_occ = np.zeros((self.timeseries_feature_size, len(tvec)))
@@ -749,18 +689,16 @@ class FeatureGeneratorExplainer(Experiment):
                 else:
                     if data=='mimic':
                         self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
+                        torch.load(os.path.join(self.ckpt_path,'%s_%s.pt' % (feature_map_mimic[sig_ind], self.generator_type))))
                     elif data=='simulation':
                         self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind), self.generator_type))))
+                        torch.load(os.path.join(self.ckpt_path,'%s_%s.pt' % (str(sig_ind), self.generator_type))))
                     elif data=='ghg':
                         self.generator.load_state_dict(
-                        torch.load(os.path.join('./ckpt',data,'%s_%s.pt' % (str(sig_ind),self.generator_type))))
+                        torch.load(os.path.join(self.ckpt_path,'%s_%s.pt' % (str(sig_ind),self.generator_type))))
 
             t0 = time.time()
-            label, _, importance[i,:] = self._get_feature_importance_FIT( signals, sig_ind=[sig_ind], n_samples=50, learned_risk=self.learned_risk)
-            # label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
-            #     signals, sig_ind=sig_ind, n_samples=10, mode='generator', learned_risk=self.learned_risk)#,tvec=tvec)
+            label, importance[i,:] = self._get_feature_importance_FIT( signals, sig_ind=[sig_ind], n_samples=10, learned_risk=self.learned_risk)
             t1 = time.time()
             FFC_exe_time.append(t1-t0)
 
@@ -785,24 +723,26 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-        importance_cond = 1./(1+np.exp(-2*importance_cond))#1./(1+np.exp(10*importance_cond))
-        print('Execution time of FFC for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FFC_exe_time)), np.std(np.array(FFC_exe_time))) )
-        print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
-        print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
+        # print('Execution time of FFC for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FFC_exe_time)), np.std(np.array(FFC_exe_time))) )
+        # print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
+        # print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
 
         if 'cv' in kwargs.keys():
             cv = kwargs['cv']
         else:
             cv= 10
+        if self.data=='mimic':
 
-        if self.predictor_model=='attention':
-            save_path = os.path.join('/scratch/gobi1/%s/TSX_results/' % USER, '%s_attention'%data,'results_' + str(subject) + 'cv_' + str(cv) + '.pkl')
+            sensitivity_analysis_importance = sensitivity_analysis_importance[:self.timeseries_feature_size, 1:]
         else:
-            save_path = os.path.join('/scratch/gobi1/%s/TSX_results/'%USER,data,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl')
-        with open(save_path, 'wb') as f:
-            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'conditional': {'imp':importance_cond,'std':std_predicted_risk},
-                      'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ}, 'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug},
-                      'Sens': {'imp': sensitivity_analysis_importance,'std':[]}, 'lime':{'imp':lime_imp, 'std':[]}, 'attention':{'imp': attention_importance,'std':[]}, 'gt':gt_importance_subj}, f,protocol=pkl.HIGHEST_PROTOCOL)
+            sensitivity_analysis_importance = sensitivity_analysis_importance[:,1:]
+
+        if not os.path.exists(os.path.join(self.output_path,self.predictor_model)):
+            os.mkdir(os.path.join(self.output_path,self.predictor_model))
+        with open(os.path.join(self.output_path,self.predictor_model,'results_'+str(subject)+ 'cv_' + str(cv) + '.pkl'), 'wb') as f:
+            pkl.dump({'FFC': {'imp':importance,'std':std_predicted_risk}, 'Suresh_et_al':{'imp':importance_occ,'std':std_predicted_risk_occ},
+                      'AFO': {'imp':importance_occ_aug,'std': std_predicted_risk_occ_aug}, 'Sens': {'imp': sensitivity_analysis_importance,'std':[]},
+                      'lime':{'imp':lime_imp, 'std':[]}, 'attention':{'imp': attention_importance,'std':[]}, 'gt':gt_importance_subj}, f,protocol=pkl.HIGHEST_PROTOCOL)
 
         if not plot:
             return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
@@ -812,21 +752,17 @@ class FeatureGeneratorExplainer(Experiment):
         max_imp_occ_aug.sort(key=lambda pair: pair[1], reverse=True)
         max_imp_sen.sort(key=lambda pair: pair[1], reverse=True)
 
-        max_imps = [max_imp_FCC, max_imp_occ_aug, max_imp_occ, max_imp_sen, max_imp_sen]
-        imps = [importance, importance_occ_aug, importance_occ, np.abs(sensitivity_analysis_importance[:,1:]), attention_importance]
-        std_imps = [std_predicted_risk, std_predicted_risk_occ_aug, std_predicted_risk_occ, np.zeros(std_predicted_risk.shape), np.zeros(std_predicted_risk.shape)]
+        max_imps = np.stack([max_imp_FCC, max_imp_occ_aug, max_imp_occ, max_imp_sen, max_imp_sen], axis=0)
+        imps = np.stack([importance, importance_occ_aug, importance_occ, np.abs(sensitivity_analysis_importance), attention_importance], axis=0)
+        std_imps = np.stack([std_predicted_risk, std_predicted_risk_occ_aug, std_predicted_risk_occ, np.zeros(std_predicted_risk.shape), np.zeros(std_predicted_risk.shape)], axis=0)
         n_feats_to_plot = min(self.timeseries_feature_size, n_important_features)
-        save_path_plots = '/scratch/gobi1/%s/TSX_results' % USER
 
         plot_importance(subject, signals, label, imps, std_imps, max_imps, n_feats_to_plot, signals_to_analyze, color_map, feature_map[data],
-                        data, gt_importance_subj, save_path_plots, self.patient_data)
-        if self.data=='mimic':
-            sensitivity_analysis_importance = sensitivity_analysis_importance[:self.timeseries_feature_size, 1:]
-        else:
-            sensitivity_analysis_importance = sensitivity_analysis_importance[:,1:]
+                        data, gt_importance_subj, os.path.join(self.output_path,self.predictor_model), self.patient_data)
         return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
 
-    def _get_feature_importance_FIT(self, signal, sig_ind, n_samples=10, learned_risk=True, tvec=None, at_time=None):
+
+    def _get_feature_importance_FIT(self, signal, sig_ind, n_samples=10, learned_risk=True, tvec=None, at_time=None, conditional=False):
         self.generator.eval()
         risks = []
         importance_FIT = []
@@ -845,36 +781,28 @@ class FeatureGeneratorExplainer(Experiment):
 
                 generator_predicted_risks = []
                 for _ in range(n_samples):
-                    x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
-                    # x_hat_t_FIT = signal[:, t].clone()
-                    # x_hat_t_FIT[sig_ind] = x_hat_t[0, sig_ind].detach().cpu()
-
-                    # x_hat_t_FIT, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind[0], 'm1')
                     predicted_signal_FIT = signal[:,0:t+1].clone()
-                    predicted_signal_FIT[:,t][sig_ind] = x_hat_t[0, sig_ind].detach().cpu()
+                    if conditional:
+                        x_hat_t = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
+                        predicted_signal_FIT[:, t] = x_hat_t
+                    else:
+                        x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
+                        predicted_signal_FIT[:,t][sig_ind] = x_hat_t[0, sig_ind].detach().cpu()
 
                     if 'simulation' in self.data and not learned_risk:
-                        predicted_risk_FFC = self.risk_predictor(predicted_signal_FIT.cpu().detach().numpy(), t)
-                        # conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.cpu().detach().numpy(), t)
+                        predicted_risk_FIT = self.risk_predictor(predicted_signal_FIT.cpu().detach().numpy(), t)
                     else:
-                        predicted_risk_FFC = self.risk_predictor(predicted_signal_FIT.unsqueeze(0).to(self.device)).item()
-                        # conditional_predicted_risk = self.risk_predictor(predicted_signal_conditional.unsqueeze(0).to(self.device)).item()
-                    generator_predicted_risks.append(predicted_risk_FFC)
-                    # conditional_predicted_risks.append(conditional_predicted_risk)
+                        predicted_risk_FIT = self.risk_predictor(predicted_signal_FIT.unsqueeze(0).to(self.device)).item()
+                    generator_predicted_risks.append(predicted_risk_FIT)
 
                 # KL divergence
-                # probability_subsection = torch.Tensor([1 - np.clip(np.mean(conditional_predicted_risk), 10 ** -6, 1), np.clip(np.mean(conditional_predicted_risk), 10 ** -6, 1)])
-                # probability_subsection_FFC = torch.Tensor([1 - np.clip(np.mean(generator_predicted_risks), (10**-6), (1-10**-6)), np.clip(np.mean(generator_predicted_risks), (10**-6), (1-10**-6))])
-                # probability_all = torch.Tensor([(1 - np.clip(risk, (10**-6), (1-10**-6))), np.clip(risk, (10**-6), (1-10**-6))])
-                # probability_subsection = torch.Tensor([1-np.mean(conditional_predicted_risk), np.mean(conditional_predicted_risk)])
-                probability_subsection_FFC = torch.Tensor([1-np.mean(generator_predicted_risks), np.mean(generator_predicted_risks)])
+                probability_subsection_FIT = torch.Tensor([1-np.mean(generator_predicted_risks), np.mean(generator_predicted_risks)])
                 probability_all = torch.Tensor([(1-risk), risk])
 
-                # div_FFC = (probability_all * (probability_all/probability_subsection_FFC).log()).sum().item()
-                div_FFC = torch.nn.KLDivLoss()(torch.log(torch.Tensor(probability_all)).squeeze(0),torch.Tensor(probability_subsection_FFC).squeeze(0))
+                div_FFC = torch.nn.KLDivLoss()(torch.log(torch.Tensor(probability_all)).squeeze(0),torch.Tensor(probability_subsection_FIT).squeeze(0))
                 importance_FIT.append(div_FFC)
                 risks.append(risk)
-            return risks, [], importance_FIT
+            return risks, importance_FIT
         else:
             if 'simulation' in self.data:
                 if not learned_risk:
@@ -930,8 +858,6 @@ class FeatureGeneratorExplainer(Experiment):
                 # risk = self.risk_predictor(signal.view(1, signal.shape[0], signal.shape[1])).item()
             signal_known = torch.cat((signal[:sig_ind,t], signal[sig_ind+1:,t])).to(self.device)
             signal = signal.to(self.device)
-            #risks.append(risk)
-            # print('Predicted risk score at 19th hour (based on the generator): ', self.risk_predictor(generated_sig.to(self.device)).item())
             predicted_risks = []
             for _ in range(n_samples):
                 # Replace signal with random sample from the distribution if feature_occlusion==True,
@@ -958,16 +884,6 @@ class FeatureGeneratorExplainer(Experiment):
                                                                                            signal[sig_ind + 1:,
                                                                                            t:t + self.generator.prediction_size]),
                                                                                           0)
-                # elif mode=="generator" or mode=="combined":
-                #     # TODO: This is an aweful way of conditioning on single variable!!!! Fix it
-                #     predicted_signal_t, _ = self.generator(signal[:, t], signal[:, 0:t].view(1, signal.size(0), t), sig_ind, method)
-                #     if mode=="combined":
-                #         if self.risk_predictor(signal[:,0:t].view(1, signal.shape[0], t)).item() > 0.5:
-                #             prediction = torch.Tensor(self._find_closest(feature_dist_0, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
-                #         else:
-                #             prediction = torch.Tensor(self._find_closest(feature_dist_1, prediction.cpu().detach().numpy()).reshape(-1)).to(self.device)
-                #     predicted_signal = signal[:,0:t+self.generator.prediction_size].clone()
-                #     predicted_signal[:,t:t+self.generator.prediction_size] = predicted_signal_t.view(-1, 1)
 
                 if 'simulation' in self.data:
                     if not learned_risk:
@@ -976,23 +892,16 @@ class FeatureGeneratorExplainer(Experiment):
                         predicted_risk = self.risk_predictor(predicted_signal[:,0:t+self.generator.prediction_size].view(1,predicted_signal.shape[0],t+self.generator.prediction_size).to(self.device)).item()
                 else:
                     predicted_risk = self.risk_predictor(predicted_signal[:, 0:t + self.generator.prediction_size].view(1, predicted_signal.shape[0], t + self.generator.prediction_size).to(self.device)).item()
-                    # predicted_risk = self.risk_predictor(predicted_signal.view(1, predicted_signal.shape[0], predicted_signal.shape[1]).to(self.device)).item()
                 predicted_risks.append(predicted_risk)
             risks.append(risk)
             predicted_risks = np.array(predicted_risks)
-            #print(predicted_risks.shape)
 
             diff_imp = abs(predicted_risks-risk)
             mean_imp = np.mean(predicted_risks,0)
             std_imp = np.std(predicted_risks, 0)
             mean_predicted_risk.append(mean_imp)
             std_predicted_risk.append(std_imp)
-            # if (0):#method=='c1' or method=='inf') and (mode=="generator" or mode=="combined"):
-            #     importance.append(1. - 1./(1+np.exp(-10*(abs(mean_imp - risk)-0.5)))  )
-            # else:
-                #importance.append(abs(mean_imp-risk))
             importance.append(np.mean(diff_imp))
-                #importance.append(assign_importance_IG(predicted_risks, risk))
         return risks, importance, mean_predicted_risk, std_predicted_risk
 
         # def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3,

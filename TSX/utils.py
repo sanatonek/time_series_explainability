@@ -11,6 +11,10 @@ from sklearn.model_selection import KFold
 import seaborn as sns
 sns.set()
 
+
+line_styles_map=['-','--','-.',':','-','--','-.',':','-','--','-.',':','-','--','-.',':']
+marker_styles_map=['o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h']
+
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
 import warnings
 warnings.filterwarnings("ignore")
@@ -127,8 +131,11 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
-            for t in [int(tt) for tt in np.linspace(1,signals.shape[2]-2, num=num)]:
+            if data=='simulation':
+                time_points = [int(tt) for tt in np.linspace(1,signals.shape[2]-2, num=num)]
+            else:
+                time_points = [int(tt) for tt in np.logspace(0, np.log10(signals.shape[2] - 1), num=num)]
+            for t in time_points:
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])
 
@@ -317,25 +324,12 @@ def test_reconstruction(model, valid_loader, device):
 
 
 def load_data(batch_size, path='./data/', **kwargs):
-    #if 'class_conditional' in argv:
-    #    p_data = NormalPatientData(path)
-    #else:
     p_data = PatientData(path)
 
     features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
     p_data.train_data = p_data.train_data[:,features,:]
     p_data.test_data = p_data.test_data[:,features,:]
     p_data.feature_size = len(features)
-    # x_train = p_data.train_data[:,features,:]
-    # x_test = p_data.test_data[:,features,:]
-    # n_train = int(0.8 * len(p_data.train_data))
-    # if 'cv' in kwargs.keys():
-    #     kf = KFold(n_splits=5, random_state=42)
-    #     train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
-    # else:
-    #     train_idx = range(n_train)
-    #     valid_idx = range(n_train,len(x_train))
-
     n_train = int(0.8*p_data.n_train)
     if 'cv' in kwargs.keys():
         kf = KFold(n_splits=5,random_state=42)
@@ -531,6 +525,7 @@ def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, s
         #     ax.set_ylim(bottom=-0.02, top=1.)
 
         for ind, sig in a_max[ax_ind][0:n_feats_to_plot]:
+            ind = int(ind)
             ref_ind = signals_to_analyze[ind]
             if ref_ind not in important_signals:
                 important_signals.append(ref_ind)
@@ -564,22 +559,22 @@ def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, s
     f.set_figheight(40)
     f.set_figwidth(60)
     plt.subplots_adjust(hspace=.5)
-    plt.savefig(os.path.join(save_path, data, 'feature_%d.pdf' % (subject)), dpi=300, orientation='landscape')
+    plt.savefig(os.path.join(save_path, 'feature_%d.pdf' % (subject)), dpi=300, orientation='landscape')
     fig_legend = plt.figure(figsize=(13, 1.2))
     handles, labels = axs[0].get_legend_handles_labels()
     plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-    fig_legend.savefig(os.path.join(save_path, data, 'legend_%d.pdf' %subject), dpi=300, bbox_inches='tight')
+    fig_legend.savefig(os.path.join(save_path, 'legend_%d.pdf' %subject), dpi=300, bbox_inches='tight')
 
     for imp_plot_ind in range(4):
         heatmap_fig = plt.figure(figsize=(15, 1) if data == 'simulation' else (16, 9))
         plt.yticks(rotation=0)
         imp_plot = sns.heatmap(a[imp_plot_ind], yticklabels=fmap,
                                square=True if data == 'mimic' else False)  # , vmin=0, vmax=1)
-        heatmap_fig.savefig(os.path.join(save_path, data, 'heatmap_%s_%s.pdf'%(str(subject), ['FIT', 'AFO', 'FO', 'Sens'][imp_plot_ind])))
+        heatmap_fig.savefig(os.path.join(save_path, 'heatmap_%s_%s.pdf'%(str(subject), ['FIT', 'AFO', 'FO', 'Sens'][imp_plot_ind])))
     if data == 'simulation':
         heatmap_gt = plt.figure(figsize=(20, 1))
         plt.yticks(rotation=0)
         imp_plot = sns.heatmap(gt_importance_subj, yticklabels=fmap)
-        heatmap_gt.savefig(os.path.join(save_path, data,'heatmap_%s_ground_truth.pdf'%str(subject)))
+        heatmap_gt.savefig(os.path.join(save_path,'heatmap_%s_ground_truth.pdf'%str(subject)))
 
     return important_signals

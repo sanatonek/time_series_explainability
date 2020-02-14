@@ -14,17 +14,21 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP', 'DiasBP', 'MeanBP', 'RespRate', 'SpO2',
                      'Glucose', 'Temp']
 
+USER = 'sana'
+
 MIMIC_TEST_SAMPLES = list(range(70))
-SIMULATION_SAMPLES = [7, 23, 78, 95]
-samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
+
+SIMULATION_SAMPLES = [45, 59, 7, 23, 78, 95, 120, 157, 51, 11, 101, 48]
+samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':range(100)}
 
 
-def main(experiment, train, data, generator_type, predictor_model, all_samples,cv=0):
+def main(experiment, train, data, generator_type, predictor_model, all_samples,cv, output_path):
     print('********** Experiment with the %s data **********' %experiment)
     with open('config.json') as config_file:
         configs = json.load(config_file)[data][experiment]
 
-
+    if not os.path.exists('./data'):
+        os.mkdir('./data')
     ## Load the data
     if data == 'mimic':
         p_data, train_loader, valid_loader, test_loader = load_data(batch_size=configs['batch_size'],
@@ -55,8 +59,8 @@ def main(experiment, train, data, generator_type, predictor_model, all_samples,c
                                rnn_type=configs['rnn_type'], data=data, model=predictor_model)
     elif experiment == 'feature_generator_explainer':
         exp = FeatureGeneratorExplainer(train_loader, valid_loader, test_loader, feature_size, patient_data=p_data,
-                                        predictor_model=predictor_model,generator_hidden_size=configs['encoding_size'],
-                                        prediction_size=1, historical=(configs['historical']==1),
+                                        output_path=output_path,predictor_model=predictor_model,
+                                        generator_hidden_size=configs['encoding_size'], prediction_size=1,
                                         generator_type=generator_type, data=data, experiment=experiment+'_'+generator_type)
     elif experiment == 'lime_explainer':
         exp = BaselineExplainer(train_loader, valid_loader, test_loader, feature_size, data_class=p_data, data=data, baseline_method='lime')
@@ -64,30 +68,10 @@ def main(experiment, train, data, generator_type, predictor_model, all_samples,c
     if all_samples:
         print('Experiment on all test data')
         print('Number of test samples: ', len(exp.test_loader.dataset))
-        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=list(range(359,len(exp.test_loader.dataset))),
+        exp.run(train=False, n_epochs=configs['n_epochs'], samples_to_analyze=list(range(0,len(exp.test_loader.dataset))),
                 plot=False, cv=cv)
     else:
         exp.run(train=train, n_epochs=configs['n_epochs'], samples_to_analyze=samples_to_analyze[data])
-
-
-    # span = []
-    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # # # import matplotlib.pyplot as plt
-    # testset = list(exp.test_loader.dataset)
-    # # # signals = torch.stack(([x[0] for x in testset]))
-    # # # plt.plot(np.array(signals[4126,2,:]))
-    # # # plt.show()
-    # for i,(signal,label) in enumerate(testset):
-    #    exp.risk_predictor.load_state_dict(torch.load('./ckpt/mimic/risk_predictor_RNN.pt'))
-    #    exp.risk_predictor.to(device)
-    #    exp.risk_predictor.eval()
-    #    risk=[]
-    #    for t in range(1,48):
-    #        risk.append(exp.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t).to(device)).item())
-    #    span.append((i,max(risk) - min(risk)))
-    # span.sort(key= lambda pair:pair[1], reverse=True)
-    # print([x[0] for x in span[0:300]])
-    # print([x[1] for x in span[0:300]])
 
 
 if __name__ == '__main__':
@@ -95,10 +79,13 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='feature_generator_explainer', help='Prediction model')
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--generator', type=str, default='joint_RNN_generator')
+    parser.add_argument('--out', type=str, default='/scratch/gobi1/%s/TSX_results/' % USER)
     parser.add_argument('--predictor', type=str, default='RNN')
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--all_samples', action='store_true')
     parser.add_argument('--cv', type=int, default=0)
     args = parser.parse_args()
+    if not os.path.exists(args.out):
+        os.mkdir(args.out)
     main(args.model, train=args.train, data=args.data, generator_type=args.generator, predictor_model=args.predictor,
-         all_samples=args.all_samples,cv=args.cv)
+         all_samples=args.all_samples,cv=args.cv, output_path= args.out)

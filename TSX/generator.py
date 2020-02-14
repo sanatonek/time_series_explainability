@@ -310,7 +310,7 @@ def save_ckpt(generator_model, fname, data):
     torch.save(generator_model.state_dict(), fname)
 
 
-def train_feature_generator(generator_model, train_loader, valid_loader, generator_type, feature_to_predict=1, n_epochs=30, historical=False, **kwargs):
+def train_feature_generator(generator_model, train_loader, valid_loader, generator_type, feature_to_predict=1, n_epochs=30, **kwargs):
     train_loss_trend = []
     test_loss_trend = []
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -340,45 +340,23 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
         generator_model.train()
         epoch_loss = 0
         for i, (signals, _) in enumerate(train_loader):
-            if historical:
-                #for t in [np.random.randint(low=24, high=45)]:
-                for t in [int(tt) for tt in np.logspace(1.2,np.log10(signals.shape[2]),num=num)]:
-                    label = signals[:, feature_to_predict, t:t+generator_model.prediction_size].contiguous().view(-1, generator_model.prediction_size)
-                    # signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
-                    # signal = signal.contiguous().view(-1, signals.shape[1] - 1)
-                    signal = torch.Tensor(signals[:, :, t].float()).to(device)
-                    past = signals[:,:,:t]
-                    optimizer.zero_grad()
-                    prediction, mus = generator_model(signal, past)
-                    reconstruction_loss = loss_criterion(prediction, label.to(device))
-                    epoch_loss = epoch_loss + reconstruction_loss.item()
-                    reconstruction_loss.backward()
-                    optimizer.step()
-
-            else:
-                original = signals[:,feature_to_predict,:].contiguous().view(-1,1)
-                # signal = torch.cat((signals[:,:feature_to_predict,:], signals[:,feature_to_predict+1:,:]), 1).permute(0,2,1)
-                # signal = signal.contiguous().view(-1,signals.shape[1]-1)
+            for t in [int(tt) for tt in np.logspace(1.2,np.log10(signals.shape[2]),num=num)]:
+                label = signals[:, feature_to_predict, t:t+generator_model.prediction_size].contiguous().view(-1, generator_model.prediction_size)
                 signal = torch.Tensor(signals[:, :, t].float()).to(device)
-
+                past = signals[:,:,:t]
                 optimizer.zero_grad()
-                prediction, mus = generator_model(signal)
-                reconstruction_loss = loss_criterion(prediction, original.to(device))
-                epoch_loss += reconstruction_loss.item()
+                prediction, mus = generator_model(signal, past)
+                reconstruction_loss = loss_criterion(prediction, label.to(device))
+                epoch_loss = epoch_loss + reconstruction_loss.item()
                 reconstruction_loss.backward()
                 optimizer.step()
 
-        test_loss = test_feature_generator(generator_model, valid_loader, feature_to_predict, historical)
-        if historical:
-            train_loss_trend.append(epoch_loss/((i+1)*num))
-        else:
-            train_loss_trend.append(epoch_loss/(i+1))
+
+        test_loss = test_feature_generator(generator_model, valid_loader, feature_to_predict)
+        train_loss_trend.append(epoch_loss/((i+1)*num))
 
         test_loss_trend.append(test_loss)
-        if historical:
-            fname=os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map[feature_to_predict], generator_type))
-        else:
-            fname=os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map[feature_to_predict], generator_type))
+        fname=os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map[feature_to_predict], generator_type))
 
         if test_loss<best_loss:
             best_loss = test_loss
@@ -388,25 +366,11 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
 
         if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
-            if historical:
-                print('Training ===>loss: ', epoch_loss/((i+1)*num))
-            else:
-                print('Training ===>loss: ', epoch_loss/(i+1))
+            print('Training ===>loss: ', epoch_loss/((i+1)*num))
             print('Test ===>loss: ', test_loss)
     print('***** Training feature %d *****'%(feature_to_predict))
     print('Test loss: ', test_loss)
 
-    '''
-    # Save model and results
-    if not os.path.exists('./ckpt'):
-        os.mkdir('./ckpt')
-    if not os.path.exists(os.path.join('./ckpt',data)):
-        os.mkdir(os.path.join('./ckpt',data))
-    if historical:
-        torch.save(generator_model.state_dict(), os.path.join('./ckpt', data, '%s_%s.pt'%(feature_map[feature_to_predict], generator_type)))
-    else:
-        torch.save(generator_model.state_dict(),  os.path.join('./ckpt', data, '%s_%s_nohist.pt'%(feature_map[feature_to_predict], generator_type)))
-    '''
 
     plt.figure(feature_to_predict)
     ax = plt.gca()
@@ -428,7 +392,7 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
         plt.savefig('./plots/%s/feature_%d_%s_loss.pdf'%(data, feature_to_predict, generator_type))
 
 
-def test_feature_generator(model, test_loader, feature_to_predict, historical=False):
+def test_feature_generator(model, test_loader, feature_to_predict):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     data = model.data
     model.eval()
@@ -440,26 +404,14 @@ def test_feature_generator(model, test_loader, feature_to_predict, historical=Fa
         num = 1
         tvec = [int(tt) for tt in np.logspace(1.0,np.log10(signel_len), num=num)]
     for i, (signals, labels) in enumerate(test_loader):
-        if historical:
-            for t in tvec:
-                label = signals[:, feature_to_predict, t:t+model.prediction_size].contiguous().view(-1, model.prediction_size)
-                # signal = torch.cat((signals[:, :feature_to_predict, t], signals[:, feature_to_predict + 1:, t]), 1)
-                # signal = signal.contiguous().view(-1, n_features - 1)
-                signal = torch.Tensor(signals[:, :, t].float()).to(device)
-                past = signals[:, :, :t]
-                prediction, mus = model(signal, past)
-                loss = torch.nn.MSELoss()(prediction, label.to(device))
-                test_loss = + loss.item()
-        else:
-            original = signals[:, feature_to_predict, :].contiguous().view(-1, 1)
-            # signal = torch.cat((signals[:, :feature_to_predict, :], signals[:, feature_to_predict + 1:, :]), 1).permute(0, 2,1)
-            # signal = signal.contiguous().view(-1, n_features - 1)
+        for t in tvec:
+            label = signals[:, feature_to_predict, t:t+model.prediction_size].contiguous().view(-1, model.prediction_size)
             signal = torch.Tensor(signals[:, :, t].float()).to(device)
-            prediction, mus = model(signal)
-            loss = torch.nn.MSELoss()(prediction, original.to(device))
-            test_loss += loss.item()
-    if historical:
-        test_loss = test_loss/((i+1)*len(tvec))
+            past = signals[:, :, :t]
+            prediction, mus = model(signal, past)
+            loss = torch.nn.MSELoss()(prediction, label.to(device))
+            test_loss = + loss.item()
+    test_loss = test_loss/((i+1)*len(tvec))
     return test_loss
 
 
