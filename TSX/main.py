@@ -15,12 +15,12 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'Glucose', 'Temp']
 
 MIMIC_TEST_SAMPLES = list(range(70))
-SIMULATION_SAMPLES = [7, 23, 78, 95, 120, 157, 51, 11, 101, 48]
+SIMULATION_SAMPLES = [7, 23, 78, 95]
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':[]}
 
 
 def main(experiment, train, data, generator_type, predictor_model, all_samples,cv=0):
-    print('********** Experiment with the %s data **********' %(experiment))
+    print('********** Experiment with the %s data **********' %experiment)
     with open('config.json') as config_file:
         configs = json.load(config_file)[data][experiment]
 
@@ -93,7 +93,7 @@ def main(experiment, train, data, generator_type, predictor_model, all_samples,c
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train an ICU mortality prediction model')
     parser.add_argument('--model', type=str, default='feature_generator_explainer', help='Prediction model')
-    parser.add_argument('--data', type=str, default='mimic')
+    parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--generator', type=str, default='joint_RNN_generator')
     parser.add_argument('--predictor', type=str, default='RNN')
     parser.add_argument('--train', action='store_true')

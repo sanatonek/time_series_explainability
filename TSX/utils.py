@@ -8,11 +8,14 @@ from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import pickle as pkl
 from sklearn.model_selection import KFold
-from TSX.temperature_scaling import ModelWithTemperature
+import seaborn as sns
+sns.set()
 
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
 import warnings
 warnings.filterwarnings("ignore")
+
+intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone', 'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus', 'nivdurations']
 
 
 def evaluate(labels, predicted_label, predicted_probability):
@@ -112,7 +115,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=3):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=5):
     print('training data: ', data)
     train_loss_trend = []
     test_loss_trend = []
@@ -125,7 +128,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         for i, (signals,labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
             #for t in [int(tt) for tt in np.logspace(0,np.log10(signals.shape[2]-1), num=num)]:
-            for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2, num=num)]:
+            for t in [int(tt) for tt in np.linspace(1,signals.shape[2]-2, num=num)]:
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])
 
@@ -219,6 +222,7 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, de
 
 def test_model_rt(model,test_loader,num=1):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.to(device)
     model.eval()
     correct_label_test = 0
     recall_test, precision_test, auc_test = 0, 0, 0
@@ -468,5 +472,114 @@ def test_cond(mean, covariance, sig_ind, x_ind):
     return mean_cond, covariance_cond
 
 
+def shade_state(gt_importance_subj, t, ax, data):
+    # Shade the state on simulation data plots
+    if gt_importance_subj.shape[0] == 3:
+        gt_importance_subj = gt_importance_subj.transpose(1, 0)
+    if not data == 'simulation_spike':
+        prev_color = 'g' if np.argmax(gt_importance_subj[:, 1]) < np.argmax(gt_importance_subj[:, 2]) else 'y'
+        for ttt in range(1, len(t) + 1):
+            if gt_importance_subj[ttt, 1] == 1:
+                ax.axvspan(ttt - 1, ttt, facecolor='g', alpha=0.3)
+                prev_color = 'g'
+            elif gt_importance_subj[ttt, 2] == 1:
+                ax.axvspan(ttt - 1, ttt, facecolor='y', alpha=0.3)
+                prev_color = 'y'
+            elif not prev_color is None:
+                ax.axvspan(ttt - 1, ttt, facecolor=prev_color, alpha=0.3)
+    else:
+        for ttt in range(1, len(t) + 1):
+            if gt_importance_subj[ttt] == 1:
+                ax.axvspan(ttt - 1, ttt, facecolor='g', alpha=0.3)
 
 
+def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, signals_to_analyze, color_map, fmap, data, gt_importance_subj, save_path, patient_data):
+    important_signals = []
+    markers = ['*', 'D', 'X', 'o', '8', 'v', '+']
+    f, axs = plt.subplots(6)
+    t = np.arange(1, a[0].shape[-1]+1)
+
+    # a[0] = 2./(1.+np.exp(-3*a[0])) - 1.
+    if hasattr(patient_data, 'test_intervention'):
+        f_color = ['g', 'b', 'r', 'c', 'm', 'y', 'k']
+        for int_ind, intervention in enumerate(patient_data.test_intervention[subject, :, :]):
+            if sum(intervention) != 0:
+                switch_point = []
+                intervention = intervention[1:]
+                for i in range(1, len(intervention)):
+                    if intervention[i] != intervention[i - 1]:
+                        switch_point.append(i)
+                if len(switch_point) % 2 == 1:
+                    switch_point.append(len(intervention) - 1)
+                for count in range(int(len(switch_point) / 2)):
+                    if count == 0:
+                        axs[0].axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
+                                    facecolor=f_color[int_ind % len(f_color)], alpha=0.2,
+                                    label='%s' % (intervention_list[int_ind]))
+                    else:
+                        axs[0].axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
+                                    facecolor=f_color[int_ind % len(f_color)], alpha=0.2)
+
+    if not gt_importance_subj is None:
+        shade_state(gt_importance_subj, t, axs[0], data)
+
+    for ax_ind, ax in enumerate(axs[1:]):
+        ax.grid()
+        ax.tick_params(axis='both', labelsize=36)
+        ax.set_ylabel('importance', fontweight='bold', fontsize=32)
+        # if ax_ind in [0, 1, 2]:
+        #     ax.set_ylim(bottom=-0.02, top=1.)
+
+        for ind, sig in a_max[ax_ind][0:n_feats_to_plot]:
+            ref_ind = signals_to_analyze[ind]
+            if ref_ind not in important_signals:
+                important_signals.append(ref_ind)
+            c = color_map[ref_ind]
+            if np.sum(a_std[ax_ind][ind])>0:
+                ax.errorbar(t, a[ax_ind][ind, :], yerr=a_std[ax_ind][ind, :], marker=markers[list(important_signals).index(ref_ind)%len(markers)],
+                            linewidth=3, elinewidth=1, markersize=9, markeredgecolor='k', color=c, label='%s' % (fmap[ref_ind]))
+            else:
+                ax.errorbar(t, a[ax_ind][ind, :], yerr=a_std[ax_ind][ind, :], linewidth=3, elinewidth=1, color=c, label='%s'%(fmap[ref_ind]))
+    important_signals = np.unique(important_signals)
+    max_plot = (torch.max(torch.abs(signals[important_signals, :]))).item()
+    for i, ref_ind in enumerate(important_signals):
+        c = color_map[ref_ind]
+        if data == 'mimic':
+            axs[0].plot(np.array(signals[ref_ind, 1:]) / max_plot, linewidth=3, color=c, label='%s' % (fmap[ref_ind]))
+        else:
+            axs[0].plot(np.array(signals[ref_ind, 1:]), linewidth=3, color=c, label='%s' % (fmap[ref_ind]))
+    axs[0].tick_params(axis='both', labelsize=36)
+    axs[0].grid()
+
+    axs[0].plot(np.array(label), '--', linewidth=6, label='Risk score', c='black')
+    axs[0].set_title('Time series signals and Model\'s predicted risk', fontweight='bold', fontsize=40)
+    axs[1].set_title('Feature importance FIT', fontweight='bold', fontsize=40)
+    axs[2].set_title('Feature importance AFO', fontweight='bold', fontsize=40)
+    axs[3].set_title('Feature importance FO', fontweight='bold', fontsize=40)
+    axs[4].set_title('Feature importance Sensitivity analysis', fontweight='bold', fontsize=40)
+    axs[5].set_title('Feature importance Attention', fontweight='bold', fontsize=40)
+    axs[5].set_xlabel('time', fontweight='bold', fontsize=32)
+    axs[0].set_ylabel('signal value', fontweight='bold', fontsize=32)
+
+    f.set_figheight(40)
+    f.set_figwidth(60)
+    plt.subplots_adjust(hspace=.5)
+    plt.savefig(os.path.join(save_path, data, 'feature_%d.pdf' % (subject)), dpi=300, orientation='landscape')
+    fig_legend = plt.figure(figsize=(13, 1.2))
+    handles, labels = axs[0].get_legend_handles_labels()
+    plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
+    fig_legend.savefig(os.path.join(save_path, data, 'legend_%d.pdf' %subject), dpi=300, bbox_inches='tight')
+
+    for imp_plot_ind in range(4):
+        heatmap_fig = plt.figure(figsize=(15, 1) if data == 'simulation' else (16, 9))
+        plt.yticks(rotation=0)
+        imp_plot = sns.heatmap(a[imp_plot_ind], yticklabels=fmap,
+                               square=True if data == 'mimic' else False)  # , vmin=0, vmax=1)
+        heatmap_fig.savefig(os.path.join(save_path, data, 'heatmap_%s_%s.pdf'%(str(subject), ['FIT', 'AFO', 'FO', 'Sens'][imp_plot_ind])))
+    if data == 'simulation':
+        heatmap_gt = plt.figure(figsize=(20, 1))
+        plt.yticks(rotation=0)
+        imp_plot = sns.heatmap(gt_importance_subj, yticklabels=fmap)
+        heatmap_gt.savefig(os.path.join(save_path, data,'heatmap_%s_ground_truth.pdf'%str(subject)))
+
+    return important_signals
