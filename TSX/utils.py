@@ -578,3 +578,205 @@ def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, s
         heatmap_gt.savefig(os.path.join(save_path,'heatmap_%s_ground_truth.pdf'%str(subject)))
 
     return important_signals
+
+
+def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3,data='ghg', tvec=None):
+    mse_vec = []
+    mse_vec_occ = []
+    mse_vec_su = []
+    mse_vec_comb = []
+    mse_vec_sens = []
+    nt = len(tvec)
+
+    testset = list(self.test_loader.dataset)
+    for sub_ind, subject in enumerate(signals_to_analyze):  # range(30):
+        signals, label_o = testset[subject]
+        label_o_o = label_o[-1]
+        risk = []
+
+        for ttt in range(1, signals.shape[1]):
+            risk.append(self.risk_predictor(signals[:, 0:ttt].view(1, signals.shape[0], ttt).to(self.device)).item())
+
+        importance = np.zeros((self.feature_size, nt))
+        mean_predicted_risk = np.zeros((self.feature_size, nt))
+        std_predicted_risk = np.zeros((self.feature_size, nt))
+        importance_occ = np.zeros((self.feature_size, nt))
+        mean_predicted_risk_occ = np.zeros((self.feature_size, nt))
+        std_predicted_risk_occ = np.zeros((self.feature_size, nt))
+        importance_comb = np.zeros((self.feature_size, nt))
+        mean_predicted_risk_comb = np.zeros((self.feature_size, nt))
+        std_predicted_risk_comb = np.zeros((self.feature_size, nt))
+        importance_su = np.zeros((self.feature_size, nt))
+        mean_predicted_risk_su = np.zeros((self.feature_size, nt))
+        std_predicted_risk_su = np.zeros((self.feature_size, nt))
+        importance_sens = np.zeros((self.feature_size, nt))
+        mean_predicted_risk_sens = np.zeros((self.feature_size, nt))
+        std_predicted_risk_sens = np.zeros((self.feature_size, nt))
+
+        f_imp = np.zeros(self.feature_size)
+        f_imp_occ = np.zeros(self.feature_size)
+        f_imp_comb = np.zeros(self.feature_size)
+        f_imp_su = np.zeros(self.feature_size)
+        f_imp_sens = np.zeros(self.feature_size)
+        max_imp_total = []
+        max_imp_total_occ = []
+        max_imp_total_comb = []
+        max_imp_total_su = []
+        max_imp_total_sens = []
+        legend_elements = []
+
+        # ckpt_path='./ckpt_pathckpt/' + data + '/'
+        for i, sig_ind in enumerate(range(0, self.feature_size)):
+            print('loading feature from:', self.ckpt_path)
+            if not self.generator_type == 'carry_forward_generator':
+                if 'joint' in self.generator_type:
+                    self.generator.load_state_dict(
+                            torch.load(os.path.join(self.ckpt_path, '%s.pt' % self.generator_type)))
+                else:
+                    if self.historical:
+                        self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_%s.pt' % (sig_ind, self.generator_type))))
+                    else:
+                        self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_%s_nohist.pt' % (sig_ind, self.generator_type))))
+
+            label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind,n_samples=10,mode='generator',tvec=tvec)
+            _, importance_occ[i, :], mean_predicted_risk_occ[i, :], std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind,n_samples=10,mode="feature_occlusion",tvec=tvec)
+            _, importance_su[i, :], mean_predicted_risk_su[i, :], std_predicted_risk_su[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind,n_samples=10,mode='augmented_feature_occlusion', tvec=tvec)
+            _, importance_comb[i, :], mean_predicted_risk_comb[i,:], std_predicted_risk_comb[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='combined',learned_risk=self.learned_risk,tvec=tvec)
+            # print('importance:', importance[i,:])
+            max_imp_total.append((i, max(mean_predicted_risk[i, :])))
+            max_imp_total_occ.append((i, max(mean_predicted_risk_occ[i, :])))
+            max_imp_total_su.append((i, max(mean_predicted_risk_su[i, :])))
+            max_imp_total_sens.append((i, max(sensitivity_analysis_importance[sub_ind, i, :])))
+            # print(label)
+        label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(np.array(label),[-1,1]))
+        label_scaled = np.reshape(label_scaled,[1,-1])
+        label_scaled = label
+        max_imp = np.argmax(importance, axis=0)
+        for im in max_imp:
+            f_imp[im] += 1
+
+        max_imp_occ = np.argmax(importance_occ, axis=0)
+        for im in max_imp_occ:
+            f_imp_occ[im] += 1
+
+        ## Pick the most influential signals and plot their importance over time
+        max_imp_total.sort(key=lambda pair: pair[1], reverse=True)
+        max_imp_total_occ.sort(key=lambda pair: pair[1], reverse=True)
+        max_imp_total_comb.sort(key=lambda pair: pair[1], reverse=True)
+        max_imp_total_su.sort(key=lambda pair: pair[1], reverse=True)
+        max_imp_total_sens.sort(key=lambda pair: pair[1], reverse=True)
+
+        n_feats_to_plot = min(self.feature_size, n_important_features)
+        ms = 4;
+        lw = 3;
+        mec = 'k'
+
+        top_3_vec = []
+        for ind, sig in max_imp_total[0:n_feats_to_plot]:
+            if ind == 0:
+                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+            elif ind == signals.shape[0]:
+                signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0], :]), 0)
+            else:
+                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+
+        risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
+        risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
+        top_3_vec.append(risk - risk_removed)
+        mse_vec.append(top_3_vec)
+
+        top_3_vec_occ = []
+        for ind, sig in max_imp_total_occ[0:n_feats_to_plot]:
+            if ind == 0:
+                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+            elif ind == signals.shape[0]:
+                signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0].view(1, signals.shape[1]), :]), 0)
+            else:
+                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+
+        risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
+        risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
+        top_3_vec_occ.append(risk - risk_removed)
+        mse_vec_occ.append(top_3_vec_occ)
+
+        top_3_vec_su = []
+        for ind, sig in max_imp_total_su[0:n_feats_to_plot]:
+            if ind == 0:
+                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+            elif ind == signals.shape[0]:
+                signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1])), 0)
+            else:
+                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+
+        risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
+        risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
+        top_3_vec_su.append(risk - risk_removed)
+        mse_vec_su.append(top_3_vec_su)
+
+        top_3_vec_sens = []
+        for ind, sig in max_imp_total_sens[0:n_feats_to_plot]:
+            if ind == 0:
+                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+            elif ind == signals.shape[0]:
+                signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1])), 0)
+            else:
+                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+
+        risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
+        risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
+        top_3_vec_sens.append(risk - risk_removed)
+        mse_vec_sens.append(top_3_vec_sens)
+
+        fig, ax_list = plt.subplots(nrows=3,ncols=len(tvec))
+        fig, ax_list = plt.subplots(1, len(tvec), figsize=(8, 2))
+        map_img = mpimg.imread('./results/ghc_figure.png')
+        max_to_plot = 2
+        colorvec = plt.get_cmap("Oranges")(np.linspace(1, 2 / 3, max_to_plot))
+        k_count = 0
+        for ind, sig in max_imp_total[0:max_to_plot]:
+            for t_num, t_val in enumerate(tvec):
+                ax_list[t_num].imshow(map_img, extent=[0, width, 0, height])
+                ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]],y=[scatter_map_ghg[str(ind + 1)][1]], c=["w"], s=18, marker='s',edgecolor="r", linewidth=2)
+        if k_count == 0:
+            ax_list[t_num].set_title("day %d" % (int(t_val / 4)))
+        k_count += 1
+        plt.tight_layout(pad=5.)
+        plt.savefig('./ghg/feature_imp_ghg_%d.pdf' % (USER, subject), dpi=300,orientation='landscape')
+
+        fig, ax_list = plt.subplots(1, len(tvec), figsize=(8, 2))
+        k_count = 0
+        for ind, sig in max_imp_total_occ[0:max_to_plot]:
+            for t_num, t_val in enumerate(tvec):
+                ax_list[t_num].imshow(map_img, extent=[0, width, 0, height])
+                ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]],
+                        y=[scatter_map_ghg[str(ind + 1)][1]], c=["w"], s=18, marker='s',edgecolor="r", linewidth=2)
+        if k_count == 0:
+            ax_list[t_num].set_title("day %d" % (t_val / 4))
+        k_count += 1
+
+        plt.tight_layout(pad=5.)
+        plt.savefig('./ghg/feature_occ_ghg_%d.pdf' % (USER, subject), dpi=300,orientation='landscape')
+
+        fig, ax_list = plt.subplots(1, len(tvec), figsize=(8, 2))
+        k_count = 0
+        for ind, sig in max_imp_total_comb[0:max_to_plot]:
+            for t_num, t_val in enumerate(tvec):
+                ax_list[t_num].imshow(map_img, extent=[0, width, 0, height])
+                ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]],y=[scatter_map_ghg[str(ind + 1)][1]], c=["w"], s=18, marker='s',edgecolor="r", linewidth=2)
+
+        if k_count == 0:
+            ax_list[t_num].set_title("day %d" % (t_val / 4))
+
+        k_count += 1
+
+        plt.tight_layout(pad=5.)
+        plt.savefig('./ghg/feature_imp_comb_ghg_%d.pdf' % (USER, subject), dpi=300,orientation='landscape')
+
+        with open('./results/ghg_mse.pkl', 'wb') as f:
+            pkl.dump({'FFC': mse_vec, 'FO': mse_vec_occ, 'Su': mse_vec_su, 'Sens': mse_vec_sens}, f)
+        print(np.shape(np.array(mse_vec)))
+        print('FFC: 1:', np.mean(abs(np.array(mse_vec)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec)[:, 2])))
+        print('FO: 1:', np.mean(abs(np.array(mse_vec_occ)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec_occ)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec_occ)[:, 2])))
+        print('AFO: 1:', np.mean(abs(np.array(mse_vec_su)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec_su)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec_su)[:, 2])))
+        print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec_sens)[:, 1])), '3rd:',np.mean(abs(np.array(mse_vec_sens)[:, 2])))
+
