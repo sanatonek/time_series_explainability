@@ -4,7 +4,8 @@ import pandas as pd
 from datetime import timedelta, datetime
 import pickle
 from sklearn.impute import SimpleImputer
-
+import warnings
+warnings.filterwarnings('ignore')
 
 vital_IDs = ['HeartRate' , 'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose' ,'Temp']
 lab_IDs = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN'
@@ -70,18 +71,12 @@ lab_data = pd.read_csv("./data/adult_icu_lab.gz", compression='gzip')#, nrows=50
 #print("Labs:\n", lab_data[0:20])
 lab_data = lab_data.dropna(subset=['label'])
 
-interventions_data = pd.read_hdf('/scratch/gobi2/projects/tsx/all_hourly_data.h5',key='interventions')
-intervention_classes = interventions_data.columns
-interventions_data.reset_index(inplace=True)
-
-
 icu_id = vital_data.icustay_id.unique()
 ## features for every patient will be the list of vital IDs, gender(male=1, female=0), age, ethnicity(unknown=0 ,white=1, black=2, hispanic=3, asian=4, other=5), first_icu_stay(True=1, False=0)
 x = np.zeros((len(icu_id), 12 , 48))
 x_lab = np.zeros((len(icu_id), len(lab_IDs) , 48))
 x_impute = np.zeros((len(icu_id), 12, 48))
 y = np.zeros((len(icu_id),))
-interventions = np.zeros((len(icu_id), len(intervention_classes), 48))
 imp_mean = SimpleImputer(strategy="mean")
 
 missing_ids = []
@@ -106,11 +101,6 @@ for i,id in enumerate(icu_id):
     x[i,-2,:]= eth_coder(patient_data['ethnicity'].iloc[0])
     x[i,-1,:]= int(patient_data['first_icu_stay'].iloc[0])
     y[i] = (int(patient_data['mort_icu'].iloc[0]))
-
-    ## Extract intervention information
-    patient_intervention = interventions_data.loc[interventions_data['icustay_id']==id]
-    stay_intervention = patient_intervention[patient_intervention['hours_in']<48]
-    interventions[i,:,0:len(stay_intervention)] = (np.array(stay_intervention[intervention_classes]).T).copy()
 
     ## Extract vital measurement information
     vitals = patient_data.vitalid.unique()
@@ -168,7 +158,6 @@ x = np.delete(x, missing_ids, axis=0)
 x_lab = np.delete(x_lab, missing_ids, axis=0)
 x_impute = np.delete(x_impute, missing_ids, axis=0)
 y = np.delete(y, missing_ids, axis=0)
-interventions = np.delete(interventions, missing_ids, axis=0)
 nan_map = np.delete(nan_map, missing_ids, axis=0)
 
 x_lab_impute = impute_lab(x_lab)
@@ -190,9 +179,4 @@ f.close()
 samples = [ (all_data[i,:,:],y[i],nan_map[i,:]) for i in range(len(y)) ]
 with open('./data/patient_vital_preprocessed.pkl','wb') as f:
         pickle.dump(samples, f)
-with open('./data/patient_interventions.pkl', 'wb') as f:
-    pickle.dump(interventions, f)
-
-
-
 
