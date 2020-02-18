@@ -313,8 +313,8 @@ class FeatureGeneratorExplainer(Experiment):
                     if self.predictor_model == 'RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=50,rnn='GRU',regres=True, return_all=False,data=data)
                     elif self.predictor_model == 'attention':
-                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=10, data=data)
-                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=10, data=data)
+                        self.risk_predictor = AttentionModel(feature_size=feature_size, hidden_size=50, data=data)
+                    self.risk_predictor_attention = AttentionModel(feature_size=feature_size, hidden_size=50, data=data)
                 else:
                     if self.predictor_model == 'RNN':
                         self.risk_predictor = EncoderRNN(feature_size,hidden_size=100,rnn='GRU',regres=True, return_all=False,data=data)

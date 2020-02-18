@@ -481,10 +481,6 @@ def shade_state(gt_importance_subj, t, ax, data):
                 prev_color = 'y'
             elif not prev_color is None:
                 ax.axvspan(ttt - 1, ttt, facecolor=prev_color, alpha=0.3)
-    else:
-        for ttt in range(1, len(t) + 1):
-            if gt_importance_subj[ttt] == 1:
-                ax.axvspan(ttt - 1, ttt, facecolor='g', alpha=0.3)
 
 
 def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, signals_to_analyze, color_map, fmap, data, gt_importance_subj, save_path, patient_data):
