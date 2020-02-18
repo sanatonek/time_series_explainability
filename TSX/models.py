@@ -29,8 +29,11 @@ class PatientData():
             raise RuntimeError('Dataset not found')
         with open(self.data_dir, 'rb') as f:
             self.data = pickle.load(f)
-        with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
-            self.intervention = pickle.load(f)
+        if os.path.exists(os.path.join(root,'patient_interventions.pkl'):
+            with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
+                self.intervention = pickle.load(f)
+            self.train_intervention = self.intervention[0:self.n_train,:,:]
+            self.test_intervention = self.intervention[self.n_train:,:,:]
         if shuffle:
             inds = np.arange(len(self.data))
             random.shuffle(inds)
@@ -45,8 +48,6 @@ class PatientData():
         self.test_label = np.array([y for (x, y, z) in self.data[self.n_train:]])
         self.train_missing = np.array([np.mean(z) for (x, y, z) in self.data[0:self.n_train]])
         self.test_missing = np.array([np.mean(z) for (x, y, z) in self.data[self.n_train:]])
-        self.train_intervention = self.intervention[0:self.n_train,:,:]
-        self.test_intervention = self.intervention[self.n_train:,:,:]
         if transform == "normalize":
             self.normalize()
 
