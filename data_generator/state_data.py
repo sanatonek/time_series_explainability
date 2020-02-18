@@ -206,6 +206,8 @@ def create_dataset(count, signal_len):
 
 
 if __name__ =='__main__':
+    if not os.path.exists('./data'):
+        os.mkdir('./data')
     parser = argparse.ArgumentParser()
     parser.add_argument('--signal_len', type=int, default=100, help='Length of the signal to generate')
     parser.add_argument('--signal_num', type=int, default=1000, help='Number of the signals to generate')

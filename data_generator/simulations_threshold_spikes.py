@@ -172,8 +172,7 @@ def main(n_samples, plot, Tt=80):
 
     y_train = np.array(y_train)
     y_test = np.array(y_test)
-    
-    print(y_train.shape)
+
 
     ground_truth_importance_train = np.array(ground_truth_importance_train)
     ground_truth_importance_test = np.array(ground_truth_importance_test)
@@ -230,6 +229,7 @@ def generate_sample(plot, Tt=80):
     
     return np.stack([x1_sample, x2_sample, x3_sample]), t, trend_style
 
+
 def save_data(path,array):
     with open(path,'wb') as f:
         pkl.dump(array, f)
@@ -240,18 +240,18 @@ def logistic(x):
 
 
 if __name__=='__main__':
- 
+    if not os.path.exists('./data'):
+        os.mkdir('./data')
     n_samples = 3000
     x_train_n,y_train,x_test_n,y_test,thresholds_train,thresholds_test, gt_importance_train, gt_importance_test = main(n_samples=n_samples, plot=False)
-    print(x_train_n.shape)
-    if not os.path.exists('./data_generator/data/simulated_data'):
-        os.mkdir('./data_generator/data/simulated_data')
-    save_data('./data_generator/data/simulated_data/x_train.pkl', x_train_n)
-    save_data('./data_generator/data/simulated_data/y_train.pkl', y_train)
-    save_data('./data_generator/data/simulated_data/x_test.pkl', x_test_n)
-    save_data('./data_generator/data/simulated_data/y_test.pkl', y_test)
-    save_data('./data_generator/data/simulated_data/thresholds_train.pkl', thresholds_train)
-    save_data('./data_generator/data/simulated_data/thresholds_test.pkl', thresholds_test)
-    save_data('./data_generator/data/simulated_data/gt_train.pkl', gt_importance_train)
-    save_data('./data_generator/data/simulated_data/gt_test.pkl', gt_importance_test)
+    if not os.path.exists('./data/spike_data'):
+        os.mkdir('./data/spike_data')
+    save_data('./data/spike_data/x_train.pkl', x_train_n)
+    save_data('./data/spike_data/y_train.pkl', y_train)
+    save_data('./data/spike_data/x_test.pkl', x_test_n)
+    save_data('./data/spike_data/y_test.pkl', y_test)
+    save_data('./data/spike_data/thresholds_train.pkl', thresholds_train)
+    save_data('./data/spike_data/thresholds_test.pkl', thresholds_test)
+    save_data('./data/spike_data/gt_train.pkl', gt_importance_train)
+    save_data('./data/spike_data/gt_test.pkl', gt_importance_test)
     print(gt_importance_train.shape)
