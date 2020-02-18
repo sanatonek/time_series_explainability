@@ -17,8 +17,18 @@ python3 data_generator/state_data.py --signal_len LENGTH_OF_SIGNALS --signal_num
 python3 data_generator/simulations_threshold_spikes.py 
 ```
 
+### MIMIC ICU dataset:
+You need to have the MIMICIII database running on a server. Run the following scripts to query and preprocess the ICU mortality data (This step might take a few hours)
+```
+python3 data_generator/icu_mortality.py --sqluser YOUR_USER --sqlpass YOUR_PASSWORD
+```
+```
+python3 data_generator/data_preprocess.py
+```
+
+
 ## Running the importance assignment baselines
-For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator. Run the folowing script to train the models for your required dataset (simulation, simulation_spike)
+For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator. Run the folowing script to train the models for your required dataset (simulation, simulation_spike, mimic)
 ```
 ./train.sh DATASET_NAME
 ```
