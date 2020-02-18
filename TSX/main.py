@@ -4,6 +4,7 @@ from TSX.experiments import Baseline, EncoderPredictor, FeatureGeneratorExplaine
 import os
 import sys
 import json
+import numpy as np
 import argparse
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -14,11 +15,9 @@ feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATI
                      'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP', 'DiasBP', 'MeanBP', 'RespRate', 'SpO2',
                      'Glucose', 'Temp']
 
-USER = 'sana'
 
-MIMIC_TEST_SAMPLES = list(range(70))
-
-SIMULATION_SAMPLES = [45, 59, 7, 23, 78, 95, 120, 157, 51, 11, 101, 48]
+MIMIC_TEST_SAMPLES = np.random.randint(1000, size=5)
+SIMULATION_SAMPLES = np.random.randint(100, size=10)
 samples_to_analyze = {'mimic':MIMIC_TEST_SAMPLES, 'simulation':SIMULATION_SAMPLES, 'ghg':[], 'simulation_spike':range(100)}
 
 
@@ -79,12 +78,14 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='feature_generator_explainer', help='Prediction model')
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--generator', type=str, default='joint_RNN_generator')
-    parser.add_argument('--out', type=str, default='/scratch/gobi1/%s/TSX_results/' % USER)
+    parser.add_argument('--out', type=str, default='./out')
     parser.add_argument('--predictor', type=str, default='RNN')
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--all_samples', action='store_true')
     parser.add_argument('--cv', type=int, default=0)
     args = parser.parse_args()
+    if args.out=='./out' and not os.path.exists('./out'):
+        os.mkdir('./out')
     if not os.path.exists(args.out):
         os.mkdir(args.out)
     main(args.model, train=args.train, data=args.data, generator_type=args.generator, predictor_model=args.predictor,

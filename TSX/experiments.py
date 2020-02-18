@@ -40,7 +40,6 @@ feature_map = {'mimic':feature_map_mimic, 'simulation': feature_map_simulation,'
 
 simulation_color_map = ['#e6194B', '#469990', '#000000','#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabebe',  '#e6beff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#3cb44b','#ffe119']
 
-MIMIC_TEST_SAMPLES = [4387, 481]
 
 #ghg plot configs
 feature_map_ghg = [str(i+1) for i in range(15)]
@@ -73,6 +72,8 @@ class Experiment(ABC):
         self.valid_loader = valid_loader
         self.test_loader = test_loader
         self.data = data
+        if not os.path.exists('./ckpt'):
+            os.mkdir('./ckpt')
         self.ckpt_path ='./ckpt/' + self.data
         if not os.path.exists(self.ckpt_path):
             os.mkdir(self.ckpt_path)
@@ -229,7 +230,7 @@ class BaselineExplainer(Experiment):
         one_hot_out[:,1] = 1-one_hot_out[:,0]
         return one_hot_out
 
-    def run(self, train, n_epochs=60, samples_to_analyze=MIMIC_TEST_SAMPLES):
+    def run(self, train, n_epochs, samples_to_analyze):
         self.train(n_epochs=n_epochs, learn_rt=self.data=='ghg')
         testset = list(self.test_loader.dataset)
         test_signals = torch.stack(([x[0] for x in testset])).to(self.device)

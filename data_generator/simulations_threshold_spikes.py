@@ -44,8 +44,6 @@ def main(n_samples, plot, Tt=80):
     thresholds = []
     trend_style=[]
     for i in range(n_samples):
-        if i%100==0:
-            print(i)
         x,t,trend = generate_sample(plot, Tt=Tt)
         signal_in.append(x)
         thresholds.append(t)
@@ -244,14 +242,14 @@ if __name__=='__main__':
         os.mkdir('./data')
     n_samples = 3000
     x_train_n,y_train,x_test_n,y_test,thresholds_train,thresholds_test, gt_importance_train, gt_importance_test = main(n_samples=n_samples, plot=False)
-    if not os.path.exists('./data/spike_data'):
-        os.mkdir('./data/spike_data')
-    save_data('./data/spike_data/x_train.pkl', x_train_n)
-    save_data('./data/spike_data/y_train.pkl', y_train)
-    save_data('./data/spike_data/x_test.pkl', x_test_n)
-    save_data('./data/spike_data/y_test.pkl', y_test)
-    save_data('./data/spike_data/thresholds_train.pkl', thresholds_train)
-    save_data('./data/spike_data/thresholds_test.pkl', thresholds_test)
-    save_data('./data/spike_data/gt_train.pkl', gt_importance_train)
-    save_data('./data/spike_data/gt_test.pkl', gt_importance_test)
+    if not os.path.exists('./data/simulated_spike_data'):
+        os.mkdir('./data/simulated_spike_data')
+    save_data('./data/simulated_spike_data/x_train.pkl', x_train_n)
+    save_data('./data/simulated_spike_data/y_train.pkl', y_train)
+    save_data('./data/simulated_spike_data/x_test.pkl', x_test_n)
+    save_data('./data/simulated_spike_data/y_test.pkl', y_test)
+    save_data('./data/simulated_spike_data/thresholds_train.pkl', thresholds_train)
+    save_data('./data/simulated_spike_data/thresholds_test.pkl', thresholds_test)
+    save_data('./data/simulated_spike_data/gt_train.pkl', gt_importance_train)
+    save_data('./data/simulated_spike_data/gt_test.pkl', gt_importance_test)
     print(gt_importance_train.shape)
