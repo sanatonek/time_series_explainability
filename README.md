@@ -29,7 +29,7 @@ python3 data_generator/data_preprocess.py
 ## Running the importance assignment baselines
 For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator. Run the folowing script to train the models for your required dataset (simulation, spike_simulation_spike, mimic)
 ```
-python3 ./train.sh DATASET_NAME
+./train.sh DATASET_NAME
 ```
 Once you have the trained models, run the experiment string to generate feature importance results for all baselines
 ```
