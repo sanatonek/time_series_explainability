@@ -546,7 +546,7 @@ class FeatureGeneratorExplainer(Experiment):
                     self.risk_predictor.eval()
             # print('Execution time of sensitivity = %.3f'%((time.time()-sensitivity_start)/float(len(samples_to_analyze))))
             print('\n********** Visualizing a few samples **********')
-            all_FFC_importance = []
+            all_FIT_importance = []
             all_FO_importance = []
             all_AFO_importance = []
             all_lime_importance = []
@@ -578,21 +578,21 @@ class FeatureGeneratorExplainer(Experiment):
                     top_FCC, importance, top_occ, importance_occ, top_occ_aug, importance_occ_aug, top_SA, importance_SA = self.plot_baseline(
                         sample_ID, signals_to_analyze, sensitivity_analysis[sub_ind, :, :], data=self.data, plot=plot, 
                         gt_importance_subj=gt_importance[sample_ID] if 'simulation' in self.data else None,lime_imp=lime_imp,tvec=tvec,cv=cv)
-                    all_FFC_importance.append(importance)
+                    all_FIT_importance.append(importance)
                     all_AFO_importance.append(importance_occ_aug)
                     all_FO_importance.append(importance_occ)
 
                     top_signals = 4
 
-                    FFC = []
+                    FIT = []
                     for ind, sig in top_FCC[0:top_signals]:
                         ref_ind = signals_to_analyze[ind]
                         imp_t = importance[ind, :]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
                         max_val = float(max(imp_t.reshape(-1)))
-                        FFC.append((i_max, t_max, max_val))
-                    importance_labels.update({'FFC':FFC})
+                        FIT.append((i_max, t_max, max_val))
+                    importance_labels.update({'FIT':FIT})
 
                     FO = []
                     for ind, sig in top_occ[0:top_signals]:
@@ -628,7 +628,7 @@ class FeatureGeneratorExplainer(Experiment):
 
                     with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, sample_ID),'w') as f:
                         json.dump(importance_labels, f)
-        return np.array(all_FFC_importance), np.array(all_AFO_importance), np.array(all_FO_importance), np.array(all_lime_importance), sensitivity_analysis
+        return np.array(all_FIT_importance), np.array(all_AFO_importance), np.array(all_FO_importance), np.array(all_lime_importance), sensitivity_analysis
 
     def train(self, n_epochs, n_features):
         train_start_time = time.time()
@@ -678,7 +678,7 @@ class FeatureGeneratorExplainer(Experiment):
         max_imp_sen = []
         AFO_exe_time = []
         FO_exe_time = []
-        FFC_exe_time = []
+        FIT_exe_time = []
         # TODO for joint models we don't need to iterate over separate signals. One counterfactual generation is enough!
         for i, sig_ind in enumerate(signals_to_analyze):
 
@@ -700,7 +700,7 @@ class FeatureGeneratorExplainer(Experiment):
             t0 = time.time()
             label, importance[i,:] = self._get_feature_importance_FIT( signals, sig_ind=[sig_ind], n_samples=10, learned_risk=self.learned_risk)
             t1 = time.time()
-            FFC_exe_time.append(t1-t0)
+            FIT_exe_time.append(t1-t0)
 
             t0 = time.time()
             _, importance_occ[i, :], _, std_predicted_risk_occ[i, :] = self._get_feature_importance(signals,
@@ -723,9 +723,9 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-        # print('Execution time of FFC for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FFC_exe_time)), np.std(np.array(FFC_exe_time))) )
-        # print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
-        # print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
+        print('Execution time of FIT for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FIT_exe_time)), np.std(np.array(FIT_exe_time))) )
+        print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
+        print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
 
         if 'cv' in kwargs.keys():
             cv = kwargs['cv']
@@ -786,7 +786,7 @@ class FeatureGeneratorExplainer(Experiment):
                         x_hat_t = self.generator.forward_conditional(signal[:, :t].unsqueeze(0), signal[:, t], [i for i in range(len(signal)) if i!=sig_ind])
                         predicted_signal_FIT[:, t] = x_hat_t
                     else:
-                        x_hat_t = self.generator.forward_joint(signal[:, :t].unsqueeze(0))
+                        x_hat_t = self.generator.forward_joint(signal[:, max(0,t-5):t].unsqueeze(0))
                         predicted_signal_FIT[:,t][sig_ind] = x_hat_t[0, sig_ind].detach().cpu()
 
                     if 'simulation' in self.data and not learned_risk:
@@ -799,8 +799,8 @@ class FeatureGeneratorExplainer(Experiment):
                 probability_subsection_FIT = torch.Tensor([1-np.mean(generator_predicted_risks), np.mean(generator_predicted_risks)])
                 probability_all = torch.Tensor([(1-risk), risk])
 
-                div_FFC = torch.nn.KLDivLoss()(torch.log(torch.Tensor(probability_all)).squeeze(0),torch.Tensor(probability_subsection_FIT).squeeze(0))
-                importance_FIT.append(div_FFC)
+                div_FIT = torch.nn.KLDivLoss()(torch.log(torch.Tensor(probability_all)).squeeze(0),torch.Tensor(probability_subsection_FIT).squeeze(0))
+                importance_FIT.append(div_FIT)
                 risks.append(risk)
             return risks, importance_FIT
         else:
