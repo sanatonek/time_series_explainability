@@ -22,10 +22,10 @@ You need to have the MIMICIII database running on a server. Run the following sc
 ```
 python3 data_generator/icu_mortality.py --sqluser YOUR_USER --sqlpass YOUR_PASSWORD
 ```
+Run the following scripts to query and preprocess the ICU mrtality data (This step might take a few hours)
 ```
-python3 data_generator/data_preprocess.py
+python3 data_generator/icu_mortality.py ---sqluser YOUR_USER --sqlpass YOUR_PASSWORD
 ```
-
 
 ## Running the importance assignment baselines
 For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator. Run the folowing script to train the models for your required dataset (simulation, simulation_spike, mimic)
@@ -36,3 +36,4 @@ Once you have the trained models, run the experiment string to generate feature 
 ```
 python3 -m TSX.main --data DATASET_NAME
 ```
+
