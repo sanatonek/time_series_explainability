@@ -373,7 +373,6 @@ class FeatureGeneratorExplainer(Experiment):
             if len(samples_to_analyze)==0:
                 samples_to_analyze = np.random.choice(range(len(label)), len(label), replace=False)
         else:
-            gt_importance = None
             if self.data=='ghg':
                 label = np.array([x[1][-1] for x in testset])
                 high_risk = np.arange(label.shape[0])
@@ -416,7 +415,6 @@ class FeatureGeneratorExplainer(Experiment):
                     imps[s,:] = imp
                 top_subfeatures.append([sub_features[top] for top in np.argmax(imps, axis=0)])
                 top_subfeatures_scores.append(np.min(imps, axis=0))
-
 
                 with open(os.path.join(self.output_path,self.predictor_model , 'top_features_' + str(sample_ID) + '.pkl'), 'wb') as f:
                     pkl.dump({'feauture_set':top_subfeatures, 'importance':top_subfeatures_scores}, f, protocol=pkl.HIGHEST_PROTOCOL)
@@ -494,11 +492,6 @@ class FeatureGeneratorExplainer(Experiment):
             if self.data=='ghg':
                 label_tch = torch.stack([testset[sample][1] for sample in samples_to_analyze])
                 signal_scaled = self.patient_data.scaler_x.inverse_transform(np.reshape(signal.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
-                signal_scaled = np.reshape(signal_scaled,signal.shape)
-                #label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(label_tch.cpu().detach().numpy(),[len(samples_to_analyze),-1]))
-                #label_scaled = np.reshape(label_scaled,label_tch.shape)
-                label_scaled = label_tch.cpu().detach().numpy()
-                #tvec = [int(x) for x in np.linspace(1,signal.shape[2]-1)]
                 tvec = list(range(1,signal.shape[2]+1,50))
             else:
                 tvec = list(range(1,signal.shape[2]+1))
@@ -543,6 +536,7 @@ class FeatureGeneratorExplainer(Experiment):
                             sensitivity_analysis[s,:,t_ind] = signal_t.grad.data[s,:, t_ind].cpu().detach().numpy()#[:,0]
                         signal_t.grad.data.zero_()
                     self.risk_predictor.eval()
+
             # print('Execution time of sensitivity = %.3f'%((time.time()-sensitivity_start)/float(len(samples_to_analyze))))
             print('\n********** Visualizing a few samples **********')
             all_FIT_importance = []
@@ -585,7 +579,6 @@ class FeatureGeneratorExplainer(Experiment):
 
                     FIT = []
                     for ind, sig in top_FCC[0:top_signals]:
-                        ref_ind = signals_to_analyze[ind]
                         imp_t = importance[ind, :]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
@@ -595,7 +588,6 @@ class FeatureGeneratorExplainer(Experiment):
 
                     FO = []
                     for ind, sig in top_occ[0:top_signals]:
-                        ref_ind = signals_to_analyze[ind]
                         imp_t = importance_occ[ind, :]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
@@ -605,7 +597,6 @@ class FeatureGeneratorExplainer(Experiment):
 
                     SA = []
                     for ind, sig in top_SA[0:top_signals]:
-                        ref_ind = signals_to_analyze[ind]
                         imp_t = importance_SA[ind, 1:]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
@@ -615,15 +606,12 @@ class FeatureGeneratorExplainer(Experiment):
 
                     AFO = []
                     for ind, sig in top_occ_aug[0:top_signals]:
-                        ref_ind = signals_to_analyze[ind]
                         imp_t = importance_occ_aug[ind, :]
                         t_max = int(np.argmax(imp_t.reshape(-1)))
                         i_max = int(ind)
                         max_val = float(max(imp_t.reshape(-1)))
                         AFO.append((i_max, t_max,max_val))
                     importance_labels.update({'AFO': AFO})
-
-                   #importance_labels.update({'lime': lime_imp})
 
                     with open('./examples/%s/baseline_importance_sample_%d.json'%(self.data, sample_ID),'w') as f:
                         json.dump(importance_labels, f)
@@ -678,7 +666,7 @@ class FeatureGeneratorExplainer(Experiment):
         AFO_exe_time = []
         FO_exe_time = []
         FIT_exe_time = []
-        # TODO for joint models we don't need to iterate over separate signals. One counterfactual generation is enough!
+
         for i, sig_ind in enumerate(signals_to_analyze):
 
             if not self.generator_type=='carry_forward_generator':
@@ -722,9 +710,9 @@ class FeatureGeneratorExplainer(Experiment):
             max_imp_occ_aug.append((i, max(importance_occ_aug[i, :])))
             max_imp_sen.append((i, max(sensitivity_analysis_importance[i, :])))
 
-        print('Execution time of FIT for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FIT_exe_time)), np.std(np.array(FIT_exe_time))) )
-        print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
-        print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
+        # print('Execution time of FIT for subject %d = %.3f +/- %.3f'%(subject, np.mean(np.array(FIT_exe_time)), np.std(np.array(FIT_exe_time))) )
+        # print('Execution time of AFO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(AFO_exe_time)), np.std(np.array(AFO_exe_time))))
+        # print('Execution time of FO for subject %d = %.3f +/- %.3f' % (subject, np.mean(np.array(FO_exe_time)), np.std(np.array(FO_exe_time))))
 
         if 'cv' in kwargs.keys():
             cv = kwargs['cv']
@@ -759,7 +747,6 @@ class FeatureGeneratorExplainer(Experiment):
         plot_importance(subject, signals, label, imps, std_imps, max_imps, n_feats_to_plot, signals_to_analyze, color_map, feature_map[data],
                         data, gt_importance_subj, os.path.join(self.output_path,self.predictor_model), self.patient_data)
         return max_imp_FCC, importance, max_imp_occ, importance_occ, max_imp_occ_aug, importance_occ_aug, max_imp_sen, sensitivity_analysis_importance
-
 
     def _get_feature_importance_FIT(self, signal, sig_ind, n_samples=10, learned_risk=True, tvec=None, at_time=None, conditional=False):
         self.generator.eval()
@@ -834,9 +821,8 @@ class FeatureGeneratorExplainer(Experiment):
             div = (probability_all * (probability_all / probability_subsection).log()).sum()
             return div
 
-    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True, tvec=None, method='m1'):
+    def _get_feature_importance(self, signal, sig_ind, n_samples=10, mode="feature_occlusion", learned_risk=True, tvec=None):
         self.generator.eval()
-        feature_dist = np.sort(np.array(self.feature_dist[:,sig_ind,:]).reshape(-1))
         feature_dist_0 = (np.array(self.feature_dist_0[:, sig_ind, :]).reshape(-1))
         feature_dist_1 = (np.array(self.feature_dist_1[:, sig_ind, :]).reshape(-1))
 
@@ -854,15 +840,12 @@ class FeatureGeneratorExplainer(Experiment):
                     risk = self.risk_predictor(signal[:, 0:t + 1].view(1, signal.shape[0], t+1)).item()
             else:
                 risk = self.risk_predictor(signal[:,0:t+self.generator.prediction_size].view(1, signal.shape[0], t+self.generator.prediction_size)).item()
-                # risk = self.risk_predictor(signal.view(1, signal.shape[0], signal.shape[1])).item()
-            signal_known = torch.cat((signal[:sig_ind,t], signal[sig_ind+1:,t])).to(self.device)
             signal = signal.to(self.device)
             predicted_risks = []
             for _ in range(n_samples):
                 # Replace signal with random sample from the distribution if feature_occlusion==True,
                 # else use the generator model to estimate the value
                 if mode=="feature_occlusion":
-                    # prediction = torch.Tensor(np.array(np.random.uniform(low=-2*self.patient_data.feature_std[sig_ind,0], high=2*self.patient_data.feature_std[sig_ind,0])).reshape(-1)).to(self.device)
                     prediction = torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
                     predicted_signal = signal[:, 0:t + self.generator.prediction_size].clone()
                     predicted_signal[:, t:t + self.generator.prediction_size] = torch.cat((signal[:sig_ind,
