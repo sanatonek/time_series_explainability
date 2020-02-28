@@ -29,7 +29,7 @@ class PatientData():
             raise RuntimeError('Dataset not found')
         with open(self.data_dir, 'rb') as f:
             self.data = pickle.load(f)
-        if os.path.exists(os.path.join(root,'patient_interventions.pkl'):
+        if os.path.exists(os.path.join(root,'patient_interventions.pkl')):
             with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
                 self.intervention = pickle.load(f)
             self.train_intervention = self.intervention[0:self.n_train,:,:]
