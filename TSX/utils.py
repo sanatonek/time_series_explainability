@@ -139,6 +139,9 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
                 optimizer.zero_grad()
                 predictions = model(signals[:,:,:t+1])
 
+                if predictions.shape[1]>1:
+                    predictions = predictions[:,-1]
+
                 predicted_label = (predictions > 0.5).float()
                 labels_th = (labels[:,t]>0.5).float()
                 auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
@@ -200,6 +203,8 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, de
                 optimizer.zero_grad()
                 predictions = model(signals[:, :, :t+1])
 
+
+
                 reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
                 epoch_loss += reconstruction_loss.item()
                 reconstruction_loss.backward()
@@ -240,6 +245,11 @@ def test_model_rt(model,test_loader,num=1):
         for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2,num=num)]:
         #for t in [24]:
             prediction = model(signals[:,:,:t+1])
+
+            # Multi-class classification
+            if prediction.shape[1] > 1:
+                prediction = prediction[:, -1]
+
             predicted_label = (prediction > 0.5).float()
             labels_th = (labels[:,t] > 0.5).float()
             auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))

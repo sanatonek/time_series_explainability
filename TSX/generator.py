@@ -4,6 +4,8 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
+from torch.distributions.multivariate_normal import MultivariateNormal
+
 #from pydlm import dlm, autoReg
 
 feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN',
@@ -234,15 +236,15 @@ class JointFeatureGenerator(torch.nn.Module):
         ind_len = len(sig_inds)
         ind_len_not = len(sig_inds_comp)
         x_ind = current[:, sig_inds].view(-1,ind_len)
-        mean_1 = mean[:, sig_inds_comp].view(-1,ind_len_not)  # torch.cat((mean[:, :sig_ind], mean[:, sig_ind + 1:]), 1).unsqueeze(-1)
-        cov_1_2 = covariance[:, sig_inds_comp, :][:,:,sig_inds].view(-1,ind_len_not, ind_len)        #torch.cat(([covariance[:, 0:sig_ind, sig_ind], covariance[:, sig_ind + 1:, sig_ind]]),1).unsqueeze(-1)
-        cov_2_2 = covariance[:, sig_inds, :][:,:,sig_inds].view(-1,ind_len, ind_len)   #covariance[:, sig_ind, sig_ind]
-        cov_1_1 = covariance[:, sig_inds_comp, :][:,:,sig_inds_comp].view(-1,ind_len_not, ind_len_not)   #torch.cat(([covariance[:, 0:sig_ind, :], covariance[:, sig_ind + 1:, :]]), 1)
-                                                                #cov_1_1 = torch.cat(([cov_1_1[:, :, 0:sig_ind], cov_1_1[:, :, sig_ind + 1:]]), 2)
+        mean_1 = mean[:, sig_inds_comp].view(-1,ind_len_not)
+        cov_1_2 = covariance[:, sig_inds_comp, :][:,:,sig_inds].view(-1,ind_len_not, ind_len)
+        cov_2_2 = covariance[:, sig_inds, :][:,:,sig_inds].view(-1,ind_len, ind_len)
+        cov_1_1 = covariance[:, sig_inds_comp, :][:,:,sig_inds_comp].view(-1,ind_len_not, ind_len_not)
         mean_cond = mean_1 + torch.bmm( (torch.bmm(cov_1_2, torch.inverse(cov_2_2))), (x_ind - mean[:, sig_inds]).view(-1,ind_len,1)).squeeze(-1)
-        covariance_cond = cov_1_1 - torch.bmm( torch.bmm(cov_1_2, torch.inverse(cov_2_2)), torch.transpose(cov_1_2, 2, 1) )  #torch.transpose(cov_1_2, 2, 1)) / cov_2_2
-        likelihood = torch.distributions.multivariate_normal.MultivariateNormal(loc=mean_cond.squeeze(-1),
-                                                                               covariance_matrix=covariance_cond)
+        covariance_cond = cov_1_1 - torch.bmm( torch.bmm(cov_1_2, torch.inverse(cov_2_2)), torch.transpose(cov_1_2, 2, 1) )
+
+        # P(x_{-i,t}|x_{i,t})
+        likelihood = MultivariateNormal(loc=mean_cond.squeeze(-1), covariance_matrix=covariance_cond)
         sample = likelihood.rsample()
         full_sample = current.clone()
         full_sample[:,sig_inds_comp] = sample

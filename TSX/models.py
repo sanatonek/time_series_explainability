@@ -29,7 +29,7 @@ class PatientData():
             raise RuntimeError('Dataset not found')
         with open(self.data_dir, 'rb') as f:
             self.data = pickle.load(f)
-        if os.path.exists(os.path.join(root,'patient_interventions.pkl'):
+        if os.path.exists(os.path.join(root,'patient_interventions.pkl')):
             with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
                 self.intervention = pickle.load(f)
             self.train_intervention = self.intervention[0:self.n_train,:,:]
@@ -169,37 +169,46 @@ class GHGData():
         self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
 
 
-class DeepKnn:
-    """
-    Look for the nearest neighbors (from training samples) of a test instance in the encoding space and
-    determine prediction certainty based on the neighbors' labels
-    """
-    def __init__(self, model, training_samples, training_labels, device):
-        self.model = model
-        self.encoder_model = list(self.model.children())[0]
-        self.device = device
-        self.training_samples = self.encoder_model(torch.Tensor(training_samples).permute(2, 0, 1).to(self.device))
-        self.training_samples = self.training_samples.detach().cpu().numpy()
-        self.training_labels = training_labels
-        self.encoding_tree = KDTree(self.training_samples, leaf_size=2)
+class StateClassifier(nn.Module):
+    def __init__(self, feature_size, n_state, hidden_size, rnn="GRU", regres=True, bidirectional=False, return_all=False,
+                 seed=random.seed('2019')):
+        super(StateClassifier, self).__init__()
+        self.hidden_size = hidden_size
+        self.n_state = n_state
+        self.seed = seed
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.rnn_type = rnn
+        self.regres = regres
+        self.return_all = return_all
+        # Input to torch LSTM should be of size (seq_len, batch, input_size)
+        if self.rnn_type == 'GRU':
+            self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
+        else:
+            self.rnn = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
 
-    def find_neighbors(self, sample, n_nearest_neighbors=10):
-        sample = self.encoder_model(torch.Tensor(sample).permute(2, 0, 1).to(self.device))
-        sample = sample.detach().cpu().numpy()
-        dists, indxs = self.encoding_tree.query(sample, k=n_nearest_neighbors)
-        neighbors_labels = self.training_labels[indxs]
-        return neighbors_labels
+        self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
+                                       nn.ReLU(),
+                                       nn.Dropout(0.5),
+                                       nn.Linear(self.hidden_size, self.n_state),
+                                       nn.Softmax(-1))
 
-    def evaluate_confidence(self, sample, sample_label, n_nearest_neighbors=10, verbose=True):
-        knn_labels = self.find_neighbors(sample, n_nearest_neighbors)
-        matches = np.where(knn_labels==sample_label, 1, 0)
-        prediction = self.model(torch.Tensor(sample).permute(2, 0, 1).to(self.device))
-        if verbose:
-            print('Sample true label: ', sample_label)
-            print('Sample predicted risk: ', prediction.item())
-            print('Closest neighbors labels: ', knn_labels.reshape(-1,))
-            print('Confidence: ', np.count_nonzero(matches)/float(n_nearest_neighbors))
-        return knn_labels
+    def forward(self, input, past_state=None):
+        input = input.permute(2, 0, 1).to(self.device)
+        if not past_state:
+            #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
+            past_state = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)
+        if self.rnn_type == 'GRU':
+            all_encodings, encoding = self.rnn(input, past_state)
+        else:
+            all_encodings, (encoding, state) = self.rnn(input, (past_state, past_state))
+        if self.regres:
+            if not self.return_all:
+                return self.regressor(encoding.view(encoding.shape[1], -1))
+            else:
+                reshaped_encodings = all_encodings.view(all_encodings.shape[1]*all_encodings.shape[0],-1)
+                return torch.t(self.regressor(reshaped_encodings).view(all_encodings.shape[0],-1))
+        else:
+            return encoding.view(encoding.shape[1], -1)
 
 
 class EncoderRNN(nn.Module):
