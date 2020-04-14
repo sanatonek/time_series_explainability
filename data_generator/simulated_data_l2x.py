@@ -9,6 +9,7 @@ P_S0 = [0.5]
 
 imp_feature = [[1, 2, 3, 4], [5, 6, 7, 8]]  # Features that are always set as important
 trans_mat = np.array([[0.1, 0.9], [0.1, 0.9]])
+correlated_feature = {0: {1: [6, 7], 3: [4]}, 1: {5: [2, 3, 4], 8: [5, 7]}}
 
 
 def next_state(previous_state, t):
@@ -28,6 +29,30 @@ def next_state(previous_state, t):
     # print('transition probability',params)
     next_st = np.random.binomial(1, params)
     return next_st
+
+
+def init_distribution_params():
+    # Covariance matrix is constant across states but distribution means change based on the state value
+    state_count = np.power(2, STATE_NUM)
+    cov = np.eye(SIG_NUM) * 0.8
+    covariance = []
+    for i in range(state_count):
+        cc = cov.copy()
+        for k, v in correlated_feature[i].items():
+            cc[k, v] = 0.01
+            for vv in v:
+                cc[vv, k] = 0.01
+        # print(cc)
+        cc = cc + np.eye(SIG_NUM) * 1e-3
+        covariance.append(cc)
+    covariance = np.array(covariance)
+    mean = []
+    for i in range(state_count):
+        m = np.zeros(SIG_NUM)
+        mean.append(m)
+        # print(m)
+    mean = np.array(mean)
+    return mean, covariance
 
 
 def state_decoder(previous, next_st):
@@ -67,7 +92,7 @@ def generate_additive_labels(X):
     return y
 
 
-def create_signal(sig_len):
+def create_signal(sig_len, mean, cov):
     signal = []
     state_local = []
     y = []
@@ -90,7 +115,8 @@ def create_signal(sig_len):
             imp_sig[imp_feature[state_n]] = 1
 
         importance.append(imp_sig)
-        sample_ii = np.random.multivariate_normal(np.zeros(SIG_NUM), np.eye(SIG_NUM))
+        # sample_ii = np.random.multivariate_normal(np.zeros(SIG_NUM), np.eye(SIG_NUM))
+        sample_ii = np.random.multivariate_normal(mean[state_n], cov[state_n])
         sample_ii[-1] += 3 * (1 - state_n) + -3 * state_n
         previous = state_n
         signal.append(sample_ii)
@@ -154,9 +180,9 @@ def create_dataset(count, signal_len):
     importance_score = []
     states = []
     label_logits = []
-    # mean, cov = init_distribution_params()
+    mean, cov = init_distribution_params()
     for num in range(count):
-        sig, y, state, importance, y_logits = create_signal(signal_len)  # , mean, cov)
+        sig, y, state, importance, y_logits = create_signal(signal_len, mean, cov)
         dataset.append(sig)
         labels.append(y)
         importance_score.append(importance.T)
@@ -203,8 +229,8 @@ if __name__ == '__main__':
     if not os.path.exists('./data'):
         os.mkdir('./data')
     parser = argparse.ArgumentParser()
-    parser.add_argument('--signal_len', type=int, default=10, help='Length of the signal to generate')
-    parser.add_argument('--signal_num', type=int, default=100, help='Number of the signals to generate')
+    parser.add_argument('--signal_len', type=int, default=100, help='Length of the signal to generate')
+    parser.add_argument('--signal_num', type=int, default=1000, help='Number of the signals to generate')
     parser.add_argument('--plot', action='store_true')
     args = parser.parse_args()
 
@@ -223,7 +249,6 @@ if __name__ == '__main__':
         idx0 = np.where(states == 0)
         idx1 = np.where(states == 1)
 
-        print(len(idx0[0]))
         for c in range(len(idx0[0])):
             if labels[idx0[0][c], idx0[1][c]] == 0:
                 state_0_0.append(labels[idx0[0][c], idx0[1][c]])
