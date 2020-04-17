@@ -12,6 +12,8 @@ from tqdm import tnrange, tqdm_notebook
 
 import matplotlib.pyplot as plt
 
+from TSX.generator import train_joint_feature_generator
+
 
 class FITExplainer:
     def __init__(self, model, generator=None):
@@ -19,11 +21,13 @@ class FITExplainer:
         self.generator = generator
         self.base_model = model.to(self.device)
 
+
     def fit_generator(self, generator_model, train_loader, test_loader, path):
         train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint', n_epochs=100)
         self.generator = generator_model.to(self.device)
 
-    def attribute(self, x, y, n_samples=10, retrspective=False):
+    def attribute(self, x, y, n_samples=10, retrospective=False):
+
         """
         Compute importance score for a sample x, over time and features
         :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
@@ -35,14 +39,15 @@ class FITExplainer:
         x = x.to(self.device)
         _, n_features, t_len = x.shape
         score = np.zeros(x.shape)
-        if retrspective:
+        if retrospective:
             p_y_t = self.base_model(x)
 
         for t in range(1, t_len):
-            if not retrspective:
+            if not retrospective:
                 p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
             for i in range(n_features):
                 kl_all = []
+
                 x_hat = x[:,:,0:t+1].clone()
                 for _ in range(n_samples):
                     x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
@@ -226,4 +231,6 @@ class RETAINexplainer:
                 imp = self.model.output(beta[:,t,:] * w_emb[:, i].expand_as(beta[:,t,:]))
                 score[:,i,t] = (alpha[:,t,0] * imp[torch.range(0,len(imp)-1).long(), y.long()] * x[:,t, i]).detach().cpu().numpy()
         return score
+
+
 
