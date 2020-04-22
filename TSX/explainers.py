@@ -13,6 +13,7 @@ from tqdm import tnrange, tqdm_notebook
 import matplotlib.pyplot as plt
 
 from TSX.generator import train_joint_feature_generator
+from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
 
 
 class FITExplainer:
@@ -21,13 +22,11 @@ class FITExplainer:
         self.generator = generator
         self.base_model = model.to(self.device)
 
-
-    def fit_generator(self, generator_model, train_loader, test_loader, path):
-        train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint', n_epochs=100)
+    def fit_generator(self, generator_model, train_loader, test_loader, n_epochs=300):
+        train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint_generator', n_epochs=n_epochs)
         self.generator = generator_model.to(self.device)
 
     def attribute(self, x, y, n_samples=10, retrospective=False):
-
         """
         Compute importance score for a sample x, over time and features
         :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
@@ -56,9 +55,73 @@ class FITExplainer:
                     kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
                     kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
                 E_kl = np.mean(np.array(kl_all), axis=0)
-                score[:,i,t] = 1./(E_kl+1e-6) * 1e-6
+                score[:,i,t] = np.exp(E_kl/10)#1./(E_kl+1e-6) * 1e-6
         return score
 
+
+class FOExplainer:
+    def __init__(self, model):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model.to(self.device)
+
+    def attribute(self, x, y, retrospective=False):
+        """
+        Compute importance score for a sample x, over time and features
+        :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
+        :param n_samples: number of Monte-Carlo samples
+        :return: Importance score matrix of shape:[batch, features, time]
+        """
+        x = x.to(self.device)
+        _, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+        if retrospective:
+            p_y_t = self.base_model(x)
+
+        for t in range(1, t_len):
+            if not retrospective:
+                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
+            for i in range(n_features):
+                x_hat = x[:,:,0:t+1].clone()
+                x_hat[:, i, t] = torch.Tensor(np.array([np.random.uniform(-4,+4)]).reshape(-1)).to(self.device)
+                y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
+                kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                E_kl = torch.sum(kl, -1).cpu().detach().numpy()
+                score[:, i, t] = E_kl
+        return score
+
+
+class AFOExplainer:
+    def __init__(self, model, train_loader):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model.to(self.device)
+        trainset = list(train_loader.dataset)
+        self.data_distribution = torch.stack([x[0] for x in trainset])
+
+    def attribute(self, x, y, retrospective=False):
+        """
+        Compute importance score for a sample x, over time and features
+        :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
+        :param n_samples: number of Monte-Carlo samples
+        :return: Importance score matrix of shape:[batch, features, time]
+        """
+        x = x.to(self.device)
+        _, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+        if retrospective:
+            p_y_t = self.base_model(x)
+
+        for t in range(1, t_len):
+            if not retrospective:
+                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
+            for i in range(n_features):
+                feature_dist = (np.array(self.data_distribution[:, i, :]).reshape(-1))
+                x_hat = x[:,:,0:t+1].clone()
+                x_hat[:, i, t] = torch.Tensor(np.array(np.random.choice(feature_dist)).reshape(-1,)).to(self.device)
+                y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
+                kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                E_kl = torch.sum(kl, -1).cpu().detach().numpy()
+                score[:, i, t] = E_kl
+        return score
 
 
 class RETAINexplainer:
@@ -147,7 +210,7 @@ class RETAINexplainer:
             valid_y_true, valid_y_pred, valid_loss = self._epoch(valid_loader, criterion=criterion)
             valid_losses.append(valid_loss)
 
-            # print("Epoch {} - Loss train: {}, valid: {}".format(ei, train_loss, valid_loss))
+            print("Epoch {} - Loss train: {}, valid: {}".format(ei, train_loss, valid_loss))
 
             valid_y_true.to(self.device)
             valid_y_pred.to(self.device)
@@ -232,5 +295,60 @@ class RETAINexplainer:
                 score[:,i,t] = (alpha[:,t,0] * imp[torch.range(0,len(imp)-1).long(), y.long()] * x[:,t, i]).detach().cpu().numpy()
         return score
 
+class DeepLiftExplainer:
+    def __init__(self, model):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model.to(self.device)
+        self.explainer = DeepLift(self.model)
 
+    def attribute(self, x, y, retrospective=False):
+        self.model.zero_grad()
+        if retrospective:
+            score = self.explainer.attribute(x, target=y[:, -1].long(), baselines=(x * 0))
+            score = score.detach().cpu().numpy()
+        else:
+            score = np.zeros(x.shape)
+            for t in range(1,x.shape[-1]):
+                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t+1].long(), baselines=(x[:,:,:t+1] * 0))
+                score[:, :, t] = imp.detach().cpu().numpy()
+        return score
+
+
+class IGExplainer:
+    def __init__(self, model):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model.to(self.device)
+        self.explainer = IntegratedGradients(model)
+
+    def attribute(self, x, y, retrospective=False):
+        self.model.zero_grad()
+        if retrospective:
+            score = self.explainer.attribute(x, target=y[:, -1].long(), baselines=(x * 0))
+            score = score.detach().cpu().numpy()
+        else:
+            score = np.zeros(x.shape)
+            for t in range(1,x.shape[-1]):
+                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t+1].long(), baselines=(x[:,:,:t+1] * 0))
+                score[:, :, t] = imp.detach().cpu().numpy()
+        return score
+
+
+class GradientShapExplainer:
+    def __init__(self, model):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model.to(self.device)
+        self.explainer = GradientShap(model)
+
+    def attribute(self, x, y, retrospective=False):
+        if retrospective:
+            score = self.explainer.attribute(x, target=y[:, -1].long(),
+                                                 n_samples=50, stdevs=0.0001, baselines=torch.cat([x * 0, x * 1]))
+            score = score.cpu().numpy()
+        else:
+            score = np.zeros(x.shape)
+            for t in range(1, x.shape[-1]):
+                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t+1].long(),
+                                             n_samples=50, stdevs=0.0001, baselines=torch.cat([x[:,:,:t+1] * 0, x[:,:,:t+1] * 1]))
+                score[:, :, t] = imp.cpu().numpy()
+        return score
 

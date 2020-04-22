@@ -481,21 +481,21 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
     print('***** Joint generator test loss *****', test_loss)
     #save_ckpt(generator_model,fname,data)
 
-    '''
     # Save model and results
     if not os.path.exists('./ckpt'):
         os.mkdir('./ckpt')
     if not os.path.exists('./ckpt'+ data):
         os.mkdir('./ckpt' + data)
     torch.save(generator_model.state_dict(), './ckpt/%s/%s.pt'%(data, generator_type))
-    '''
+
 
     plt.figure(feature_to_predict)
-    ax = plt.gca()
-    plt.plot(train_loss_trend[:best_epoch], label='Train loss:Feature %d'%(feature_to_predict+1))
-    plt.plot(test_loss_trend[:best_epoch], label='Validation loss: Feature %d'%(feature_to_predict+1))
-    ax.xaxis.set_tick_params(labelsize=12)
-    ax.yaxis.set_tick_params(labelsize=12)
+    # ax = plt.gca()
+    ax = plt.figure()
+    plt.plot(train_loss_trend, label='Train loss')
+    plt.plot(test_loss_trend, label='Validation loss')
+    # ax.xaxis.set_tick_params(labelsize=12)
+    # ax.yaxis.set_tick_params(labelsize=12)
     plt.title('Generator Loss', fontweight='bold', fontsize=12)
     plt.legend()
     if not os.path.exists('./plots'):
