@@ -173,8 +173,8 @@ def create_dataset(count, signal_len):
     # train_data_n, test_data_n = normalize(train_data, test_data)
     train_data_n = train_data
     test_data_n = test_data
-    if not os.path.exists('./data/simulated_data'):
-        os.mkdir('./data/simulated_data')
+    if not os.path.exists('./data/simulated_data_l2x'):
+        os.mkdir('./data/simulated_data_l2x')
     with open('./data/simulated_data_l2x/state_dataset_x_train.pkl', 'wb') as f:
         pickle.dump(train_data_n, f)
     with open('./data/simulated_data_l2x/state_dataset_x_test.pkl', 'wb') as f:
@@ -203,8 +203,8 @@ if __name__ == '__main__':
     if not os.path.exists('./data'):
         os.mkdir('./data')
     parser = argparse.ArgumentParser()
-    parser.add_argument('--signal_len', type=int, default=10, help='Length of the signal to generate')
-    parser.add_argument('--signal_num', type=int, default=100, help='Number of the signals to generate')
+    parser.add_argument('--signal_len', type=int, default=100, help='Length of the signal to generate')
+    parser.add_argument('--signal_num', type=int, default=1000, help='Number of the signals to generate')
     parser.add_argument('--plot', action='store_true')
     args = parser.parse_args()
 
