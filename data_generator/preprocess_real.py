@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.utils.data as utils
 from torch.utils.data import DataLoader
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from scipy.special import expit
 from scipy.signal import butter, lfilter, freqz
 from preprocess_utils import *
@@ -42,8 +42,8 @@ plt.title("Lowpass Filter Frequency Response")
 plt.xlabel('Frequency [Hz]')
 plt.grid()
 
-'''
 from scipy.io import arff
+
 
 def process_data(dataff):
     n_samples = len(data)
@@ -72,7 +72,7 @@ y_test = ohe.transform(y_test.reshape(-1, 1))
 
 with open("./data/ddg/ddg_real.pkl", 'wb') as f:
     pkl.dump({'Xtrain': X_train, 'ytrain': y_train, 'Xtest': X_test, 'ytest': y_test, 'enc': ohe}, f)
-'''
+
 
 
 def softmax(latent_in):
@@ -92,6 +92,8 @@ def generate_sample(seeds, Tt=80):
         latent[k, :] = butter_lowpass_filter(latent[k, :], cutoff, fs, order)
         latent[k, :] = logistic(latent[k, :])
         latent[k, :] = np.array([np.random.binomial(n=1, p=x, size=1) for x in latent[k, :]]).flatten()
+        if k%100==0:
+            print(k/len(seeds), k)
     return latent
 
 
@@ -103,20 +105,21 @@ y_train = data_dict['ytrain']
 X_test = data_dict['Xtest']
 y_test = data_dict['ytest']
 
-_, train_loader, valid_loader, test_loader = load_simulated_data(X_train, y_train, X_test, y_test, batch_size=40, percentage=1.)
+_, train_loader, valid_loader, test_loader = load_simulated_data(X_train, y_train, X_test, y_test, batch_size=40,
+                                                                 percentage=1.)
 
 feature_size = X_train.shape[1]
-encoding_size=100
+encoding_size = 50
 n_classes = y_train.shape[1]
-data='ddg'
+data = 'ddg'
 exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, encoding_size,
-                               rnn_type='LSTM', data=data, model='RNN',n_classes=n_classes)
-exp.run(train=True, n_epochs=130, samples_to_analyze=[])
+                       rnn_type='LSTM', data=data, model='RNN', n_classes=n_classes)
+exp.run(train=True, n_epochs=150, samples_to_analyze=[])
 
 # For all train/test samples, do inference with masked features
 n_samples, n_features, Tt = X_train.shape
-n_basis=5000
-candidate_probs = generate_sample(np.random.normal(loc=2,scale=1,size=n_basis), Tt=Tt)
+n_basis = 5000
+candidate_probs = generate_sample(np.random.normal(loc=2, scale=1, size=n_basis), Tt=Tt)
 
 scaler = StandardScaler()
 X_train_flat = scaler.fit_transform(np.reshape(X_train, [X_train.shape[0], -1]))
@@ -130,7 +133,7 @@ for n in range(X_train.shape[0]):
     hide_idx = np.random.choice(n_basis, replace=True, size=n_features)
     mask_mat = candidate_probs[hide_idx, :]
     X_train_new[n, :, :] = np.multiply(X_train[n, :, :], mask_mat)
-    feature_imp_train[n,:,:] = mask_mat
+    feature_imp_train[n, :, :] = mask_mat
 
 X_test_new = np.zeros(X_test.shape)
 feature_imp_test = np.zeros(X_test.shape)
@@ -149,9 +152,9 @@ test_loader = DataLoader(test_dataset, batch_size=len(X_test))
 
 feature_size = X_train_new.shape[1]
 n_classes = y_train.shape[1]
-data='ddg'
+data = 'ddg'
 exp = EncoderPredictor(train_loader, valid_loader, test_loader, feature_size, encoding_size,
-                               rnn_type='LSTM', data=data, model='RNN',n_classes=n_classes)
+                       rnn_type='LSTM', data=data, model='RNN', n_classes=n_classes)
 y_train_new, logits_train_new, y_test_new, logits_test_new = exp.run(train=False, n_epochs=130)
 
 if not os.path.exists('./data/ddg'):

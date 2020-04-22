@@ -268,7 +268,7 @@ class EncoderPredictor(Experiment):
             return new_labels_train, logits_train, new_labels_test, logits_test
 
     def train(self, n_epochs):
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001, weight_decay=1e-3)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001, weight_decay=1e-3)
         train_model(self.model, self.train_loader, self.valid_loader, optimizer, n_epochs, self.device,
                                             self.experiment+'_'+self.model_type, data=self.data)
         # Evaluate performance on held-out test set
