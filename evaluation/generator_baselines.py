@@ -63,7 +63,7 @@ def main(data, generator_type, output_path, predictor_model):
                 print('t: ', t)
             ffc_sample_t = exp.generator.forward_joint(signal[:, 0:t].unsqueeze(0))
             ffc_sample[:, s * test_signals.shape[-1] + t] = ffc_sample_t.cpu().detach().numpy()[0]
-            true_sample[:, s * test_signals.shape[-1] + t] = true_generator.sample(signal[:, 0:t], t)
+            true_sample[:, s * test_signals.shape[-1] + t] = true_generator.sample(signal[:, 0:t].cpu().detach().numpy(), t)
 
     for f in range(test_signals.shape[1]):
         ks_stat_f, p_value = stats.ks_2samp(ffc_sample[f, :], true_sample[f, :])
