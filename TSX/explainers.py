@@ -45,18 +45,61 @@ class FITExplainer:
             if not retrospective:
                 p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
             for i in range(n_features):
-                kl_all = []
-
                 x_hat = x[:,:,0:t+1].clone()
+                kl_all=[]
                 for _ in range(n_samples):
                     x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
                     x_hat[:, :, t] = x_hat_t
                     y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
                     kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
                     kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
-                E_kl = np.mean(np.array(kl_all), axis=0)
-                score[:,i,t] = np.exp(E_kl/10)#1./(E_kl+1e-6) * 1e-6
+                E_kl = np.mean(np.array(kl_all),axis=0)
+                score[:,i,t] = 1./(E_kl+1e-6) #* 1e-6
         return score
+
+
+class FFCExplainer:
+    def __init__(self, model, generator=None):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.generator = generator
+        self.base_model = model.to(self.device)
+
+    def fit_generator(self, generator_model, train_loader, test_loader, n_epochs=300):
+        train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint_generator', n_epochs=n_epochs)
+        self.generator = generator_model.to(self.device)
+
+    def attribute(self, x, y, n_samples=10, retrospective=False):
+        """
+        Compute importance score for a sample x, over time and features
+        :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
+        :param n_samples: number of Monte-Carlo samples
+        :return: Importance score matrix of shape:[batch, features, time]
+        """
+        self.generator.eval()
+        self.generator.to(self.device)
+        x = x.to(self.device)
+        _, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+        if retrospective:
+            p_y_t = self.base_model(x)
+
+        for t in range(1, t_len):
+            if not retrospective:
+                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
+            for i in range(n_features):
+                x_hat = x[:,:,0:t+1].clone()
+                kl_all=[]
+                for _ in range(n_samples):
+                    x_hat_t = self.generator.forward_joint(x[:, :, :t])
+                    x_hat[:, i, t] = x_hat_t[:,i]
+                    y_hat_t = self.base_model(x_hat)
+                    kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
+                    kl_all.append(torch.sum(kl, -1).detach().cpu().numpy())
+                E_kl = np.mean(np.array(kl_all),axis=0)
+                score[:,i,t] =E_kl #* 1e-6
+        return score
+
+
 
 
 class FOExplainer:
@@ -64,7 +107,7 @@ class FOExplainer:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.base_model = model.to(self.device)
 
-    def attribute(self, x, y, retrospective=False):
+    def attribute(self, x, y, retrospective=False,n_samples=10):
         """
         Compute importance score for a sample x, over time and features
         :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
@@ -82,10 +125,15 @@ class FOExplainer:
                 p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
-                x_hat[:, i, t] = torch.Tensor(np.array([np.random.uniform(-4,+4)]).reshape(-1)).to(self.device)
-                y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
-                kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
-                E_kl = torch.sum(kl, -1).cpu().detach().numpy()
+                kl_all=[]
+                for _ in range(n_samples):
+                    x_hat[:, i, t] = torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
+                    y_hat_t = self.base_model(x_hat)
+                    kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
+                    #kl = torch.abs(torch.Tensor(y_hat_t[:,1]).to(self.device)-p_y_t[:,1])
+                    kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    #kl_all.append(kl.detach().cpu().numpy())
+                E_kl = np.mean(np.array(kl_all),axis=0)
                 score[:, i, t] = E_kl
         return score
 
@@ -116,10 +164,13 @@ class AFOExplainer:
             for i in range(n_features):
                 feature_dist = (np.array(self.data_distribution[:, i, :]).reshape(-1))
                 x_hat = x[:,:,0:t+1].clone()
-                x_hat[:, i, t] = torch.Tensor(np.array(np.random.choice(feature_dist)).reshape(-1,)).to(self.device)
-                y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
-                kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
-                E_kl = torch.sum(kl, -1).cpu().detach().numpy()
+                kl_all=[]
+                for _ in range(10):
+                    x_hat[:, i, t] = torch.Tensor(np.array(np.random.choice(feature_dist)).reshape(-1,)).to(self.device)
+                    y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
+                    kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                    kl_all.append(torch.sum(kl,-1).detach().cpu().numpy())
+                E_kl = np.mean(np.array(kl_all),axis=0)
                 score[:, i, t] = E_kl
         return score
 

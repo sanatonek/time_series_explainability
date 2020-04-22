@@ -11,8 +11,9 @@ import time
 from TSX.utils import load_simulated_data, train_model_rt, shade_state
 from TSX.models import StateClassifier, RETAIN
 from TSX.generator import JointFeatureGenerator
-from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, \
+from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer
+from sklearn import metrics
 
 # from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
 
@@ -30,7 +31,7 @@ if __name__=='__main__':
     elif args.data == 'simulation_l2x':
         feature_size = 10
         data_path = './data/simulated_data_l2x'
-    output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s'%args.data
+    output_path = '/scratch/gobi1/shalmali/TSX_results/new_results/%s'%args.data
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     plot_path = os.path.join('./plots/%s' % args.data)
@@ -80,11 +81,21 @@ if __name__=='__main__':
 
         elif args.explainer == 'gradient_shap':
             explainer = GradientShapExplainer(model)
+        elif args.explainer == 'FFC':
 
+            generator = JointFeatureGenerator(feature_size, hidden_size=feature_size*3, data=args.data)
+            if args.train:
+                explainer = FFCExplainer(model)
+                explainer.fit_generator(generator, train_loader, valid_loader)
+            else:
+                generator.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'joint_generator'))))
+                explainer = FFCExplainer(model, generator)
         else:
             raise ValueError('%s explainer not defined!'%args.explainer)
 
+
     importance_scores = []
+    n_samples=50
     for x,y in test_loader:
         model.train()
         model.to(device)
@@ -93,7 +104,8 @@ if __name__=='__main__':
         with open(os.path.join(data_path, 'state_dataset_importance_test.pkl'), 'rb') as f:
             gt_importance_test = pkl.load(f)
 
-        score = explainer.attribute(x[:3], y[:3, -1].long())
+        score = explainer.attribute(x[:n_samples], y[:n_samples, -1].long())
+        #score = explainer.attribute(x, y[:, -1].long())
         importance_scores.append(score)
 
         importance_scores = np.concatenate(importance_scores, 0)
@@ -120,4 +132,9 @@ if __name__=='__main__':
         handles, labels = axs[0].get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' % (args.explainer)), dpi=300, bbox_inches='tight')
+
+        explainer_score = importance_scores.flatten()
+        gt_score = gt_importance_test[:n_samples].flatten()
+
+        print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(gt_score,explainer_score))
         break
