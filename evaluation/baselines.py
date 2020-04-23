@@ -31,7 +31,7 @@ if __name__=='__main__':
     elif args.data == 'simulation_l2x':
         feature_size = 10
         data_path = './data/simulated_data_l2x'
-    output_path = '/scratch/gobi1/shalmali/TSX_results/new_results/%s'%args.data
+    output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s'%args.data
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     plot_path = os.path.join('./plots/%s' % args.data)
@@ -79,6 +79,9 @@ if __name__=='__main__':
         elif args.explainer == 'feature_occlusion':
             explainer = FOExplainer(model)
 
+        elif args.explainer == 'afo':
+            explainer = AFOExplainer(model, train_loader)
+
         elif args.explainer == 'gradient_shap':
             explainer = GradientShapExplainer(model)
         elif args.explainer == 'FFC':
@@ -104,26 +107,27 @@ if __name__=='__main__':
         with open(os.path.join(data_path, 'state_dataset_importance_test.pkl'), 'rb') as f:
             gt_importance_test = pkl.load(f)
 
-        score = explainer.attribute(x[:n_samples], y[:n_samples, -1].long())
+        score = explainer.attribute(x, y[:, -1].long())
         #score = explainer.attribute(x, y[:, -1].long())
         importance_scores.append(score)
 
-        importance_scores = np.concatenate(importance_scores, 0)
-        with open(os.path.join(output_path, '%s_test_importance_scores.pkl'%args.explainer), 'wb') as f:
-            pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
-
 
         # Print results
-        plot_id = 1
+        plot_id = 2
         f, axs = plt.subplots(2)
         t = np.arange(1, gt_importance_test[plot_id].shape[-1])
+        pred = []
+        model.eval()
+        for tt in t:
+            pred.append(model(x[plot_id, :, :tt+1].unsqueeze(0))[0,1].detach().cpu().numpy())
         shade_state(gt_importance_test[plot_id], t, axs[0])
         for i, ref_ind in enumerate(range(x[plot_id].shape[0])):
-            axs[0].plot(x[plot_id, ref_ind, 1:].cpu().numpy(), linewidth=3, label='feature %d'%(i))
-            axs[1].plot(score[plot_id, ref_ind, 1:], linewidth=3, label='importance %d'%(i))
+            axs[0].plot(t, x[plot_id, ref_ind, 1:].cpu().numpy(), linewidth=3, label='feature %d'%(i))
+            axs[1].plot(t, score[plot_id, ref_ind, 1:], linewidth=3, label='importance %d'%(i))
+        axs[0].plot(t, pred, '--', linewidth=3, c='black')
         axs[0].tick_params(axis='both', labelsize=36)
         axs[1].tick_params(axis='both', labelsize=36)
-        axs[0].grid()
+        # axs[0].grid()
         f.set_figheight(20)
         f.set_figwidth(60)
         plt.subplots_adjust(hspace=.5)
@@ -133,8 +137,18 @@ if __name__=='__main__':
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' % (args.explainer)), dpi=300, bbox_inches='tight')
 
-        explainer_score = importance_scores.flatten()
-        gt_score = gt_importance_test[:n_samples].flatten()
+        # explainer_score = score.flatten()
+        # gt_score = gt_importance_test[:n_samples].flatten()
+        #
+        # print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(gt_score,explainer_score))
+        # break
 
-        print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(gt_score,explainer_score))
-        break
+    importance_scores = np.concatenate(importance_scores, 0)
+    with open(os.path.join(output_path, '%s_test_importance_scores.pkl'%args.explainer), 'wb') as f:
+        pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
+
+    explainer_score = importance_scores.flatten()
+    gt_score = gt_importance_test.flatten()
+
+    print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(gt_score,explainer_score))
+    # break

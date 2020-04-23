@@ -8,6 +8,7 @@ from TSX.utils import load_simulated_data, AverageMeter
 
 from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm import tnrange, tqdm_notebook
+from scipy.special import softmax
 
 
 import matplotlib.pyplot as plt
@@ -50,11 +51,16 @@ class FITExplainer:
                 for _ in range(n_samples):
                     x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
                     x_hat[:, :, t] = x_hat_t
-                    y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
-                    kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
-                    kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    y_hat_t = self.base_model(x_hat)
+                    p_tm1 = self.base_model(x[:,:,0:t])
+                    # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                    kl = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
+                         torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                    # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    kl_all.append(kl.cpu().detach().numpy())
                 E_kl = np.mean(np.array(kl_all),axis=0)
-                score[:,i,t] = 1./(E_kl+1e-6) #* 1e-6
+                score[:, i, t] = 2./(1+np.exp(-4*E_kl)) - 1
+                # score[:,i,t] = 2.-2./(1+np.exp(-4*E_kl)) #1./(E_kl+1e-6) #* 1e-6
         return score
 
 
@@ -100,8 +106,6 @@ class FFCExplainer:
         return score
 
 
-
-
 class FOExplainer:
     def __init__(self, model):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -122,18 +126,19 @@ class FOExplainer:
 
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
+                p_y_t = self.base_model(x[:, :, :t+1])#min((t+1), t_len)])
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
                 for _ in range(n_samples):
-                    x_hat[:, i, t] = torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
+                    x_hat[:, i, t] = torch.Tensor(np.random.uniform(-3,+3, size=(len(x),)))#torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
                     y_hat_t = self.base_model(x_hat)
-                    kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
-                    #kl = torch.abs(torch.Tensor(y_hat_t[:,1]).to(self.device)-p_y_t[:,1])
-                    kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
-                    #kl_all.append(kl.detach().cpu().numpy())
+                    # kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
+                    kl = torch.abs(y_hat_t-p_y_t)
+                    # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
                 E_kl = np.mean(np.array(kl_all),axis=0)
+                # score[:, i, t] = 2./(1+np.exp(-1*E_kl)) - 1.
                 score[:, i, t] = E_kl
         return score
 
@@ -166,11 +171,14 @@ class AFOExplainer:
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
                 for _ in range(10):
-                    x_hat[:, i, t] = torch.Tensor(np.array(np.random.choice(feature_dist)).reshape(-1,)).to(self.device)
-                    y_hat_t = self.base_model(x_hat).detach().cpu().numpy()
-                    kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
-                    kl_all.append(torch.sum(kl,-1).detach().cpu().numpy())
-                E_kl = np.mean(np.array(kl_all),axis=0)
+                    x_hat[:, i, t] = torch.Tensor(np.random.choice(feature_dist, size=(len(x),))).to(self.device)
+                    y_hat_t = self.base_model(x_hat)
+                    # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                    kl = torch.abs(y_hat_t[:, :] - p_y_t[:, :])
+                    # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
+                E_kl = np.mean(np.array(kl_all), axis=0)
+                # score[:, i, t] = 2./(1+np.exp(-1*E_kl)) - 1.
                 score[:, i, t] = E_kl
         return score
 

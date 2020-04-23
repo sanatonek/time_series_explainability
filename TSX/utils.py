@@ -8,6 +8,7 @@ from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import pickle as pkl
 from sklearn.model_selection import KFold
+from sklearn.metrics import classification_report
 import seaborn as sns
 sns.set()
 
@@ -22,16 +23,33 @@ warnings.filterwarnings("ignore")
 intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone', 'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus', 'nivdurations']
 
 
+# def evaluate(labels, predicted_label, predicted_probability):
+#     labels_array = np.array(labels.cpu())
+#     prediction_array = np.array(predicted_label.cpu())
+#     if len(np.unique(labels_array)) < 2:
+#         auc = 0
+#     else:
+#         auc = roc_auc_score(np.array(labels.cpu()), np.array(predicted_probability.view(len(labels), -1).detach().cpu()))
+#     recall = torch.matmul(labels, predicted_label).item()
+#     precision = precision_score(labels_array, prediction_array)
+#     correct_label = torch.eq(labels, predicted_label).sum()
+#     return auc, recall, precision, correct_label
+
 def evaluate(labels, predicted_label, predicted_probability):
-    labels_array = np.array(labels.cpu())
-    prediction_array = np.array(predicted_label.cpu())
-    if len(np.unique(labels_array)) < 2:
-        auc = 0
-    else:
-        auc = roc_auc_score(np.array(labels.cpu()), np.array(predicted_probability.view(len(labels), -1).detach().cpu()))
-    recall = torch.matmul(labels, predicted_label).item()
-    precision = precision_score(labels_array, prediction_array)
-    correct_label = torch.eq(labels, predicted_label).sum()
+    labels_array = labels.detach().cpu().numpy()
+    prediction_array = predicted_label.detach().cpu().numpy()
+    l_idx = []
+    for l in range(labels_array.shape[1]):
+        if len(np.unique(labels_array[:,l]))>=2:
+            l_idx.append(l)
+    auc = roc_auc_score(labels_array[:,l_idx], np.array(predicted_probability[:,l_idx].detach().cpu()))
+    report = classification_report(labels_array, prediction_array,labels=list(range(labels_array.shape[1])),output_dict=True)
+    recall=0
+    precision=0
+    correct_label=0
+    recall = report['macro avg']['recall']
+    precision =report['macro avg']['precision']
+    correct_label = np.equal(np.argmax(labels_array,1), np.argmax(prediction_array,1)).sum()
     return auc, recall, precision, correct_label
 
 
@@ -119,39 +137,49 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
     plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=5):
-    print('training data: ', data)
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation', num=5):
+    print('Training black-box model on ', data)
     train_loss_trend = []
     test_loss_trend = []
 
     model.to(device)
-    loss_criterion = torch.nn.BCELoss()
+    # loss_criterion = torch.nn.BCELoss()
+    loss_criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(n_epochs):
         model.train()
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
         for i, (signals,labels) in enumerate(train_loader):
-            signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+            # signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+            signals, labels = signals.to(device), labels.to(device)
             if data=='simulation':
-                time_points = [int(tt) for tt in np.linspace(1,signals.shape[2]-2, num=num)]
+                num=20
+                time_points = [int(tt) for tt in np.linspace(1,signals.shape[-1]-2, num=num)]
             else:
                 time_points = [int(tt) for tt in np.logspace(0, np.log10(signals.shape[2] - 1), num=num)]
             for t in time_points:
+                input_signal = signals[:,:,:t+1]
+                label = labels[:,t]
+
                 optimizer.zero_grad()
-                predictions = model(signals[:,:,:t+1])
+                predictions = model(input_signal)
+                label_onehot = torch.zeros(predictions.shape).to(device)
+                pred_onehot = torch.zeros(predictions.shape).to(device)
+                _, predicted_label = predictions.max(1)
+                pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
 
-                if predictions.shape[1]>1:
-                    predictions = predictions[:,-1]
+                # labels_th = (labels[:,t]>0.5).float()
+                label_onehot.zero_()
+                label_onehot.scatter_(1, label.long().view(-1, 1), 1)
 
-                predicted_label = (predictions > 0.5).float()
-                labels_th = (labels[:,t]>0.5).float()
-                auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
+                # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
+                auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, predictions)
                 correct_label_train += correct
                 auc_train += auc
                 recall_train += recall
                 precision_train += precision
                 count += 1
 
-                reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
+                reconstruction_loss = loss_criterion(predictions, label.long())
                 epoch_loss += reconstruction_loss.item()
                 reconstruction_loss.backward()
                 optimizer.step()
@@ -243,22 +271,37 @@ def test_model_rt(model,test_loader,num=1):
     for i, (signals,labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
         for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2,num=num)]:
+            label_onehot = torch.FloatTensor(labels.shape[0], labels.shape[1]).to(device)
+            pred_onehot = torch.FloatTensor(labels.shape[0], labels.shape[1]).to(device)
+            predictions = model(signals[:,:,:t+1])
+            _, predicted_label = predictions.max(1)
+            pred_onehot.zero_()
+            pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
+                # labels_th = (labels[:,t]>0.5).float()
+            label_onehot.zero_()
+            label_onehot.scatter_(1, labels[:,t].long().view(-1, 1), 1)
+                # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
+            auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, predictions)
+
+
+
         #for t in [24]:
-            prediction = model(signals[:,:,:t+1])
-
-            # Multi-class classification
-            if prediction.shape[1] > 1:
-                prediction = prediction[:, -1]
-
-            predicted_label = (prediction > 0.5).float()
-            labels_th = (labels[:,t] > 0.5).float()
-            auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))
+            # prediction = model(signals[:,:,:t+1])
+            #
+            # # Multi-class classification
+            # if prediction.shape[1] > 1:
+            #     prediction = prediction[:, -1]
+            #
+            # predicted_label = (prediction > 0.5).float()
+            # labels_th = (labels[:,t] > 0.5).float()
+            # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))
             correct_label_test += correct
             auc_test += auc
             recall_test +=  recall
             precision_test +=  precision
             count +=  1
-            loss = torch.nn.BCELoss()(prediction, labels[:,t].to(device))
+            loss_criterion = torch.nn.CrossEntropyLoss()
+            loss = loss_criterion(predictions, labels[:,t].long().to(device))
             test_loss += loss.item()
 
     test_loss = test_loss/((i+1)*num)
