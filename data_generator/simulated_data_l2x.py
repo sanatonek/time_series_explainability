@@ -173,27 +173,27 @@ def create_dataset(count, signal_len):
     # train_data_n, test_data_n = normalize(train_data, test_data)
     train_data_n = train_data
     test_data_n = test_data
-    if not os.path.exists('./data/simulated_data_l2x'):
-        os.mkdir('./data/simulated_data_l2x')
-    with open('./data/simulated_data_l2x/state_dataset_x_train.pkl', 'wb') as f:
+    if not os.path.exists('../data/simulated_data_l2x'):
+        os.mkdir('../data/simulated_data_l2x')
+    with open('../data/simulated_data_l2x/state_dataset_x_train.pkl', 'wb') as f:
         pickle.dump(train_data_n, f)
-    with open('./data/simulated_data_l2x/state_dataset_x_test.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_x_test.pkl', 'wb') as f:
         pickle.dump(test_data_n, f)
-    with open('./data/simulated_data_l2x/state_dataset_y_train.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_y_train.pkl', 'wb') as f:
         pickle.dump(labels[:n_train], f)
-    with open('./data/simulated_data_l2x/state_dataset_y_test.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_y_test.pkl', 'wb') as f:
         pickle.dump(labels[n_train:], f)
-    with open('./data/simulated_data_l2x/state_dataset_importance_train.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_importance_train.pkl', 'wb') as f:
         pickle.dump(importance_score[:n_train], f)
-    with open('./data/simulated_data_l2x/state_dataset_importance_test.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_importance_test.pkl', 'wb') as f:
         pickle.dump(importance_score[n_train:], f)
-    with open('./data/simulated_data_l2x/state_dataset_logits_train.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_logits_train.pkl', 'wb') as f:
         pickle.dump(label_logits[:n_train], f)
-    with open('./data/simulated_data_l2x/state_dataset_logits_test.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_logits_test.pkl', 'wb') as f:
         pickle.dump(label_logits[n_train:], f)
-    with open('./data/simulated_data_l2x/state_dataset_states_train.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_states_train.pkl', 'wb') as f:
         pickle.dump(states[:n_train], f)
-    with open('./data/simulated_data_l2x/state_dataset_states_test.pkl', 'wb') as f:
+    with open('../data/simulated_data_l2x/state_dataset_states_test.pkl', 'wb') as f:
         pickle.dump(states[n_train:], f)
 
     return dataset, labels, states

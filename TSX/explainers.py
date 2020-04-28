@@ -25,7 +25,8 @@ class FITExplainer:
         self.base_model = model.to(self.device)
 
     def fit_generator(self, generator_model, train_loader, test_loader, n_epochs=300):
-        train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint_generator', n_epochs=n_epochs)
+        train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint_generator',
+                                      n_epochs=n_epochs)
         self.generator = generator_model.to(self.device)
 
     def attribute(self, x, y, n_samples=10, retrospective=False):
@@ -45,7 +46,7 @@ class FITExplainer:
 
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
+                p_y_t = self.base_model(x[:, :, :min((t + 1), t_len)])
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
@@ -166,7 +167,7 @@ class AFOExplainer:
 
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
+                p_y_t = self.base_model(x[:, :, :min((t + 1), t_len)])
             for i in range(n_features):
                 feature_dist = (np.array(self.data_distribution[:, i, :]).reshape(-1))
                 x_hat = x[:,:,0:t+1].clone()
@@ -210,8 +211,8 @@ class RETAINexplainer:
             lengths = torch.randint(low=10, high=inputs.shape[2], size=(len(inputs),))
             lengths, _ = torch.sort(lengths, descending=True)
             lengths[0] = inputs.shape[-1]
-            inputs = inputs.permute(0,2,1) # Shape: (batch, length, features)
-            targets = targets[torch.range(0, len(inputs)-1).long(), lengths-1]
+            inputs = inputs.permute(0, 2, 1)  # Shape: (batch, length, features)
+            targets = targets[torch.range(0, len(inputs) - 1).long(), lengths - 1]
 
             input_var = torch.autograd.Variable(inputs)
             target_var = torch.autograd.Variable(targets)
@@ -262,8 +263,8 @@ class RETAINexplainer:
         for ei in tnrange(epochs, desc="Epochs"):
             # Train
             train_y_true, train_y_pred, train_loss = self._epoch(train_loader, criterion=criterion,
-                                                           optimizer=optimizer,
-                                                           train=True)
+                                                                 optimizer=optimizer,
+                                                                 train=True)
             train_losses.append(train_loss)
 
             # Eval
@@ -276,7 +277,8 @@ class RETAINexplainer:
             valid_y_pred.to(self.device)
 
             valid_auc = roc_auc_score(valid_y_true.cpu().numpy(), valid_y_pred.cpu().numpy()[:, 1], average="weighted")
-            valid_aupr = average_precision_score(valid_y_true.cpu().numpy(), valid_y_pred.cpu().numpy()[:, 1], average="weighted")
+            valid_aupr = average_precision_score(valid_y_true.cpu().numpy(), valid_y_pred.cpu().numpy()[:, 1],
+                                                 average="weighted")
 
             is_best = valid_auc > best_valid_auc
 
@@ -297,12 +299,14 @@ class RETAINexplainer:
                 test_y_true.to(self.device)
                 test_y_pred.to(self.device)
 
-                train_auc = roc_auc_score(train_y_true.cpu().numpy(), train_y_pred.cpu().numpy()[:, 1], average="weighted")
+                train_auc = roc_auc_score(train_y_true.cpu().numpy(), train_y_pred.cpu().numpy()[:, 1],
+                                          average="weighted")
                 train_aupr = average_precision_score(train_y_true.cpu().numpy(), train_y_pred.cpu().numpy()[:, 1],
                                                      average="weighted")
 
                 test_auc = roc_auc_score(test_y_true.cpu().numpy(), test_y_pred.cpu().numpy()[:, 1], average="weighted")
-                test_aupr = average_precision_score(test_y_true.cpu().numpy(), test_y_pred.cpu().numpy()[:, 1], average="weighted")
+                test_aupr = average_precision_score(test_y_true.cpu().numpy(), test_y_pred.cpu().numpy()[:, 1],
+                                                    average="weighted")
 
                 # print("Train - Loss: {}, AUC: {}".format(train_loss, train_auc))
                 # print("Valid - Loss: {}, AUC: {}".format(valid_loss, valid_auc))
@@ -320,9 +324,9 @@ class RETAINexplainer:
                     f.write('Test AUROC: {}\n'.format(test_auc))
                     f.write('Test AUPR: {}\n'.format(test_aupr))
 
-                if not os.path.exists("./ckpt/%s"%self.data):
-                    os.mkdir("./ckpt/%s"%self.data)
-                torch.save(self.model.state_dict(), './ckpt/%s/retain.pt'%self.data)
+                if not os.path.exists("./ckpt/%s" % self.data):
+                    os.mkdir("./ckpt/%s" % self.data)
+                torch.save(self.model.state_dict(), './ckpt/%s/retain.pt' % self.data)
 
             # plot
             if plot:
@@ -346,13 +350,14 @@ class RETAINexplainer:
 
     def attribute(self, x, y):
         score = np.zeros(x.shape)
-        x = x.permute(0,2,1) # shape:[batch, time, feature]
-        logit, alpha, beta = self.model(x, (torch.ones((len(x), )) * x.shape[1]).long())
+        x = x.permute(0, 2, 1)  # shape:[batch, time, feature]
+        logit, alpha, beta = self.model(x, (torch.ones((len(x),)) * x.shape[1]).long())
         w_emb = self.model.embedding[1].weight
         for i in range(x.shape[2]):
             for t in range(x.shape[1]):
-                imp = self.model.output(beta[:,t,:] * w_emb[:, i].expand_as(beta[:,t,:]))
-                score[:,i,t] = (alpha[:,t,0] * imp[torch.range(0,len(imp)-1).long(), y.long()] * x[:,t, i]).detach().cpu().numpy()
+                imp = self.model.output(beta[:, t, :] * w_emb[:, i].expand_as(beta[:, t, :]))
+                score[:, i, t] = (alpha[:, t, 0] * imp[torch.range(0, len(imp) - 1).long(), y.long()] * x[:, t,
+                                                                                                        i]).detach().cpu().numpy()
         return score
 
 
@@ -407,7 +412,7 @@ class GradientShapExplainer:
         x, y = x.to(self.device), y.to(self.device)
         if retrospective:
             score = self.explainer.attribute(x, target=y[:, -1].long(),
-                                                 n_samples=50, stdevs=0.0001, baselines=torch.cat([x * 0, x * 1]))
+                                             n_samples=50, stdevs=0.0001, baselines=torch.cat([x * 0, x * 1]))
             score = score.cpu().numpy()
         else:
             score = np.zeros(x.shape)
@@ -476,3 +481,4 @@ class LIMExplainer:
                         if 'f%d'%feat in terms:
                             score[sample_ind, feat, t] = imp_score
         return score
+

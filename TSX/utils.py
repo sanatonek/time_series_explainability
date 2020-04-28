@@ -10,17 +10,21 @@ import pickle as pkl
 from sklearn.model_selection import KFold
 from sklearn.metrics import classification_report
 import seaborn as sns
+
 sns.set()
 
-
-line_styles_map=['-','--','-.',':','-','--','-.',':','-','--','-.',':','-','--','-.',':']
-marker_styles_map=['o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h','o','v','^','*','+','p','8','h']
+line_styles_map = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--', '-.', ':']
+marker_styles_map = ['o', 'v', '^', '*', '+', 'p', '8', 'h', 'o', 'v', '^', '*', '+', 'p', '8', 'h', 'o', 'v', '^', '*',
+                     '+', 'p', '8', 'h']
 
 # Ignore sklearn warnings caused by ill-defined precision score (caused by single class prediction)
 import warnings
+
 warnings.filterwarnings("ignore")
 
-intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone', 'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus', 'nivdurations']
+intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone',
+                     'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus',
+                     'nivdurations']
 
 
 # def evaluate(labels, predicted_label, predicted_probability):
@@ -40,16 +44,17 @@ def evaluate(labels, predicted_label, predicted_probability):
     prediction_array = predicted_label.detach().cpu().numpy()
     l_idx = []
     for l in range(labels_array.shape[1]):
-        if len(np.unique(labels_array[:,l]))>=2:
+        if len(np.unique(labels_array[:, l])) >= 2:
             l_idx.append(l)
-    auc = roc_auc_score(labels_array[:,l_idx], np.array(predicted_probability[:,l_idx].detach().cpu()))
-    report = classification_report(labels_array, prediction_array,labels=list(range(labels_array.shape[1])),output_dict=True)
-    recall=0
-    precision=0
-    correct_label=0
+    auc = roc_auc_score(labels_array[:, l_idx], np.array(predicted_probability[:, l_idx].detach().cpu()))
+    report = classification_report(labels_array, prediction_array, labels=list(range(labels_array.shape[1])),
+                                   output_dict=True)
+    recall = 0
+    precision = 0
+    correct_label = 0
     recall = report['macro avg']['recall']
-    precision =report['macro avg']['precision']
-    correct_label = np.equal(np.argmax(labels_array,1), np.argmax(prediction_array,1)).sum()
+    precision = report['macro avg']['precision']
+    correct_label = np.equal(np.argmax(labels_array, 1), np.argmax(prediction_array, 1)).sum()
     return auc, recall, precision, correct_label
 
 
@@ -64,7 +69,7 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
     for i, (x, y) in enumerate(test_loader):
         x, y = torch.Tensor(x.float()).to(device), torch.Tensor(y.float()).to(device)
         out = model(x)
-        y = y.view(y.shape[0],)
+        y = y.view(y.shape[0], )
         prediction = (out > 0.5).view(len(y), ).float()
         auc, recall, precision, correct = evaluate(y, prediction, out)
         correct_label += correct
@@ -74,7 +79,7 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
         count = + 1
         loss = + criteria(out.view(len(y), ), y).item()
         total += len(x)
-    return recall_test, precision_test, auc_test/(i+1), correct_label, loss
+    return recall_test, precision_test, auc_test / (i + 1), correct_label, loss
 
 
 def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss()):
@@ -85,8 +90,8 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
     for i, (signals, labels) in enumerate(train_loader):
         optimizer.zero_grad()
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        labels = labels.view(labels.shape[0],)
-        labels = labels.view(labels.shape[0],)
+        labels = labels.view(labels.shape[0], )
+        labels = labels.view(labels.shape[0], )
         risks = model(signals)
         predicted_label = (risks > 0.5).view(len(labels), ).float()
         auc, recall, precision, correct = evaluate(labels, predicted_label, risks)
@@ -99,18 +104,19 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
         epoch_loss = + loss.item()
         loss.backward()
         optimizer.step()
-    return recall_train, precision_train, auc_train/(i+1), correct_label, epoch_loss, i+1
+    return recall_train, precision_train, auc_train / (i + 1), correct_label, epoch_loss, i + 1
 
 
-def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment,data='mimic'):
+def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='mimic'):
     train_loss_trend = []
     test_loss_trend = []
 
     for epoch in range(n_epochs + 1):
-        recall_train, precision_train, auc_train, correct_label_train, epoch_loss,n_batches = train(train_loader, model,
-                                                                                            device, optimizer)
+        recall_train, precision_train, auc_train, correct_label_train, epoch_loss, n_batches = train(train_loader,
+                                                                                                     model,
+                                                                                                     device, optimizer)
         recall_test, precision_test, auc_test, correct_label_test, test_loss = test(valid_loader, model,
-                                                                                      device)
+                                                                                    device)
         train_loss_trend.append(epoch_loss)
         test_loss_trend.append(test_loss)
         if epoch % 10 == 0:
@@ -122,22 +128,22 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
                   ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset))),
                   ' AUC: %.2f' % (auc_test))
 
-
     # Save model and results
-    if not os.path.exists(os.path.join("./ckpt/",data)):
+    if not os.path.exists(os.path.join("./ckpt/", data)):
         os.mkdir("./ckpt/")
         os.mkdir(os.path.join("./ckpt/", data))
-    if not os.path.exists(os.path.join("./plots/",data)):
+    if not os.path.exists(os.path.join("./plots/", data)):
         os.mkdir("./plots/")
         os.mkdir(os.path.join("./plots/", data))
-    torch.save(model.state_dict(), './ckpt/' + data + '/'+ str(experiment) + '.pt')
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
     plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
 
-def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation', num=5):
+def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',
+                   num=5):
     print('Training black-box model on ', data)
     train_loss_trend = []
     test_loss_trend = []
@@ -148,17 +154,17 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
     for epoch in range(n_epochs):
         model.train()
         recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
-        for i, (signals,labels) in enumerate(train_loader):
+        for i, (signals, labels) in enumerate(train_loader):
             # signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
             signals, labels = signals.to(device), labels.to(device)
-            if data=='simulation':
-                num=20
-                time_points = [int(tt) for tt in np.linspace(1,signals.shape[-1]-2, num=num)]
+            if data == 'simulation':
+                num = 20
+                time_points = [int(tt) for tt in np.linspace(1, signals.shape[-1] - 2, num=num)]
             else:
                 time_points = [int(tt) for tt in np.logspace(0, np.log10(signals.shape[2] - 1), num=num)]
             for t in time_points:
-                input_signal = signals[:,:,:t+1]
-                label = labels[:,t]
+                input_signal = signals[:, :, :t + 1]
+                label = labels[:, t]
 
                 optimizer.zero_grad()
                 predictions = model(input_signal)
@@ -184,19 +190,20 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
                 reconstruction_loss.backward()
                 optimizer.step()
 
-        test_num=num
-        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model,valid_loader,num=test_num)
+        test_num = num
+        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model, valid_loader,
+                                                                                             num=test_num)
 
-        train_loss_trend.append(epoch_loss/((i+1)*num))
+        train_loss_trend.append(epoch_loss / ((i + 1) * num))
         test_loss_trend.append(test_loss)
 
         if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
-            print('Training ===>loss: ', epoch_loss/((i+1)*num),
-                  ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset)*num)),
-                  ' AUC: %.2f' % (auc_train/((i+1)*num)))
+            print('Training ===>loss: ', epoch_loss / ((i + 1) * num),
+                  ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset) * num)),
+                  ' AUC: %.2f' % (auc_train / ((i + 1) * num)))
             print('Test ===>loss: ', test_loss,
-                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset)*test_num)),
+                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset) * test_num)),
                   ' AUC: %.2f' % (auc_test))
 
     test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model, valid_loader)
@@ -217,7 +224,7 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, de
     train_loss_trend = []
     test_loss_trend = []
 
-    #device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
     loss_criterion = torch.nn.MSELoss()
     print('loss function: MSE')
@@ -225,42 +232,40 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, de
         model.train()
         epoch_loss = 0
         num = 50
-        for i, (signals,labels) in enumerate(train_loader):
+        for i, (signals, labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-            for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-1, num=num)]:
+            for t in [int(tt) for tt in np.linspace(0, signals.shape[2] - 1, num=num)]:
                 optimizer.zero_grad()
-                predictions = model(signals[:, :, :t+1])
+                predictions = model(signals[:, :, :t + 1])
 
-
-
-                reconstruction_loss = loss_criterion(predictions, labels[:,t].to(device))
+                reconstruction_loss = loss_criterion(predictions, labels[:, t].to(device))
                 epoch_loss += reconstruction_loss.item()
                 reconstruction_loss.backward()
                 optimizer.step()
 
-        test_loss = test_model_rt_rg(model,valid_loader)
-        train_loss_trend.append(epoch_loss/(num*(i+1)))
+        test_loss = test_model_rt_rg(model, valid_loader)
+        train_loss_trend.append(epoch_loss / (num * (i + 1)))
         test_loss_trend.append(test_loss)
 
-        if epoch % 10 ==0:
+        if epoch % 10 == 0:
             print('\nEpoch %d' % (epoch))
-            print('Training ===>loss: ', epoch_loss/(num*(i+1)))
+            print('Training ===>loss: ', epoch_loss / (num * (i + 1)))
             print('Test ===>loss: ', test_loss)
 
-    test_loss = test_model_rt_rg(model,valid_loader)
+    test_loss = test_model_rt_rg(model, valid_loader)
     print('Test loss: ', test_loss)
 
     # Save model and results
-    if not os.path.exists(os.path.join("./ckpt/",data)):
-        os.mkdir(os.path.join("./ckpt/",data))
+    if not os.path.exists(os.path.join("./ckpt/", data)):
+        os.mkdir(os.path.join("./ckpt/", data))
     torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
-    plt.savefig(os.path.join('./plots',data,'train_loss.png'))
+    plt.savefig(os.path.join('./plots', data, 'train_loss.png'))
 
 
-def test_model_rt(model,test_loader,num=1):
+def test_model_rt(model, test_loader, num=1):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.to(device)
     model.eval()
@@ -268,24 +273,22 @@ def test_model_rt(model,test_loader,num=1):
     recall_test, precision_test, auc_test = 0, 0, 0
     count = 0
     test_loss = 0
-    for i, (signals,labels) in enumerate(test_loader):
+    for i, (signals, labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2,num=num)]:
+        for t in [int(tt) for tt in np.linspace(0, signals.shape[2] - 2, num=num)]:
             label_onehot = torch.FloatTensor(labels.shape[0], labels.shape[1]).to(device)
             pred_onehot = torch.FloatTensor(labels.shape[0], labels.shape[1]).to(device)
-            predictions = model(signals[:,:,:t+1])
+            predictions = model(signals[:, :, :t + 1])
             _, predicted_label = predictions.max(1)
             pred_onehot.zero_()
             pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
-                # labels_th = (labels[:,t]>0.5).float()
+            # labels_th = (labels[:,t]>0.5).float()
             label_onehot.zero_()
-            label_onehot.scatter_(1, labels[:,t].long().view(-1, 1), 1)
-                # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
+            label_onehot.scatter_(1, labels[:, t].long().view(-1, 1), 1)
+            # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
             auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, predictions)
 
-
-
-        #for t in [24]:
+            # for t in [24]:
             # prediction = model(signals[:,:,:t+1])
             #
             # # Multi-class classification
@@ -297,30 +300,30 @@ def test_model_rt(model,test_loader,num=1):
             # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))
             correct_label_test += correct
             auc_test += auc
-            recall_test +=  recall
-            precision_test +=  precision
-            count +=  1
+            recall_test += recall
+            precision_test += precision
+            count += 1
             loss_criterion = torch.nn.CrossEntropyLoss()
-            loss = loss_criterion(predictions, labels[:,t].long().to(device))
+            loss = loss_criterion(predictions, labels[:, t].long().to(device))
             test_loss += loss.item()
 
-    test_loss = test_loss/((i+1)*num)
-    return test_loss, recall_test, precision_test, auc_test/((i+1)*num), correct_label_test
+    test_loss = test_loss / ((i + 1) * num)
+    return test_loss, recall_test, precision_test, auc_test / ((i + 1) * num), correct_label_test
 
 
-def test_model_rt_rg(model,test_loader):
+def test_model_rt_rg(model, test_loader):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.eval()
     test_loss = 0
-    num=50
-    for i, (signals,labels) in enumerate(test_loader):
+    num = 50
+    for i, (signals, labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-1,num=num)]:
-            prediction = model(signals[:,:,:t+1])
-            loss = torch.nn.MSELoss()(prediction, labels[:,t].to(device))
+        for t in [int(tt) for tt in np.linspace(0, signals.shape[2] - 1, num=num)]:
+            prediction = model(signals[:, :, :t + 1])
+            loss = torch.nn.MSELoss()(prediction, labels[:, t].to(device))
             test_loss += loss.item()
 
-    test_loss = test_loss/(num*(i+1))
+    test_loss = test_loss / (num * (i + 1))
     return test_loss
 
 
@@ -341,7 +344,8 @@ def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, ex
             signals, _ = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
             mu, logvar, z = model.encode(signals)
             recon = model.decode(z)
-            loss = torch.nn.MSELoss()(recon, signals[:,:,-1].view(len(signals),-1)) - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            loss = torch.nn.MSELoss()(recon, signals[:, :, -1].view(len(signals), -1)) - 0.5 * torch.sum(
+                1 + logvar - mu.pow(2) - logvar.exp())
             epoch_loss = + loss.item()
             loss.backward()
             optimizer.step()
@@ -371,7 +375,8 @@ def test_reconstruction(model, valid_loader, device):
         signals, _ = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
         mu, logvar, z = model.encode(signals)
         recon = model.decode(z)
-        loss = torch.nn.MSELoss()(recon, signals[:,:,-1].view(len(signals),-1)) - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        loss = torch.nn.MSELoss()(recon, signals[:, :, -1].view(len(signals), -1)) - 0.5 * torch.sum(
+            1 + logvar - mu.pow(2) - logvar.exp())
         test_loss = + loss.item()
     return test_loss
 
@@ -380,13 +385,13 @@ def load_data(batch_size, path='./data/', **kwargs):
     p_data = PatientData(path)
 
     features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
-    p_data.train_data = p_data.train_data[:,features,:]
-    p_data.test_data = p_data.test_data[:,features,:]
+    p_data.train_data = p_data.train_data[:, features, :]
+    p_data.test_data = p_data.test_data[:, features, :]
     p_data.feature_size = len(features)
-    n_train = int(0.8*p_data.n_train)
+    n_train = int(0.8 * p_data.n_train)
     if 'cv' in kwargs.keys():
-        kf = KFold(n_splits=5,random_state=42)
-        #print(p_data.train_data[:,:,0].shape,kf.split(p_data.train_data))
+        kf = KFold(n_splits=5, random_state=42)
+        # print(p_data.train_data[:,:,0].shape,kf.split(p_data.train_data))
         train_idx, valid_idx = list(kf.split(p_data.train_data))[kwargs['cv']]
     else:
         train_idx = range(n_train)
@@ -401,27 +406,28 @@ def load_data(batch_size, path='./data/', **kwargs):
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
     test_loader = DataLoader(test_dataset, batch_size=p_data.n_test)
     print('Train set: ', np.count_nonzero(p_data.train_label[0:int(0.8 * p_data.n_train)]),
-          'patient who died out of %d total'%(int(0.8 * p_data.n_train)),
+          'patient who died out of %d total' % (int(0.8 * p_data.n_train)),
           '(Average missing in train: %.2f)' % (np.mean(p_data.train_missing[0:int(0.8 * p_data.n_train)])))
     print('Valid set: ', np.count_nonzero(p_data.train_label[int(0.8 * p_data.n_train):]),
-          'patient who died out of %d total'%(len(p_data.train_label[int(0.8 * p_data.n_train):])),
+          'patient who died out of %d total' % (len(p_data.train_label[int(0.8 * p_data.n_train):])),
           '(Average missing in validation: %.2f)' % (np.mean(p_data.train_missing[int(0.8 * p_data.n_train):])))
-    print('Test set: ', np.count_nonzero(p_data.test_label), 'patient who died  out of %d total'%(len(p_data.test_data)),
+    print('Test set: ', np.count_nonzero(p_data.test_label),
+          'patient who died  out of %d total' % (len(p_data.test_data)),
           '(Average missing in test: %.2f)' % (np.mean(p_data.test_missing)))
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
-    p_data = GHGData(path,transform=None) #data already normalized zero mean 1 std
-    #print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
-    features=kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1]) 
-    p_data.train_data = p_data.train_data[:,features,:]
-    p_data.test_data  = p_data.test_data[:,features,:]
+def load_ghg_data(batch_size, path='./data_generator/data', **kwargs):
+    p_data = GHGData(path, transform=None)  # data already normalized zero mean 1 std
+    # print('ghg label stats', np.mean(p_data.train_label),np.std(p_data.train_label))
+    features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
+    p_data.train_data = p_data.train_data[:, features, :]
+    p_data.test_data = p_data.test_data[:, features, :]
 
     n_train = int(0.8 * len(x_train))
     if 'cv' in kwargs.keys():
         kf = KFold(n_splits=5, random_state=42)
-        train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
+        train_idx, valid_idx = list(kf.split(x_train))[kwargs['cv']]
     else:
         train_idx = range(n_train)
         valid_idx = range(ntrain.len(x_train))
@@ -430,57 +436,57 @@ def load_ghg_data(batch_size, path='./data_generator/data',**kwargs):
                                         torch.Tensor(p_data.train_label[train_idx]))
     valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[train_idx, :, :]),
                                         torch.Tensor(p_data.train_label[train_idx]))
-    test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data[:,:,:]), torch.Tensor(p_data.test_label))
+    test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data[:, :, :]), torch.Tensor(p_data.test_label))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
     test_loader = DataLoader(test_dataset, batch_size=p_data.n_test)
-    #print('Train set: ', p_data.train_data.shape)
-    #print('Valid set: ', p_data.train_data.shape)
-    #print('Test set: ', p_data.test_data.shape)
+    # print('Train set: ', p_data.train_data.shape)
+    # print('Valid set: ', p_data.train_data.shape)
+    # print('Test set: ', p_data.test_data.shape)
     p_data.feature_size = len(features)
     return p_data, train_loader, valid_loader, test_loader
 
 
-def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type='state', percentage=1., **kwargs):
-    if data_type=='state':
-        with open('./data/simulated_data/state_dataset_importance_train.pkl', 'rb') as f:
+def load_simulated_data(batch_size=100, datapath='./data/simulated_data', data_type='state', percentage=1., **kwargs):
+    if data_type == 'state':
+        with open(os.path.join(datapath, 'state_dataset_importance_train.pkl'), 'rb') as f:
             importance_score_train = pkl.load(f)
-        with open('./data/simulated_data/state_dataset_importance_test.pkl', 'rb') as f:
+        with open(os.path.join(datapath, 'state_dataset_importance_test.pkl'), 'rb') as f:
             importance_score_train_test = pkl.load(f)
         file_name = 'state_dataset_'
     else:
         file_name = ''
-    with open(os.path.join(path, file_name+'x_train.pkl'), 'rb') as f:
+    with open(os.path.join(datapath, file_name + 'x_train.pkl'), 'rb') as f:
         x_train = pkl.load(f)
-    with open(os.path.join(path, file_name+'y_train.pkl'), 'rb') as f:
+    with open(os.path.join(datapath, file_name + 'y_train.pkl'), 'rb') as f:
         y_train = pkl.load(f)
-    with open(os.path.join(path, file_name+'x_test.pkl'), 'rb') as f:
+    with open(os.path.join(datapath, file_name + 'x_test.pkl'), 'rb') as f:
         x_test = pkl.load(f)
-    with open(os.path.join(path, file_name+'y_test.pkl'), 'rb') as f:
+    with open(os.path.join(datapath, file_name + 'y_test.pkl'), 'rb') as f:
         y_test = pkl.load(f)
 
     features = kwargs['features'] if 'features' in kwargs.keys() else list(range(x_test.shape[1]))
-    
-    total_sample_n = int(len(x_train)*percentage)
+
+    total_sample_n = int(len(x_train) * percentage)
     x_train = x_train[:total_sample_n]
     y_train = y_train[:total_sample_n]
     n_train = int(0.8 * len(x_train))
-    x_train = x_train[:,features,:]
-    x_test = x_test[:,features,:]
+    x_train = x_train[:, features, :]
+    x_test = x_test[:, features, :]
 
     n_train = int(0.8 * len(x_train))
     if 'cv' in kwargs.keys():
         kf = KFold(n_splits=5, random_state=42)
-        train_idx,valid_idx = list(kf.split(x_train))[kwargs['cv']]
+        train_idx, valid_idx = list(kf.split(x_train))[kwargs['cv']]
     else:
         train_idx = range(n_train)
-        valid_idx = range(n_train,len(x_train))
-    
+        valid_idx = range(n_train, len(x_train))
+
     train_dataset = utils.TensorDataset(torch.Tensor(x_train[train_idx, :, :]),
                                         torch.Tensor(y_train[train_idx, :]))
     valid_dataset = utils.TensorDataset(torch.Tensor(x_train[valid_idx, :, :]),
                                         torch.Tensor(y_train[valid_idx, :]))
-    test_dataset = utils.TensorDataset(torch.Tensor(x_test[:,:,:]), torch.Tensor(y_test))
+    test_dataset = utils.TensorDataset(torch.Tensor(x_test[:, :, :]), torch.Tensor(y_test))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=len(x_train) - int(0.8 * n_train))
     test_loader = DataLoader(test_dataset, batch_size=len(x_test))
@@ -488,22 +494,22 @@ def load_simulated_data(batch_size=100, path='./data/simulated_data', data_type=
 
 
 def logistic(x):
-    return 1./(1+np.exp(-1*x))
+    return 1. / (1 + np.exp(-1 * x))
 
 
 def top_risk_change(exp):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     span = []
     testset = list(exp.test_loader.dataset)
-    for i,(signal, label) in enumerate(testset):
+    for i, (signal, label) in enumerate(testset):
         exp.risk_predictor.load_state_dict(torch.load('./ckpt/mimic/risk_predictor.pt'))
         exp.risk_predictor.to(device)
         exp.risk_predictor.eval()
         risk = []
-        for t in range(1,48):
+        for t in range(1, 48):
             risk.append(exp.risk_predictor(signal[:, 0:t].view(1, signal.shape[0], t).to(device)).item())
         span.append((i, max(risk) - min(risk)))
-    span.sort(key=lambda pair:pair[1], reverse=True)
+    span.sort(key=lambda pair: pair[1], reverse=True)
     print([x[0] for x in span[0:300]])
 
 
@@ -522,7 +528,7 @@ def test_cond(mean, covariance, sig_ind, x_ind):
 def shade_state(gt_importance_subj, t, ax, data='simulation'):
     cmap = plt.get_cmap("tab10")
     # Shade the state on simulation data plots
-    if gt_importance_subj.shape[0]>=3:
+    if gt_importance_subj.shape[0] >= 3:
         gt_importance_subj = gt_importance_subj.transpose(1, 0)
     if not data == 'simulation_spike':
         prev_color = 'g' if np.argmax(gt_importance_subj[:, 1]) < np.argmax(gt_importance_subj[:, 2]) else 'y'
@@ -539,11 +545,12 @@ def shade_state(gt_importance_subj, t, ax, data='simulation'):
                 ax.axvspan(ttt - 1, ttt, facecolor=prev_color, alpha=0.3)
 
 
-def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, signals_to_analyze, color_map, fmap, data, gt_importance_subj, save_path, patient_data):
+def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, signals_to_analyze, color_map, fmap,
+                    data, gt_importance_subj, save_path, patient_data):
     important_signals = []
     markers = ['*', 'D', 'X', 'o', '8', 'v', '+']
     f, axs = plt.subplots(6)
-    t = np.arange(1, a[0].shape[-1]+1)
+    t = np.arange(1, a[0].shape[-1] + 1)
 
     # a[0] = 2./(1.+np.exp(-3*a[0])) - 1.
     if hasattr(patient_data, 'test_intervention'):
@@ -560,11 +567,11 @@ def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, s
                 for count in range(int(len(switch_point) / 2)):
                     if count == 0:
                         axs[0].axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
-                                    facecolor=f_color[int_ind % len(f_color)], alpha=0.2,
-                                    label='%s' % (intervention_list[int_ind]))
+                                       facecolor=f_color[int_ind % len(f_color)], alpha=0.2,
+                                       label='%s' % (intervention_list[int_ind]))
                     else:
                         axs[0].axvspan(xmin=switch_point[count * 2], xmax=switch_point[2 * count + 1],
-                                    facecolor=f_color[int_ind % len(f_color)], alpha=0.2)
+                                       facecolor=f_color[int_ind % len(f_color)], alpha=0.2)
 
     if not gt_importance_subj is None:
         shade_state(gt_importance_subj, t, axs[0], data)
@@ -582,11 +589,14 @@ def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, s
             if ref_ind not in important_signals:
                 important_signals.append(ref_ind)
             c = color_map[ref_ind]
-            if np.sum(a_std[ax_ind][ind])>0:
-                ax.errorbar(t, a[ax_ind][ind, :], yerr=a_std[ax_ind][ind, :], marker=markers[list(important_signals).index(ref_ind)%len(markers)],
-                            linewidth=3, elinewidth=1, markersize=9, markeredgecolor='k', color=c, label='%s' % (fmap[ref_ind]))
+            if np.sum(a_std[ax_ind][ind]) > 0:
+                ax.errorbar(t, a[ax_ind][ind, :], yerr=a_std[ax_ind][ind, :],
+                            marker=markers[list(important_signals).index(ref_ind) % len(markers)],
+                            linewidth=3, elinewidth=1, markersize=9, markeredgecolor='k', color=c,
+                            label='%s' % (fmap[ref_ind]))
             else:
-                ax.errorbar(t, a[ax_ind][ind, :], yerr=a_std[ax_ind][ind, :], linewidth=3, elinewidth=1, color=c, label='%s'%(fmap[ref_ind]))
+                ax.errorbar(t, a[ax_ind][ind, :], yerr=a_std[ax_ind][ind, :], linewidth=3, elinewidth=1, color=c,
+                            label='%s' % (fmap[ref_ind]))
     important_signals = np.unique(important_signals)
     max_plot = (torch.max(torch.abs(signals[important_signals, :]))).item()
     for i, ref_ind in enumerate(important_signals):
@@ -615,19 +625,20 @@ def plot_importance(subject, signals, label, a, a_std, a_max, n_feats_to_plot, s
     fig_legend = plt.figure(figsize=(13, 1.2))
     handles, labels = axs[0].get_legend_handles_labels()
     plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-    fig_legend.savefig(os.path.join(save_path, 'legend_%d.pdf' %subject), dpi=300, bbox_inches='tight')
+    fig_legend.savefig(os.path.join(save_path, 'legend_%d.pdf' % subject), dpi=300, bbox_inches='tight')
 
     for imp_plot_ind in range(4):
         heatmap_fig = plt.figure(figsize=(15, 1) if data == 'simulation' else (16, 9))
         plt.yticks(rotation=0)
         imp_plot = sns.heatmap(a[imp_plot_ind], yticklabels=fmap,
                                square=True if data == 'mimic' else False)  # , vmin=0, vmax=1)
-        heatmap_fig.savefig(os.path.join(save_path, 'heatmap_%s_%s.pdf'%(str(subject), ['FIT', 'AFO', 'FO', 'Sens'][imp_plot_ind])))
+        heatmap_fig.savefig(
+            os.path.join(save_path, 'heatmap_%s_%s.pdf' % (str(subject), ['FIT', 'AFO', 'FO', 'Sens'][imp_plot_ind])))
     if data == 'simulation':
         heatmap_gt = plt.figure(figsize=(20, 1))
         plt.yticks(rotation=0)
         imp_plot = sns.heatmap(gt_importance_subj, yticklabels=fmap)
-        heatmap_gt.savefig(os.path.join(save_path,'heatmap_%s_ground_truth.pdf'%str(subject)))
+        heatmap_gt.savefig(os.path.join(save_path, 'heatmap_%s_ground_truth.pdf' % str(subject)))
 
     return important_signals
 
@@ -651,7 +662,8 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3,data='ghg', tvec=None):
+def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importance, n_important_features=3, data='ghg',
+                        tvec=None):
     mse_vec = []
     mse_vec_occ = []
     mse_vec_su = []
@@ -702,25 +714,44 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
             if not self.generator_type == 'carry_forward_generator':
                 if 'joint' in self.generator_type:
                     self.generator.load_state_dict(
-                            torch.load(os.path.join(self.ckpt_path, '%s.pt' % self.generator_type)))
+                        torch.load(os.path.join(self.ckpt_path, '%s.pt' % self.generator_type)))
                 else:
                     if self.historical:
-                        self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_%s.pt' % (sig_ind, self.generator_type))))
+                        self.generator.load_state_dict(
+                            torch.load(os.path.join(self.ckpt_path, '%d_%s.pt' % (sig_ind, self.generator_type))))
                     else:
-                        self.generator.load_state_dict(torch.load(os.path.join(self.ckpt_path, '%d_%s_nohist.pt' % (sig_ind, self.generator_type))))
+                        self.generator.load_state_dict(torch.load(
+                            os.path.join(self.ckpt_path, '%d_%s_nohist.pt' % (sig_ind, self.generator_type))))
 
-            label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind,n_samples=10,mode='generator',tvec=tvec)
-            _, importance_occ[i, :], mean_predicted_risk_occ[i, :], std_predicted_risk_occ[i,:] = self._get_feature_importance(signals, sig_ind=sig_ind,n_samples=10,mode="feature_occlusion",tvec=tvec)
-            _, importance_su[i, :], mean_predicted_risk_su[i, :], std_predicted_risk_su[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind,n_samples=10,mode='augmented_feature_occlusion', tvec=tvec)
-            _, importance_comb[i, :], mean_predicted_risk_comb[i,:], std_predicted_risk_comb[i,:] = self._get_feature_importance(signals,sig_ind=sig_ind, n_samples=10, mode='combined',learned_risk=self.learned_risk,tvec=tvec)
+            label, importance[i, :], mean_predicted_risk[i, :], std_predicted_risk[i, :] = self._get_feature_importance(
+                signals, sig_ind=sig_ind, n_samples=10, mode='generator', tvec=tvec)
+            _, importance_occ[i, :], mean_predicted_risk_occ[i, :], std_predicted_risk_occ[i,
+                                                                    :] = self._get_feature_importance(signals,
+                                                                                                      sig_ind=sig_ind,
+                                                                                                      n_samples=10,
+                                                                                                      mode="feature_occlusion",
+                                                                                                      tvec=tvec)
+            _, importance_su[i, :], mean_predicted_risk_su[i, :], std_predicted_risk_su[i,
+                                                                  :] = self._get_feature_importance(signals,
+                                                                                                    sig_ind=sig_ind,
+                                                                                                    n_samples=10,
+                                                                                                    mode='augmented_feature_occlusion',
+                                                                                                    tvec=tvec)
+            _, importance_comb[i, :], mean_predicted_risk_comb[i, :], std_predicted_risk_comb[i,
+                                                                      :] = self._get_feature_importance(signals,
+                                                                                                        sig_ind=sig_ind,
+                                                                                                        n_samples=10,
+                                                                                                        mode='combined',
+                                                                                                        learned_risk=self.learned_risk,
+                                                                                                        tvec=tvec)
             # print('importance:', importance[i,:])
             max_imp_total.append((i, max(mean_predicted_risk[i, :])))
             max_imp_total_occ.append((i, max(mean_predicted_risk_occ[i, :])))
             max_imp_total_su.append((i, max(mean_predicted_risk_su[i, :])))
             max_imp_total_sens.append((i, max(sensitivity_analysis_importance[sub_ind, i, :])))
             # print(label)
-        label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(np.array(label),[-1,1]))
-        label_scaled = np.reshape(label_scaled,[1,-1])
+        label_scaled = self.patient_data.scaler_y.inverse_transform(np.reshape(np.array(label), [-1, 1]))
+        label_scaled = np.reshape(label_scaled, [1, -1])
         label_scaled = label
         max_imp = np.argmax(importance, axis=0)
         for im in max_imp:
@@ -745,11 +776,14 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
         top_3_vec = []
         for ind, sig in max_imp_total[0:n_feats_to_plot]:
             if ind == 0:
-                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat(
+                    (signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
             elif ind == signals.shape[0]:
                 signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0], :]), 0)
             else:
-                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat((
+                                           signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),
+                                           signals[ind + 1:, :]), 0)
 
         risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
         risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
@@ -759,11 +793,15 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
         top_3_vec_occ = []
         for ind, sig in max_imp_total_occ[0:n_feats_to_plot]:
             if ind == 0:
-                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat(
+                    (signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
             elif ind == signals.shape[0]:
-                signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0].view(1, signals.shape[1]), :]), 0)
+                signal_removed = torch.cat(
+                    (signals[:ind, :], signals[max_imp_total[-1][0].view(1, signals.shape[1]), :]), 0)
             else:
-                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat((
+                                           signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),
+                                           signals[ind + 1:, :]), 0)
 
         risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
         risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
@@ -773,11 +811,15 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
         top_3_vec_su = []
         for ind, sig in max_imp_total_su[0:n_feats_to_plot]:
             if ind == 0:
-                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat(
+                    (signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
             elif ind == signals.shape[0]:
-                signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1])), 0)
+                signal_removed = torch.cat(
+                    (signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1])), 0)
             else:
-                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat((
+                                           signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),
+                                           signals[ind + 1:, :]), 0)
 
         risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
         risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
@@ -787,18 +829,22 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
         top_3_vec_sens = []
         for ind, sig in max_imp_total_sens[0:n_feats_to_plot]:
             if ind == 0:
-                signal_removed = torch.cat((signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat(
+                    (signals[max_imp_total[-1][0], :].view(1, signals.shape[1]), signals[ind + 1:, :]), 0)
             elif ind == signals.shape[0]:
-                signal_removed = torch.cat((signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1])), 0)
+                signal_removed = torch.cat(
+                    (signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1])), 0)
             else:
-                signal_removed = torch.cat((signals[:ind, :],signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),signals[ind + 1:, :]), 0)
+                signal_removed = torch.cat((
+                                           signals[:ind, :], signals[max_imp_total[-1][0], :].view(1, signals.shape[1]),
+                                           signals[ind + 1:, :]), 0)
 
         risk = self.risk_predictor(signals.view(1, signals.shape[0], signals.shape[1])).item()
         risk_removed = self.risk_predictor(signal_removed.view(1, signals.shape[0], signals.shape[1])).item()
         top_3_vec_sens.append(risk - risk_removed)
         mse_vec_sens.append(top_3_vec_sens)
 
-        fig, ax_list = plt.subplots(nrows=3,ncols=len(tvec))
+        fig, ax_list = plt.subplots(nrows=3, ncols=len(tvec))
         fig, ax_list = plt.subplots(1, len(tvec), figsize=(8, 2))
         map_img = mpimg.imread('./results/ghc_figure.png')
         max_to_plot = 2
@@ -807,12 +853,13 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
         for ind, sig in max_imp_total[0:max_to_plot]:
             for t_num, t_val in enumerate(tvec):
                 ax_list[t_num].imshow(map_img, extent=[0, width, 0, height])
-                ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]],y=[scatter_map_ghg[str(ind + 1)][1]], c=["w"], s=18, marker='s',edgecolor="r", linewidth=2)
+                ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]], y=[scatter_map_ghg[str(ind + 1)][1]],
+                                       c=["w"], s=18, marker='s', edgecolor="r", linewidth=2)
         if k_count == 0:
             ax_list[t_num].set_title("day %d" % (int(t_val / 4)))
         k_count += 1
         plt.tight_layout(pad=5.)
-        plt.savefig('./ghg/feature_imp_ghg_%d.pdf' % (USER, subject), dpi=300,orientation='landscape')
+        plt.savefig('./ghg/feature_imp_ghg_%d.pdf' % (USER, subject), dpi=300, orientation='landscape')
 
         fig, ax_list = plt.subplots(1, len(tvec), figsize=(8, 2))
         k_count = 0
@@ -820,20 +867,22 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
             for t_num, t_val in enumerate(tvec):
                 ax_list[t_num].imshow(map_img, extent=[0, width, 0, height])
                 ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]],
-                        y=[scatter_map_ghg[str(ind + 1)][1]], c=["w"], s=18, marker='s',edgecolor="r", linewidth=2)
+                                       y=[scatter_map_ghg[str(ind + 1)][1]], c=["w"], s=18, marker='s', edgecolor="r",
+                                       linewidth=2)
         if k_count == 0:
             ax_list[t_num].set_title("day %d" % (t_val / 4))
         k_count += 1
 
         plt.tight_layout(pad=5.)
-        plt.savefig('./ghg/feature_occ_ghg_%d.pdf' % (USER, subject), dpi=300,orientation='landscape')
+        plt.savefig('./ghg/feature_occ_ghg_%d.pdf' % (USER, subject), dpi=300, orientation='landscape')
 
         fig, ax_list = plt.subplots(1, len(tvec), figsize=(8, 2))
         k_count = 0
         for ind, sig in max_imp_total_comb[0:max_to_plot]:
             for t_num, t_val in enumerate(tvec):
                 ax_list[t_num].imshow(map_img, extent=[0, width, 0, height])
-                ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]],y=[scatter_map_ghg[str(ind + 1)][1]], c=["w"], s=18, marker='s',edgecolor="r", linewidth=2)
+                ax_list[t_num].scatter(x=[scatter_map_ghg[str(ind + 1)][0]], y=[scatter_map_ghg[str(ind + 1)][1]],
+                                       c=["w"], s=18, marker='s', edgecolor="r", linewidth=2)
 
         if k_count == 0:
             ax_list[t_num].set_title("day %d" % (t_val / 4))
@@ -841,13 +890,50 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
         k_count += 1
 
         plt.tight_layout(pad=5.)
-        plt.savefig('./ghg/feature_imp_comb_ghg_%d.pdf' % (USER, subject), dpi=300,orientation='landscape')
+        plt.savefig('./ghg/feature_imp_comb_ghg_%d.pdf' % (USER, subject), dpi=300, orientation='landscape')
 
         with open('./results/ghg_mse.pkl', 'wb') as f:
             pkl.dump({'FFC': mse_vec, 'FO': mse_vec_occ, 'Su': mse_vec_su, 'Sens': mse_vec_sens}, f)
         print(np.shape(np.array(mse_vec)))
-        print('FFC: 1:', np.mean(abs(np.array(mse_vec)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec)[:, 2])))
-        print('FO: 1:', np.mean(abs(np.array(mse_vec_occ)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec_occ)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec_occ)[:, 2])))
-        print('AFO: 1:', np.mean(abs(np.array(mse_vec_su)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec_su)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec_su)[:, 2])))
-        print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:, 0])), '2nd:',np.mean(abs(np.array(mse_vec_sens)[:, 1])), '3rd:',np.mean(abs(np.array(mse_vec_sens)[:, 2])))
+        print('FFC: 1:', np.mean(abs(np.array(mse_vec)[:, 0])), '2nd:', np.mean(abs(np.array(mse_vec)[:, 1])), '3rd:',
+              np.mean(abs(np.array(mse_vec)[:, 2])))
+        print('FO: 1:', np.mean(abs(np.array(mse_vec_occ)[:, 0])), '2nd:', np.mean(abs(np.array(mse_vec_occ)[:, 1])),
+              '3rd:', np.mean(abs(np.array(mse_vec_occ)[:, 2])))
+        print('AFO: 1:', np.mean(abs(np.array(mse_vec_su)[:, 0])), '2nd:', np.mean(abs(np.array(mse_vec_su)[:, 1])),
+              '3rd:', np.mean(abs(np.array(mse_vec_su)[:, 2])))
+        print('Sens: 1:', np.mean(abs(np.array(mse_vec_sens)[:, 0])), '2nd:',
+              np.mean(abs(np.array(mse_vec_sens)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:, 2])))
 
+
+def create_rank(scores):
+    """
+    Compute rank of each feature based on weight.
+
+    """
+    scores = abs(scores)
+    n, d = scores.shape
+    ranks = []
+    for i, score in enumerate(scores):
+        # Random permutation to avoid bias due to equal weights.
+        idx = np.random.permutation(d)
+        permutated_weights = score[idx]
+        permutated_rank = (-permutated_weights).argsort().argsort() + 1
+        rank = permutated_rank[np.argsort(idx)]
+
+        ranks.append(rank)
+
+    return np.array(ranks)
+
+
+def compute_median_rank(scores, k, datatype_val=None):
+    ranks = create_rank(scores)
+    if datatype_val is None:
+        median_ranks = np.median(ranks[:, :k], axis=1)
+    else:
+        datatype_val = datatype_val[:len(scores)]
+        median_ranks1 = np.median(ranks[datatype_val == 'orange_skin', :][:, np.array([0, 1, 2, 3, 9])],
+                                  axis=1)
+        median_ranks2 = np.median(ranks[datatype_val == 'nonlinear_additive', :][:, np.array([4, 5, 6, 7, 9])],
+                                  axis=1)
+        median_ranks = np.concatenate((median_ranks1, median_ranks2), 0)
+    return median_ranks

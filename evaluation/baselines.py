@@ -8,12 +8,14 @@ import seaborn as sns
 import pickle as pkl
 import time
 
-from TSX.utils import load_simulated_data, train_model_rt, shade_state
+from TSX.utils import load_simulated_data, train_model_rt, shade_state, compute_median_rank
 from TSX.models import StateClassifier, RETAIN
 from TSX.generator import JointFeatureGenerator
 from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
 from sklearn import metrics
+
+ks = {'simulation_spike': 1, 'simulation': 1, 'simulation_l2x': 4}
 
 # from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
 
@@ -31,6 +33,7 @@ if __name__=='__main__':
     elif args.data == 'simulation_l2x':
         feature_size = 10
         data_path = './data/simulated_data_l2x'
+
     output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s'%args.data
     if not os.path.exists(output_path):
         os.mkdir(output_path)
@@ -39,7 +42,8 @@ if __name__=='__main__':
         os.mkdir(plot_path)
 
     # Load data
-    _, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, path=data_path, percentage=0.8)
+    _, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, datapath=data_path,
+                                                                     percentage=0.8)
 
     # Prepare model to explain
     if args.explainer == 'retain':
@@ -105,7 +109,7 @@ if __name__=='__main__':
 
 
     importance_scores = []
-    n_samples=50
+    n_samples=1
     for x,y in test_loader:
         model.train()
         model.to(device)
@@ -147,8 +151,8 @@ if __name__=='__main__':
         # explainer_score = score.flatten()
         # gt_score = gt_importance_test[:n_samples].flatten()
         #
-        # print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(gt_score,explainer_score))
-        # break
+        # print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(
+        # gt_score,explainer_score)) break
 
     importance_scores = np.concatenate(importance_scores, 0)
     with open(os.path.join(output_path, '%s_test_importance_scores.pkl'%args.explainer), 'wb') as f:
@@ -157,5 +161,10 @@ if __name__=='__main__':
     explainer_score = importance_scores.flatten()
     gt_score = gt_importance_test.flatten()
 
-    print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(gt_score,explainer_score))
+    auc_score = metrics.roc_auc_score(gt_score,explainer_score)
+    aupr_score = metrics.average_precision_score(gt_score,explainer_score)
+    # median_rank= compute_median_rank(explainer_score, ks[args.data])
+    # tn, fp, fn, tp = metrics.confusion_matrix(gt_score, explainer_score).ravel()
+    # fdr = fp /(fp + tp)
+    print('auc:', auc_score, ' aupr:', aupr_score)
     # break
