@@ -2,19 +2,20 @@ import numpy as np
 import torch
 import os
 import sys
+import re
 
 from TSX.generator import JointFeatureGenerator, train_joint_feature_generator
 from TSX.utils import load_simulated_data, AverageMeter
 
 from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm import tnrange, tqdm_notebook
-from scipy.special import softmax
-
-
 import matplotlib.pyplot as plt
 
 from TSX.generator import train_joint_feature_generator
 from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
+import shap
+import lime
+import lime.lime_tabular
 
 
 class FITExplainer:
@@ -354,51 +355,56 @@ class RETAINexplainer:
                 score[:,i,t] = (alpha[:,t,0] * imp[torch.range(0,len(imp)-1).long(), y.long()] * x[:,t, i]).detach().cpu().numpy()
         return score
 
+
 class DeepLiftExplainer:
     def __init__(self, model):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.base_model = model.to(self.device)
-        self.explainer = DeepLift(self.model)
+        self.explainer = DeepLift(self.base_model)
 
     def attribute(self, x, y, retrospective=False):
-        self.model.zero_grad()
+        self.base_model.zero_grad()
         if retrospective:
             score = self.explainer.attribute(x, target=y[:, -1].long(), baselines=(x * 0))
             score = score.detach().cpu().numpy()
         else:
             score = np.zeros(x.shape)
             for t in range(1,x.shape[-1]):
-                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t+1].long(), baselines=(x[:,:,:t+1] * 0))
-                score[:, :, t] = imp.detach().cpu().numpy()
+                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t].long(), baselines=(x[:,:,:t+1] * 0))
+                score[:, :, t] = imp.detach().cpu().numpy()[:,:,-1]
         return score
 
 
 class IGExplainer:
     def __init__(self, model):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cpu'#'cuda' if torch.cuda.is_available() else 'cpu'
         self.base_model = model.to(self.device)
-        self.explainer = IntegratedGradients(model)
+        self.base_model.device=self.device
+        self.explainer = IntegratedGradients(self.base_model)
 
     def attribute(self, x, y, retrospective=False):
-        self.model.zero_grad()
+        x, y = x.to(self.device), y.to(self.device)
+        self.base_model.zero_grad()
         if retrospective:
             score = self.explainer.attribute(x, target=y[:, -1].long(), baselines=(x * 0))
             score = score.detach().cpu().numpy()
         else:
             score = np.zeros(x.shape)
             for t in range(1,x.shape[-1]):
-                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t+1].long(), baselines=(x[:,:,:t+1] * 0))
-                score[:, :, t] = imp.detach().cpu().numpy()
+                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t].long(), baselines=torch.zeros(x[:,:,:t+1].shape).to(self.device))
+                score[:, :, t] = imp.detach().cpu().numpy()[:,:,-1]
         return score
 
 
 class GradientShapExplainer:
     def __init__(self, model):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cpu'#'cuda' if torch.cuda.is_available() else 'cpu'
         self.base_model = model.to(self.device)
-        self.explainer = GradientShap(model)
+        self.base_model.device=self.device
+        self.explainer = GradientShap(self.base_model)
 
     def attribute(self, x, y, retrospective=False):
+        x, y = x.to(self.device), y.to(self.device)
         if retrospective:
             score = self.explainer.attribute(x, target=y[:, -1].long(),
                                                  n_samples=50, stdevs=0.0001, baselines=torch.cat([x * 0, x * 1]))
@@ -406,8 +412,67 @@ class GradientShapExplainer:
         else:
             score = np.zeros(x.shape)
             for t in range(1, x.shape[-1]):
-                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t+1].long(),
+                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t].long(),
                                              n_samples=50, stdevs=0.0001, baselines=torch.cat([x[:,:,:t+1] * 0, x[:,:,:t+1] * 1]))
-                score[:, :, t] = imp.cpu().numpy()
+                score[:, :, t] = imp.cpu().numpy()[:,:,-1]
         return score
 
+
+class SHAPExplainer:
+    def __init__(self, model, train_loader):
+        self.device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model
+        self.base_model.device=self.device
+        trainset = list(train_loader.dataset)
+        x_train = torch.stack([x[0] for x in trainset])
+        background = x_train[np.random.choice(np.arange(len(x_train)), 100, replace=False)]
+        self.explainer = shap.DeepExplainer(self.base_model, background.to(self.device))
+
+    def attribute(self, x, y, retrospective=False):
+        x.to(self.device)
+        if retrospective:
+            score = self.explainere.shap_values(x)
+        else:
+            score = np.zeros(x.shape)
+            for t in range(1,x.shape[-1]):
+                imp = self.explainer.shap_values(x[:,:,:t+1].reshape((len(x), -1)))
+                score[:, :, t] = imp.detach().cpu().numpy()[:,:,-1]
+        return score
+
+
+class LIMExplainer:
+    def __init__(self, model, train_loader):
+        self.device = 'cpu' #if torch.cuda.is_available() else 'cpu'
+        self.base_model = model
+        self.base_model.device = self.device
+        trainset = list(train_loader.dataset)
+        x_train = torch.stack([x[0] for x in trainset]).to(self.device)
+        x_train = x_train[torch.arange(len(x_train)), :, torch.randint(10,x_train.shape[-1], (len(x_train),))]
+        self.explainer = lime.lime_tabular.LimeTabularExplainer(x_train.cpu().numpy(), feature_names = ['f%d'%c for c in range(x_train.shape[1])],
+                                                                discretize_continuous=True)
+
+    def _predictor_wrapper(self, sample):
+        """
+        In order to use the lime explainer library we need to go back and forth between numpy library (compatible with Lime)
+        and torch (Compatible with the predictor model). This wrapper helps with this
+        :param sample: input sample for the predictor (type: numpy array)
+        :return: one-hot model output (type: numpy array)
+        """
+        torch_in = torch.Tensor(sample).reshape(len(sample),-1,1)
+        torch_in.to(self.device)
+        out = self.base_model(torch_in)
+        return out.detach().cpu().numpy()
+
+    def attribute(self, x, y, retrospective=False):
+        x = x.cpu().numpy()
+        score = np.zeros(x.shape)
+        for sample_ind, sample in enumerate(x):
+            for t in range(1, x.shape[-1]):
+                imp = self.explainer.explain_instance(sample[:, t], self._predictor_wrapper, top_labels=x.shape[1])
+                for ind, st in enumerate(imp.as_list()):
+                    imp_score = st[1]
+                    terms = re.split('< | > | <= | >=', st[0])
+                    for feat in range(x.shape[1]):
+                        if 'f%d'%feat in terms:
+                            score[sample_ind, feat, t] = imp_score
+        return score

@@ -12,7 +12,7 @@ from TSX.utils import load_simulated_data, train_model_rt, shade_state
 from TSX.models import StateClassifier, RETAIN
 from TSX.generator import JointFeatureGenerator
 from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
-    DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer
+    DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
 from sklearn import metrics
 
 # from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
@@ -84,8 +84,8 @@ if __name__=='__main__':
 
         elif args.explainer == 'gradient_shap':
             explainer = GradientShapExplainer(model)
-        elif args.explainer == 'FFC':
 
+        elif args.explainer == 'FFC':
             generator = JointFeatureGenerator(feature_size, hidden_size=feature_size*3, data=args.data)
             if args.train:
                 explainer = FFCExplainer(model)
@@ -93,6 +93,13 @@ if __name__=='__main__':
             else:
                 generator.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'joint_generator'))))
                 explainer = FFCExplainer(model, generator)
+
+        elif args.explainer == 'shap':
+            explainer = SHAPExplainer(model, train_loader)
+
+        elif args.explainer == 'lime':
+            explainer = LIMExplainer(model, train_loader)
+
         else:
             raise ValueError('%s explainer not defined!'%args.explainer)
 
@@ -107,7 +114,7 @@ if __name__=='__main__':
         with open(os.path.join(data_path, 'state_dataset_importance_test.pkl'), 'rb') as f:
             gt_importance_test = pkl.load(f)
 
-        score = explainer.attribute(x, y[:, -1].long())
+        score = explainer.attribute(x, y)
         #score = explainer.attribute(x, y[:, -1].long())
         importance_scores.append(score)
 

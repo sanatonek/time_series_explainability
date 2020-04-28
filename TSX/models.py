@@ -194,6 +194,8 @@ class StateClassifier(nn.Module):
 
     def forward(self, input, past_state=None):
         input = input.permute(2, 0, 1).to(self.device)
+        self.rnn.to(self.device)
+        self.regressor.to(self.device)
         if not past_state:
             #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
             past_state = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)
