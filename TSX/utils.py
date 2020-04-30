@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import precision_score, roc_auc_score
 from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
+import matplotlib
 import pickle as pkl
 from sklearn.model_selection import KFold
 from sklearn.metrics import classification_report
@@ -524,12 +525,21 @@ def test_cond(mean, covariance, sig_ind, x_ind):
     covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
     return mean_cond, covariance_cond
 
+def shade_state_state_data(state_subj, t, ax, data='simulation'):
+    cmap = plt.get_cmap("tab10")
+    # Shade the state on simulation data plots
+    for ttt in range(1, len(t)):
+        if state_subj[ttt] == 0:
+            ax.axvspan(ttt - 1, ttt, facecolor='g', alpha=0.3)
+        elif state_subj[ttt] == 1:
+            ax.axvspan(ttt - 1, ttt, facecolor='y', alpha=0.3)
 
 def shade_state(gt_importance_subj, t, ax, data='simulation'):
     cmap = plt.get_cmap("tab10")
     # Shade the state on simulation data plots
     if gt_importance_subj.shape[0] >= 3:
         gt_importance_subj = gt_importance_subj.transpose(1, 0)
+
     if not data == 'simulation_spike':
         prev_color = 'g' if np.argmax(gt_importance_subj[:, 1]) < np.argmax(gt_importance_subj[:, 2]) else 'y'
         for ttt in range(1, len(t)):
@@ -905,35 +915,27 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
               np.mean(abs(np.array(mse_vec_sens)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:, 2])))
 
 
-def create_rank(scores):
-    """
-    Compute rank of each feature based on weight.
-
-    """
-    scores = abs(scores)
-    n, d = scores.shape
-    ranks = []
-    for i, score in enumerate(scores):
-        # Random permutation to avoid bias due to equal weights.
-        idx = np.random.permutation(d)
-        permutated_weights = score[idx]
-        permutated_rank = (-permutated_weights).argsort().argsort() + 1
-        rank = permutated_rank[np.argsort(idx)]
-
-        ranks.append(rank)
-
-    return np.array(ranks)
+def compute_median_rank(ranked_feats, ground_truth):
+    #n x d x t - size of both tensors
+    median_ranks = np.empty((ranked_feats.shape[0],ranked_feats.shape[2]))
+    median_ranks[:] = np.NaN
+    for n in range(ranked_feats.shape[0]):
+        curr_sample = ranked_feats[n]
+        for t in range(ranked_feats.shape[2]):
+            idx = np.where(ground_truth[n,:,t])[0]
+            if len(idx) >0 :
+                median_ranks[n,t] = np.median(curr_sample[:,t])
+    return median_ranks, np.nanmean(median_ranks), np.nanstd(median_ranks)
 
 
-def compute_median_rank(scores, k, datatype_val=None):
-    ranks = create_rank(scores)
-    if datatype_val is None:
-        median_ranks = np.median(ranks[:, :k], axis=1)
-    else:
-        datatype_val = datatype_val[:len(scores)]
-        median_ranks1 = np.median(ranks[datatype_val == 'orange_skin', :][:, np.array([0, 1, 2, 3, 9])],
-                                  axis=1)
-        median_ranks2 = np.median(ranks[datatype_val == 'nonlinear_additive', :][:, np.array([4, 5, 6, 7, 9])],
-                                  axis=1)
-        median_ranks = np.concatenate((median_ranks1, median_ranks2), 0)
-    return median_ranks
+def plot_heatmap_text(ranked_scores, scores, filepath,ax):
+    # assumes same shape of ranked scores and scores
+    heatmap = ax.pcolormesh(-ranked_scores,cmap=matplotlib.cm.Greens)
+    for y in range(ranked_scores.shape[0]):
+        for x in range(ranked_scores.shape[1]):
+            ax.text(x + 0.5, y + 0.5, '%d' % ranked_scores[y, x],
+                     horizontalalignment='center',
+                     verticalalignment='center',fontsize=56,color='r',fontweight='bold')
+
+    #ax.colorbar(heatmap)
+    #plt.savefig(filepath, dpi=300, bbox_inches='tight')

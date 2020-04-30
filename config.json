@@ -9,7 +9,7 @@
 	    "non_linearity":"torch.nn.ReLU()"
     },
     "risk_predictor":{
-        "encoding_size" : 100,
+        "encoding_size" : 200,
         "batch_size" : 100,
         "n_epochs" : 140,
         "historical": 1,
