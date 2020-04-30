@@ -11,7 +11,7 @@ import time
 from TSX.utils import load_simulated_data, train_model_rt, shade_state, compute_median_rank
 from TSX.models import StateClassifier, RETAIN
 from TSX.generator import JointFeatureGenerator
-from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
+from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, DistGenerator, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
 from sklearn import metrics
 
@@ -104,6 +104,9 @@ if __name__=='__main__':
         elif args.explainer == 'lime':
             explainer = LIMExplainer(model, train_loader)
 
+        elif args.explainer == 'dist':
+            explainer = DistGenerator(model, train_loader, n_componenets=2)
+
         else:
             raise ValueError('%s explainer not defined!'%args.explainer)
 
@@ -119,7 +122,6 @@ if __name__=='__main__':
             gt_importance_test = pkl.load(f)
 
         score = explainer.attribute(x, y)
-        #score = explainer.attribute(x, y[:, -1].long())
         importance_scores.append(score)
 
 
@@ -152,7 +154,7 @@ if __name__=='__main__':
         # gt_score = gt_importance_test[:n_samples].flatten()
         #
         # print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(
-        # gt_score,explainer_score)) break
+        # gt_score,explainer_score))
 
     importance_scores = np.concatenate(importance_scores, 0)
     with open(os.path.join(output_path, '%s_test_importance_scores.pkl'%args.explainer), 'wb') as f:

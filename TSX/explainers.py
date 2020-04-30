@@ -4,18 +4,54 @@ import os
 import sys
 import re
 
-from TSX.generator import JointFeatureGenerator, train_joint_feature_generator
+# from TSX.generator import JointFeatureGenerator, train_joint_feature_generator, JointDistributionGenerator
 from TSX.utils import load_simulated_data, AverageMeter
 
 from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm import tnrange, tqdm_notebook
 import matplotlib.pyplot as plt
 
-from TSX.generator import train_joint_feature_generator
+from TSX.generator import train_joint_feature_generator, JointDistributionGenerator
 from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
 import shap
 import lime
 import lime.lime_tabular
+
+
+class DistGenerator:
+    def __init__(self, model, train_loader, n_componenets=5):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model
+        self.base_model.device = self.device
+        self.distribution = JointDistributionGenerator(n_componenets, train_loader)
+
+    def attribute(self, x, y, retrospective=False):
+        x = x.to(self.device)
+        _, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+        if retrospective:
+            p_y_t = self.base_model(x)
+
+        for t in range(1, t_len):
+            if not retrospective:
+                p_y_t = self.base_model(x[:, :, :t + 1])
+            for i in range(n_features):
+                x_hat = x[:, :, 0:t + 1].clone()
+                kl_all = []
+                for _ in range(10):
+                    conditional = self.distribution.forward_conditional(x[:, :, t], [i])
+                    # print('sample', x[2, :, t])
+                    # print('Cond', conditional[2])
+                    x_hat[:, :, t] = conditional.to(self.device)
+                    y_hat_t = self.base_model(x_hat)
+                    # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                    kl = torch.abs(y_hat_t[:, :] - p_y_t[:, :])
+                    # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
+                E_kl = np.mean(np.array(kl_all), axis=0)
+                # score[:, i, t] = 2./(1+np.exp(-1*E_kl)) - 1.
+                score[:, i, t] = E_kl
+        return score
 
 
 class FITExplainer:
