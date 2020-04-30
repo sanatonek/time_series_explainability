@@ -35,7 +35,7 @@ if __name__ == '__main__':
         feature_size = 10
         data_path = './data/simulated_data_l2x'
 
-    output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s' % args.data
+    output_path = '/scratch/gobi1/shalmali/TSX_results/new_results/%s' % args.data
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     plot_path = os.path.join('./plots/%s' % args.data)
@@ -128,9 +128,9 @@ if __name__ == '__main__':
         n_avg = 1
         for i in range(n_avg):
             if i==0:
-                score, labels = explainer.attribute(x, y[:, -1].long())
+                score = explainer.attribute(x, y[:, -1].long())
             else:
-                scorez,_ = explainer.attribute(x, y[:, -1].long())
+                scorez = explainer.attribute(x, y[:, -1].long())
                 score +=scorez
         score /= n_avg
 
@@ -143,12 +143,13 @@ if __name__ == '__main__':
 
         # Print results
         plot_id = 3
+        t_len = gt_importance_test[plot_id].shape[-1]
         #print('gt_importance', gt_importance_test)
         #print('median scores:', np.median(ranked_features,axis=0))
         f, axs = plt.subplots(3)
         plot_heatmap_text(ranked_features[plot_id,:,1:], score[plot_id,:,1:],
                           os.path.join(plot_path, '%s_example_heatmap.pdf' % args.explainer),axs[1])
-        t = np.arange(1, gt_importance_test[plot_id].shape[-1])
+        t = np.arange(1, t_len)
         pred = []
         model.eval()
         for tt in t:
@@ -158,6 +159,8 @@ if __name__ == '__main__':
         if args.gt == 'pred_model':
             for tt in t:
                 if tt>1:
+                    p_y_t = self.base_model(x[:, :, :min((tt + 1), t_len)])
+                    labels = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
                     label_change = abs((labels[:,tt-1]-labels[:,tt-2]).reshape(-1,1))
                     gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
                        gt_importance_test[:,:,tt-1])

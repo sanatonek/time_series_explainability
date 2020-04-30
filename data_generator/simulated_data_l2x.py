@@ -65,7 +65,7 @@ def generate_XOR_labels(X):
 
 
 def generate_orange_labels(X):
-    logit = np.exp(np.sum(X[:, :4] ** 2, axis=1) - 4.0)
+    logit = np.exp(np.sum(X[:, :4] ** 2, axis=1) - 1.5)
 
     prob_1 = np.expand_dims(1 / (1 + logit), 1)
     prob_0 = np.expand_dims(logit / (1 + logit), 1)
@@ -76,7 +76,7 @@ def generate_orange_labels(X):
 
 
 def generate_additive_labels(X):
-    logit = np.exp(-100 * np.sin(0.2 * X[:, 0]) + abs(X[:, 1]) + X[:, 2] + np.exp(-X[:, 3]) - 2.4)
+    logit = np.exp(-10 * np.sin(-0.2 * X[:, 0]) + 0.5*X[:, 1] + X[:, 2] + np.exp(X[:, 3]) - 0.8)
 
     prob_1 = np.expand_dims(1 / (1 + logit), 1)
     prob_0 = np.expand_dims(logit / (1 + logit), 1)
@@ -183,8 +183,9 @@ def create_dataset(count, signal_len):
     states = []
     label_logits = []
     # mean, cov = init_distribution_params()
-    gp_lengthscale = [0.9,0.9,0.9,0.9,0.9,3,3,3,3,3]
-    gp_vec = [ts.signals.GaussianProcess(lengthscale=g, mean=0, variance=1) for g in gp_lengthscale]
+    gp_lengthscale = np.random.uniform(0.5,2.5, SIG_NUM)
+    means = [1.2, 0.8,1.5, 0.4, 0.5, -1.2, -1.5, -0.8, -0.4, -0.5]
+    gp_vec = [ts.signals.GaussianProcess(lengthscale=g, mean=m, variance=0.5) for g,m in zip(gp_lengthscale,means)]
     for num in range(count):
         sig, y, state, importance, y_logits = create_signal(signal_len, gp_params=gp_vec)  # , mean, cov)
         dataset.append(sig)
@@ -268,8 +269,29 @@ if __name__ == '__main__':
                 state_1_0.append(labels[idx1[0][c], idx1[1][c]])
             else:
                 state_1_1.append(labels[idx1[0][c], idx1[1][c]])
-        x1.hist(state_0_0)
-        x1.hist(state_0_1)
-        x2.hist(state_1_0)
-        x2.hist(state_1_1)
+        x1.hist(state_0_0,label='label 0')
+        x1.hist(state_0_1, label = 'label 1')
+        x1.set_title('state 0')
+        x1.legend()
+        
+        x2.hist(state_1_0,label='label 0')
+        x2.hist(state_1_1,label = 'label 1')
+        x2.set_title('state 1')
+        x2.legend()
         plt.savefig('plot.pdf')
+
+
+        f, (x1,x2) = plt.subplots(2,1)
+        for id in range(len(labels)):
+            for i, sample in enumerate(dataset[id]):
+                if labels[id,i]:
+                    x1.scatter(sample[0], sample[1], c='r')
+                else:
+                    x1.scatter(sample[0], sample[1], c='b')
+                if states[id,i]:
+                    x2.scatter(sample[0], sample[1], c='b')
+                else:
+                    x2.scatter(sample[0], sample[1], c='r')
+            x1.set_title('Distribution based on label')
+            x2.set_title('Distribution based on state')
+        plt.savefig('plot2.pdf')
