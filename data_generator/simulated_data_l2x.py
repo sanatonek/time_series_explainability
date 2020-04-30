@@ -2,6 +2,10 @@ import numpy as np
 import pickle
 import argparse
 import os
+from scipy.signal import butter, lfilter, freqz
+import timesynth as ts
+
+np.random.seed(42)
 
 SIG_NUM = 10
 STATE_NUM = 1
@@ -9,6 +13,21 @@ P_S0 = [0.5]
 
 imp_feature = [[1, 2, 3, 4], [5, 6, 7, 8]]  # Features that are always set as important
 trans_mat = np.array([[0.1, 0.9], [0.1, 0.9]])
+
+def butter_lowpass(cutoff, fs, order=5):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_lowpass(cutoff, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+
+order = 6
+fs = 30.0       # sample rate, Hz
+cutoff = 6.8 # desired cutoff frequency of the filter, Hz
 
 
 def next_state(previous_state, t):
@@ -67,7 +86,7 @@ def generate_additive_labels(X):
     return y
 
 
-def create_signal(sig_len):
+def create_signal(sig_len, gp_params):
     signal = []
     state_local = []
     y = []
@@ -75,7 +94,11 @@ def create_signal(sig_len):
     y_logits = []
 
     previous = np.random.binomial(1, P_S0)[0]
+    previous_label = None
     delta_state = 0
+    sample = np.array([gp.sample_vectorized(time_vector=np.array(range(sig_len))) for gp in gp_params])
+    #sample = np.array([butter_lowpass_filter(sample[f,:], cutoff, fs, order) for f in range(SIG_NUM)])
+    #print(sample)
     for ii in range(sig_len):
         next_st = next_state(previous, delta_state)
         state_n = next_st
@@ -85,21 +108,25 @@ def create_signal(sig_len):
         else:
             delta_state = 0
 
-        imp_sig = np.zeros(SIG_NUM)
-        if state_n != previous or ii == 0:
-            imp_sig[imp_feature[state_n]] = 1
 
-        importance.append(imp_sig)
-        sample_ii = np.random.multivariate_normal(np.zeros(SIG_NUM), np.eye(SIG_NUM))
-        sample_ii[-1] += 3 * (1 - state_n) + -3 * state_n
+        sample[-1, ii] = 1 * (1 - state_n) + -1 * state_n
         previous = state_n
-        signal.append(sample_ii)
+        #signal.append(sample_ii)
 
-        sample_ii = sample_ii.reshape((1, -1))
-        y_probs = state_n * generate_additive_labels(sample_ii[:, imp_feature[state_n]] - 0.3) + \
-                  (1 - state_n) * generate_orange_labels(sample_ii[:, imp_feature[state_n]] + 0.3)
+        sample_ii = (sample[:,ii]).reshape((1, -1))
+        y_probs = state_n * generate_additive_labels(sample_ii[:, imp_feature[state_n]]) + \
+                  (1 - state_n) * generate_orange_labels(sample_ii[:, imp_feature[state_n]])
         y_logit = y_probs[0][1]
         y_label = np.random.binomial(1, y_logit)
+
+        imp_sig = np.zeros(SIG_NUM)
+        #if y_label != previous_label or ii == 0:
+        imp_sig[imp_feature[state_n]] = 1
+        imp_sig[-1] = 1
+        importance.append(imp_sig)
+
+        previous_label = y_label
+        #print(y_label)
 
         # print('previous state:', previous, 'next state probability:', next_st, 'delta_state:', delta_state,
         #      'current state:', state_n, 'ylogit', y_logit)
@@ -108,11 +135,12 @@ def create_signal(sig_len):
         y.append(y_label)
         y_logits.append(y_logit)
         state_local.append(state_n)
-    signal = np.array(signal)
+    signal = sample
+    #print(signal.shape)
     y = np.array(y)
     importance = np.array(importance)
-    # print(importance.shape)
-    return signal.T, y, state_local, importance, y_logits
+    #print(importance.shape)
+    return signal, y, state_local, importance, y_logits
 
 
 def decay(x):
@@ -155,13 +183,18 @@ def create_dataset(count, signal_len):
     states = []
     label_logits = []
     # mean, cov = init_distribution_params()
+    gp_lengthscale = [0.9,0.9,0.9,0.9,0.9,3,3,3,3,3]
+    gp_vec = [ts.signals.GaussianProcess(lengthscale=g, mean=0, variance=1) for g in gp_lengthscale]
     for num in range(count):
-        sig, y, state, importance, y_logits = create_signal(signal_len)  # , mean, cov)
+        sig, y, state, importance, y_logits = create_signal(signal_len, gp_params=gp_vec)  # , mean, cov)
         dataset.append(sig)
         labels.append(y)
         importance_score.append(importance.T)
         states.append(state)
         label_logits.append(y_logits)
+
+        if num %50==0:
+            print(num, count)
     dataset = np.array(dataset)
     labels = np.array(labels)
     importance_score = np.array(importance_score)
@@ -170,30 +203,30 @@ def create_dataset(count, signal_len):
     n_train = int(len(dataset) * 0.8)
     train_data = dataset[:n_train]
     test_data = dataset[n_train:]
-    # train_data_n, test_data_n = normalize(train_data, test_data)
+    #train_data_n, test_data_n = normalize(train_data, test_data)
     train_data_n = train_data
     test_data_n = test_data
-    if not os.path.exists('../data/simulated_data_l2x'):
-        os.mkdir('../data/simulated_data_l2x')
-    with open('../data/simulated_data_l2x/state_dataset_x_train.pkl', 'wb') as f:
+    if not os.path.exists('./data/simulated_data_l2x'):
+        os.mkdir('./data/simulated_data_l2x')
+    with open('./data/simulated_data_l2x/state_dataset_x_train.pkl', 'wb') as f:
         pickle.dump(train_data_n, f)
-    with open('../data/simulated_data_l2x/state_dataset_x_test.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_x_test.pkl', 'wb') as f:
         pickle.dump(test_data_n, f)
-    with open('../data/simulated_data_l2x/state_dataset_y_train.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_y_train.pkl', 'wb') as f:
         pickle.dump(labels[:n_train], f)
-    with open('../data/simulated_data_l2x/state_dataset_y_test.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_y_test.pkl', 'wb') as f:
         pickle.dump(labels[n_train:], f)
-    with open('../data/simulated_data_l2x/state_dataset_importance_train.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_importance_train.pkl', 'wb') as f:
         pickle.dump(importance_score[:n_train], f)
-    with open('../data/simulated_data_l2x/state_dataset_importance_test.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_importance_test.pkl', 'wb') as f:
         pickle.dump(importance_score[n_train:], f)
-    with open('../data/simulated_data_l2x/state_dataset_logits_train.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_logits_train.pkl', 'wb') as f:
         pickle.dump(label_logits[:n_train], f)
-    with open('../data/simulated_data_l2x/state_dataset_logits_test.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_logits_test.pkl', 'wb') as f:
         pickle.dump(label_logits[n_train:], f)
-    with open('../data/simulated_data_l2x/state_dataset_states_train.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_states_train.pkl', 'wb') as f:
         pickle.dump(states[:n_train], f)
-    with open('../data/simulated_data_l2x/state_dataset_states_test.pkl', 'wb') as f:
+    with open('./data/simulated_data_l2x/state_dataset_states_test.pkl', 'wb') as f:
         pickle.dump(states[n_train:], f)
 
     return dataset, labels, states

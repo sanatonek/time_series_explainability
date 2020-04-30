@@ -44,17 +44,20 @@ class FITExplainer:
         if retrospective:
             p_y_t = self.base_model(x)
 
+        p_y_t_vec = np.zeros((x.shape[0], t_len))
         for t in range(1, t_len):
             if not retrospective:
                 p_y_t = self.base_model(x[:, :, :min((t + 1), t_len)])
+                #p_y_t_vec[:,t-1] = np.array([np.random.binomial(1,p,1) for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
+                p_y_t_vec[:,t-1] = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
+                p_tm1 = self.base_model(x[:,:,0:t])
                 for _ in range(n_samples):
                     x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
                     x_hat[:, :, t] = x_hat_t
                     y_hat_t = self.base_model(x_hat)
-                    p_tm1 = self.base_model(x[:,:,0:t])
                     # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
                     kl = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
                          torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
@@ -63,7 +66,7 @@ class FITExplainer:
                 E_kl = np.mean(np.array(kl_all),axis=0)
                 score[:, i, t] = 2./(1+np.exp(-4*E_kl)) - 1
                 # score[:,i,t] = 2.-2./(1+np.exp(-4*E_kl)) #1./(E_kl+1e-6) #* 1e-6
-        return score
+        return score, p_y_t_vec
 
 
 class FFCExplainer:
