@@ -7,11 +7,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pickle as pkl
 import time
+import pandas as pd
 
 from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank, plot_heatmap_text
 from TSX.models import StateClassifier, RETAIN
-from TSX.generator import JointFeatureGenerator
-from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, DistGenerator, \
+from TSX.generator import JointFeatureGenerator, JointDistributionGenerator
+from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
 from sklearn import metrics
 
@@ -25,6 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--explainer', type=str, default='fit', help='Explainer model')
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--train', action='store_true')
+    parser.add_argument('--generator_type', type=str, default='history')
     parser.add_argument('--gt', type=str, default='true_model', help='specify ground truth score')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -32,7 +34,7 @@ if __name__ == '__main__':
         feature_size = 3
         data_path = './data/simulated_data'
     elif args.data == 'simulation_l2x':
-        feature_size = 10
+        feature_size = 3
         data_path = './data/simulated_data_l2x'
 
     output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s' % args.data
@@ -46,14 +48,15 @@ if __name__ == '__main__':
     _, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, datapath=data_path,
                                                                      percentage=0.8)
 
+
     # Prepare model to explain
     if args.explainer == 'retain':
-        model = RETAIN(dim_input=feature_size, dim_emb=32, dropout_emb=0.5, dim_alpha=32, dim_beta=32,
-                       dropout_context=0.5, dim_output=2)
+        model = RETAIN(dim_input=feature_size, dim_emb=32, dropout_emb=0.4, dim_alpha=16, dim_beta=16,
+                       dropout_context=0.4, dim_output=2)
         explainer = RETAINexplainer(model, args.data)
         if args.train:
             t0 = time.time()
-            explainer.fit_model(train_loader, valid_loader, test_loader, plot=True, epochs=250)
+            explainer.fit_model(train_loader, valid_loader, test_loader, lr=1e-2, plot=True, epochs=250)
             print('Total time required to train retain: ', time.time() - t0)
         else:
             model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'retain'))))
@@ -67,12 +70,16 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
 
         if args.explainer == 'fit':
-            generator = JointFeatureGenerator(feature_size, hidden_size=feature_size * 3, data=args.data)
-            if args.train:
-                explainer = FITExplainer(model)
-                explainer.fit_generator(generator, train_loader, valid_loader)
-            else:
-                generator.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'joint_generator'))))
+            if args.generator_type=='history':
+                generator = JointFeatureGenerator(feature_size, hidden_size=feature_size * 3, data=args.data)
+                if args.train:
+                    explainer = FITExplainer(model)
+                    explainer.fit_generator(generator, train_loader, valid_loader)
+                else:
+                    generator.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'joint_generator'))))
+                    explainer = FITExplainer(model, generator)
+            elif args.generator_type=='no_history':
+                generator = JointDistributionGenerator(n_components=5, train_loader=train_loader)
                 explainer = FITExplainer(model, generator)
 
         elif args.explainer == 'integrated_gradient':
@@ -105,8 +112,8 @@ if __name__ == '__main__':
         elif args.explainer == 'lime':
             explainer = LIMExplainer(model, train_loader)
 
-        elif args.explainer == 'dist':
-            explainer = DistGenerator(model, train_loader, n_componenets=2)
+        # elif args.explainer == 'dist':
+        #     explainer = DistGenerator(model, train_loader, n_componenets=2)
 
         else:
             raise ValueError('%s explainer not defined!' % args.explainer)
@@ -124,25 +131,49 @@ if __name__ == '__main__':
         with open(os.path.join(data_path, 'state_dataset_states_test.pkl'),'rb') as f:
             state_test = pkl.load(f)
 
+        #
+        # n_avg = 1
+        # for i in range(n_avg):
+        #     if i==0:
+        #         score, labels = explainer.attribute(x, y[:, -1].long())
+        #     else:
+        #         scorez,_ = explainer.attribute(x, y[:, -1].long())
+        #         score +=scorez
+        # score /= n_avg
 
-        n_avg = 1
-        for i in range(n_avg):
-            if i==0:
-                score, labels = explainer.attribute(x, y[:, -1].long())
-            else:
-                scorez,_ = explainer.attribute(x, y[:, -1].long())
-                score +=scorez
-        score /= n_avg
-
-        # score = explainer.attribute(x, y[:, -1].long())
-        ranked_features = np.array([((-(score[n])).argsort(0).argsort(0)+1) \
-        for n in range(x.shape[0])])#[:ks[args.data]]
+        score = explainer.attribute(x, y[:, -1].long())
+        ranked_features = np.array([((-(score[n])).argsort(0).argsort(0)+1) for n in range(len(x))])#[:ks[args.data]]
         importance_scores.append(score)
         ranked_feats.append(ranked_features)
+        labels = np.zeros((x.shape[0], x.shape[-1]))
+        for t in range(1, x.shape[-1]):
+            p_y_t = explainer.base_model(x[:, :, :t + 1])
+            labels[:, t - 1] = np.array([p > 0.5 for p in p_y_t.cpu().detach().numpy()[:, 1]]).flatten()
         #print(np.any(np.isnan(gt_importance_test)), np.any(np.isnan(ranked_features)), np.any(np.isnan(score)))
 
         # Print results
         plot_id = 3
+
+        f, axs = plt.subplots(3)
+        f.set_figheight(6)
+        f.set_figwidth(10)
+        score_pd = pd.DataFrame(columns=['f1', 'f2', 'f3', 's1', 's2', 's3'])
+        score_pd['t'] = pd.Series(np.arange(1, gt_importance_test[plot_id].shape[-1]))
+        for feat in [1, 2, 3]:#range(1,2):
+            cmap = sns.cubehelix_palette(rot=.2, as_cmap=True)
+            score_pd['f%d'%feat] = pd.Series(x[plot_id, feat-1, 1:].cpu().numpy())
+            score_pd['s%d' % feat] = pd.Series(score[plot_id, feat - 1, :])
+            g = sns.scatterplot(x=score_pd['t'], y=score_pd['f%d'%feat], hue=score_pd['s%d'%feat],
+                                marker='o', palette=cmap, ax=axs[feat-1])
+            g.legend_.remove()
+        plt.savefig(os.path.join(plot_path, 'new_viz.pdf'), dpi=300, orientation='landscape')
+
+
+
+
+
+
+
         #print('gt_importance', gt_importance_test)
         #print('median scores:', np.median(ranked_features,axis=0))
         f, axs = plt.subplots(3)
@@ -170,7 +201,6 @@ if __name__ == '__main__':
 
         gt_importance_test.astype(int)
 
-
         shade_state_state_data(state_test[plot_id], t, axs[0])
         for i, ref_ind in enumerate(range(x[plot_id].shape[0])):
             axs[0].plot(t, x[plot_id, ref_ind, 1:].cpu().numpy(), linewidth=3, label='feature %d' % (i))
@@ -184,14 +214,15 @@ if __name__ == '__main__':
         axs[1].margins(0.0)
 
         # axs[0].grid()
-        f.set_figheight(120)
+        f.set_figheight(80)
         f.set_figwidth(120)
         plt.subplots_adjust(hspace=.5)
-        plt.savefig(os.path.join(plot_path, '%s_example.pdf' % args.explainer), dpi=300, orientation='landscape')
+        name = args.explainer+'_'+args.generator_type if args.explainer=='fit' else args.explainer
+        plt.savefig(os.path.join(plot_path, '%s_example.pdf' % name), dpi=300, orientation='landscape')
         fig_legend = plt.figure(figsize=(13, 1.2))
         handles, labels = axs[0].get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-        fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' % args.explainer), dpi=300,
+        fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' %name), dpi=300,
                            bbox_inches='tight')
 
         # explainer_score = score.flatten()
@@ -199,7 +230,6 @@ if __name__ == '__main__':
         #
         # print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(
         # gt_score,explainer_score))
-
 
     importance_scores = np.concatenate(importance_scores, 0)
     ranked_feats = np.concatenate(ranked_feats,0)
@@ -211,7 +241,6 @@ if __name__ == '__main__':
 
     explainer_score = importance_scores.flatten()
     gt_score = gt_importance_test.flatten()
-    print(gt_score.shape, explainer_score.shape)
 
     auc_score = metrics.roc_auc_score(gt_score, explainer_score)
     aupr_score = metrics.average_precision_score(gt_score, explainer_score)

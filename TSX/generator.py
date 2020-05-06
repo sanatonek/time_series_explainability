@@ -266,37 +266,57 @@ class JointDistributionGenerator(torch.nn.Module):
         # print('Cluster means: ', self.gmm.means_)
         print('Loglike scores: ', self.gmm.score(np.array(x_train)))
 
-    def forward_conditional(self, current, sig_inds):
+    def forward_conditional(self, past, current, sig_inds):
         # print(current.shape)
         cond_samples = []
         for sample in current:
-            cond_means = []
-            cond_covariance = []
-            cond_pi = []
-            for i in range(self.n_components):
-                mean = torch.Tensor(self.gmm.means_[i]).unsqueeze(0).to('cuda')
-                covariance = torch.Tensor(self.gmm.covariances_[i]).unsqueeze(0).to('cuda')
-                sig_inds_comp = list(set(range(current.shape[1])) - set(sig_inds))
-                ind_len = len(sig_inds)
-                ind_len_not = len(sig_inds_comp)
-                x_ind = sample[sig_inds].view(-1, ind_len)
-                mean_1 = mean[:,sig_inds_comp].view(-1, ind_len_not)
-                cov_1_2 = covariance[:, sig_inds_comp, :][:, :, sig_inds].view(-1, ind_len_not, ind_len)
-                cov_2_2 = covariance[:, sig_inds, :][:, :, sig_inds].view(-1, ind_len, ind_len)
-                cov_1_1 = covariance[:, sig_inds_comp, :][:, :, sig_inds_comp].view(-1, ind_len_not, ind_len_not)
-                mean_cond = mean_1 + torch.bmm((torch.bmm(cov_1_2, torch.inverse(cov_2_2))),
-                                               (x_ind - mean[:, sig_inds]).view(-1, ind_len, 1)).squeeze(-1)
-                covariance_cond = cov_1_1 - torch.bmm(torch.bmm(cov_1_2, torch.inverse(cov_2_2)),
-                                                      torch.transpose(cov_1_2, 2, 1))
-                cond_means.append(mean_cond[0])
-                cond_covariance.append(covariance_cond[0])
-                marginal_dist =  MultivariateNormal(loc=mean_1[0], covariance_matrix=cov_1_1[0])
+            mean = torch.Tensor(self.gmm.means_).to('cuda')
+            covariance = torch.Tensor(self.gmm.covariances_).to('cuda')
+            sig_inds_comp = list(set(range(current.shape[1])) - set(sig_inds))
+            ind_len = len(sig_inds)
+            ind_len_not = len(sig_inds_comp)
+            x_ind = sample[sig_inds].view(-1, ind_len)
+            mean_1 = mean[:, sig_inds_comp].view(-1, ind_len_not)
+            cov_1_2 = covariance[:, sig_inds_comp, :][:, :, sig_inds].view(-1, ind_len_not, ind_len)
+            cov_2_2 = covariance[:, sig_inds, :][:, :, sig_inds].view(-1, ind_len, ind_len)
+            cov_1_1 = covariance[:, sig_inds_comp, :][:, :, sig_inds_comp].view(-1, ind_len_not, ind_len_not)
+            cond_means = mean_1 + torch.bmm((torch.bmm(cov_1_2, torch.inverse(cov_2_2))),
+                                           (x_ind - mean[:, sig_inds]).view(-1, ind_len, 1)).squeeze(-1)
+            cond_covariance = cov_1_1 - torch.bmm(torch.bmm(cov_1_2, torch.inverse(cov_2_2)),
+                                                  torch.transpose(cov_1_2, 2, 1))
+            marginal_dist = MultivariateNormal(loc=mean_1, covariance_matrix=cov_1_1)
+            # print(torch.exp(marginal_dist.log_prob(sample[sig_inds])))
+            cond_pi = torch.Tensor(self.gmm.weights_).to('cuda') * \
+                      torch.exp(marginal_dist.log_prob(sample[sig_inds]))
+            # print(self.gmm.weights_)
+            # print(cond_pi)
+            cond_pi = torch.nn.Softmax()(cond_pi)
+            m = torch.multinomial(input=cond_pi, num_samples=1)
+
+            # for i in range(self.n_components):
+                # mean = torch.Tensor(self.gmm.means_[i]).unsqueeze(0).to('cuda')
+                # covariance = torch.Tensor(self.gmm.covariances_[i]).unsqueeze(0).to('cuda')
+                # sig_inds_comp = list(set(range(current.shape[1])) - set(sig_inds))
+                # ind_len = len(sig_inds)
+                # ind_len_not = len(sig_inds_comp)
+                # x_ind = sample[sig_inds].view(-1, ind_len)
+                # mean_1 = mean[:,sig_inds_comp].view(-1, ind_len_not)
+                # cov_1_2 = covariance[:, sig_inds_comp, :][:, :, sig_inds].view(-1, ind_len_not, ind_len)
+                # cov_2_2 = covariance[:, sig_inds, :][:, :, sig_inds].view(-1, ind_len, ind_len)
+                # cov_1_1 = covariance[:, sig_inds_comp, :][:, :, sig_inds_comp].view(-1, ind_len_not, ind_len_not)
+                # mean_cond = mean_1 + torch.bmm((torch.bmm(cov_1_2, torch.inverse(cov_2_2))),
+                #                                (x_ind - mean[:, sig_inds]).view(-1, ind_len, 1)).squeeze(-1)
+                # covariance_cond = cov_1_1 - torch.bmm(torch.bmm(cov_1_2, torch.inverse(cov_2_2)),
+                #                                       torch.transpose(cov_1_2, 2, 1))
+                # cond_means.append(mean_cond[0])
+                # cond_covariance.append(covariance_cond[0])
+                # marginal_dist =  MultivariateNormal(loc=mean_1[0], covariance_matrix=cov_1_1[0])
                 # cond_dist = MultivariateNormal(loc=mean_cond[0].squeeze(-1),
                 #                           covariance_matrix=covariance_cond[0])
                 # print(mean_1[0].shape, cov_1_1[0].shape, sample[sig_inds])
-                cond_pi.append(torch.exp(marginal_dist.log_prob(sample[sig_inds])))
+                # cond_pi.append(self.gmm.weights_[i] * torch.exp(marginal_dist.log_prob(sample[sig_inds])))
 
-            m = torch.multinomial(input=torch.stack(cond_pi), num_samples=1)
+            # m = torch.multinomial(input=torch.stack(cond_pi), num_samples=1)
             # print(torch.stack(cond_pi), m)
             dist = MultivariateNormal(loc=cond_means[m], covariance_matrix=cond_covariance[m])
             x = dist.rsample()
@@ -306,7 +326,7 @@ class JointDistributionGenerator(torch.nn.Module):
             # print('Conditional', full_sample)
             cond_samples.append(full_sample)
         # print('%%%%%%%%%%%%%%', len(cond_samples))
-        return torch.stack(cond_samples)
+        return torch.stack(cond_samples), None
 
 
 class DLMGenerator(torch.nn.Module):
