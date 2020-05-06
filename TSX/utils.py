@@ -533,6 +533,8 @@ def shade_state_state_data(state_subj, t, ax, data='simulation'):
             ax.axvspan(ttt - 1, ttt, facecolor='g', alpha=0.3)
         elif state_subj[ttt] == 1:
             ax.axvspan(ttt - 1, ttt, facecolor='y', alpha=0.3)
+        elif state_subj[ttt] == 2:
+            ax.axvspan(ttt - 1, ttt, facecolor='m', alpha=0.3)
 
 def shade_state(gt_importance_subj, t, ax, data='simulation'):
     cmap = plt.get_cmap("tab10")
@@ -915,16 +917,24 @@ def replace_and_predict(self, signals_to_analyze, sensitivity_analysis_importanc
               np.mean(abs(np.array(mse_vec_sens)[:, 1])), '3rd:', np.mean(abs(np.array(mse_vec_sens)[:, 2])))
 
 
-def compute_median_rank(ranked_feats, ground_truth):
+def compute_median_rank(ranked_feats, ground_truth, soft=False,K=4, tau=0.2):
     #n x d x t - size of both tensors
     median_ranks = np.empty((ranked_feats.shape[0],ranked_feats.shape[2]))
     median_ranks[:] = np.NaN
-    for n in range(ranked_feats.shape[0]):
-        curr_sample = ranked_feats[n]
-        for t in range(ranked_feats.shape[2]):
-            idx = np.where(ground_truth[n,:,t])[0]
-            if len(idx) >0 :
-                median_ranks[n,t] = np.median(curr_sample[:,t])
+    if soft:
+        for n in range(ranked_feats.shape[0]):
+            curr_sample = ranked_feats[n]
+            for t in range(ranked_feats.shape[2]):
+                idx = np.where(ground_truth[n,:,t]>tau)[0]
+                if len(idx) >0 :
+                    median_ranks[n,t] = np.median(curr_sample[:,t])
+    else:
+        for n in range(ranked_feats.shape[0]):
+            curr_sample = ranked_feats[n]
+            for t in range(ranked_feats.shape[2]):
+                idx = np.where(ground_truth[n,:,t])[0]
+                if len(idx) >0 :
+                    median_ranks[n,t] = np.median(curr_sample[:,t])
     return median_ranks, np.nanmean(median_ranks), np.nanstd(median_ranks)
 
 

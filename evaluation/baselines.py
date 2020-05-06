@@ -32,7 +32,7 @@ if __name__ == '__main__':
         feature_size = 3
         data_path = './data/simulated_data'
     elif args.data == 'simulation_l2x':
-        feature_size = 10
+        feature_size = 3
         data_path = './data/simulated_data_l2x'
 
     output_path = '/scratch/gobi1/shalmali/TSX_results/new_results/%s' % args.data
@@ -81,7 +81,7 @@ if __name__ == '__main__':
         elif args.explainer == 'deep_lift':
             explainer = DeepLiftExplainer(model)
 
-        elif args.explainer == 'feature_occlusion':
+        elif args.explainer == 'fo':
             explainer = FOExplainer(model)
 
         elif args.explainer == 'afo':
@@ -90,7 +90,7 @@ if __name__ == '__main__':
         elif args.explainer == 'gradient_shap':
             explainer = GradientShapExplainer(model)
 
-        elif args.explainer == 'FFC':
+        elif args.explainer == 'ffc':
             generator = JointFeatureGenerator(feature_size, hidden_size=feature_size * 3, data=args.data)
             if args.train:
                 explainer = FFCExplainer(model)
@@ -123,6 +123,8 @@ if __name__ == '__main__':
             gt_importance_test = pkl.load(f)
         with open(os.path.join(data_path, 'state_dataset_states_test.pkl'),'rb') as f:
             state_test = pkl.load(f)
+        with open(os.path.join(data_path, 'state_dataset_logits_test.pkl'),'rb') as f:
+            logits_test = pkl.load(f)
 
 
         n_avg = 1
@@ -156,12 +158,15 @@ if __name__ == '__main__':
             pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0))[0, 1].detach().cpu().numpy()
             pred.append(pred_tt)
 
+        gt_soft_score = np.zeros(gt_importance_test.shape)
+
         if args.gt == 'pred_model':
             for tt in t:
                 if tt>1:
-                    p_y_t = self.base_model(x[:, :, :min((tt + 1), t_len)])
-                    labels = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
-                    label_change = abs((labels[:,tt-1]-labels[:,tt-2]).reshape(-1,1))
+                    #p_y_t = self.base_model(x[:, :, :min((tt + 1), t_len)])
+                    #labels = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
+                    #labels = p_y_t.cpu().detach().numpy()[:,1]
+                    label_change = abs((pred_batch_vec[tt-1][:,1]-pred_batch_vec[tt-2][:,1]).reshape(-1,1))
                     gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
                        gt_importance_test[:,:,tt-1])
         elif args.gt == 'true_model':
@@ -169,6 +174,10 @@ if __name__ == '__main__':
                 if tt>1:
                     label_change = abs((y[:,tt-1]-y[:,tt-2]).cpu().detach().numpy().reshape(-1,1))
                     gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
+                       gt_importance_test[:,:,tt-1])
+
+                    logits_change = abs((logits_test[:,tt-1]-logits_test[:,tt-2]).reshape(-1,1))
+                    gt_soft_score[:,:,tt-1] = np.multiply(np.repeat(logits_change,x.shape[1],axis=1), \
                        gt_importance_test[:,:,tt-1])
 
         gt_importance_test.astype(int)
@@ -218,7 +227,8 @@ if __name__ == '__main__':
 
     auc_score = metrics.roc_auc_score(gt_score, explainer_score)
     aupr_score = metrics.average_precision_score(gt_score, explainer_score)
-    _, median_rank, _= compute_median_rank(ranked_feats, gt_importance_test)
+
+    _, median_rank, _= compute_median_rank(ranked_feats, gt_soft_score, soft=True,K=4)
     # fdr = fp /(fp + tp)
     print('auc:', auc_score, ' aupr:', aupr_score, 'median rank:', median_rank)
     #break

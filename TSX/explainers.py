@@ -19,11 +19,11 @@ import lime.lime_tabular
 
 
 class DistGenerator:
-    def __init__(self, model, train_loader, n_componenets=5):
+    def __init__(self, model, train_loader, n_components=5):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.base_model = model
         self.base_model.device = self.device
-        self.distribution = JointDistributionGenerator(n_componenets, train_loader)
+        self.distribution = JointDistributionGenerator(n_components, train_loader)
 
     def attribute(self, x, y, retrospective=False):
         x = x.to(self.device)
@@ -91,12 +91,13 @@ class FITExplainer:
                     x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
                     x_hat[:, :, t] = x_hat_t
                     y_hat_t = self.base_model(x_hat)
-                    # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                    #kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
                     kl = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
                          torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
-                    # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    #kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
                     kl_all.append(kl.cpu().detach().numpy())
                 E_kl = np.mean(np.array(kl_all),axis=0)
+                #score[:,i,t] = 1./(E_kl+1e-6)
                 score[:, i, t] = 2./(1+np.exp(-4*E_kl)) - 1
                 # score[:,i,t] = 2.-2./(1+np.exp(-4*E_kl)) #1./(E_kl+1e-6) #* 1e-6
         return score
