@@ -4,10 +4,12 @@ import argparse
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
 import seaborn as sns
 import pickle as pkl
 import time
 import pandas as pd
+from scipy import interpolate
 
 from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank, plot_heatmap_text
 from TSX.models import StateClassifier, RETAIN
@@ -56,7 +58,7 @@ if __name__ == '__main__':
         explainer = RETAINexplainer(model, args.data)
         if args.train:
             t0 = time.time()
-            explainer.fit_model(train_loader, valid_loader, test_loader, lr=1e-2, plot=True, epochs=250)
+            explainer.fit_model(train_loader, valid_loader, test_loader, lr=1e-4, plot=True, epochs=100)
             print('Total time required to train retain: ', time.time() - t0)
         else:
             model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'retain'))))
@@ -88,7 +90,7 @@ if __name__ == '__main__':
         elif args.explainer == 'deep_lift':
             explainer = DeepLiftExplainer(model)
 
-        elif args.explainer == 'feature_occlusion':
+        elif args.explainer == 'fo':
             explainer = FOExplainer(model)
 
         elif args.explainer == 'afo':
@@ -97,7 +99,7 @@ if __name__ == '__main__':
         elif args.explainer == 'gradient_shap':
             explainer = GradientShapExplainer(model)
 
-        elif args.explainer == 'FFC':
+        elif args.explainer == 'ffc':
             generator = JointFeatureGenerator(feature_size, hidden_size=feature_size * 3, data=args.data)
             if args.train:
                 explainer = FFCExplainer(model)
@@ -130,6 +132,8 @@ if __name__ == '__main__':
             gt_importance_test = pkl.load(f)
         with open(os.path.join(data_path, 'state_dataset_states_test.pkl'),'rb') as f:
             state_test = pkl.load(f)
+        with open(os.path.join(data_path, 'state_dataset_logits_test.pkl'),'rb') as f:
+            logits_test = pkl.load(f)
 
         #
         # n_avg = 1
@@ -142,7 +146,10 @@ if __name__ == '__main__':
         # score /= n_avg
 
         score = explainer.attribute(x, y[:, -1].long())
-        ranked_features = np.array([((-(score[n])).argsort(0).argsort(0)+1) for n in range(len(x))])#[:ks[args.data]]
+        ranked_features = np.array([((-(score[n])).argsort(0).argsort(0) + 1) \
+                                    for n in range(x.shape[0])])  # [:ks[args.data]]
+        if args.explainer == 'fit':
+            score_mean_shift = explainer.attribute(x, y[:, -1].long(), distance_metric='mean_divergence')
         importance_scores.append(score)
         ranked_feats.append(ranked_features)
         labels = np.zeros((x.shape[0], x.shape[-1]))
@@ -159,37 +166,50 @@ if __name__ == '__main__':
         f.set_figwidth(10)
         score_pd = pd.DataFrame(columns=['f1', 'f2', 'f3', 's1', 's2', 's3'])
         score_pd['t'] = pd.Series(np.arange(1, gt_importance_test[plot_id].shape[-1]))
+        cmap = sns.cubehelix_palette(rot=.2, as_cmap=True)
+        bottom = cm.get_cmap('Blues', 128)
         for feat in [1, 2, 3]:#range(1,2):
-            cmap = sns.cubehelix_palette(rot=.2, as_cmap=True)
             score_pd['f%d'%feat] = pd.Series(x[plot_id, feat-1, 1:].cpu().numpy())
             score_pd['s%d' % feat] = pd.Series(score[plot_id, feat - 1, :])
-            g = sns.scatterplot(x=score_pd['t'], y=score_pd['f%d'%feat], hue=score_pd['s%d'%feat],
-                                marker='o', palette=cmap, ax=axs[feat-1])
-            g.legend_.remove()
+            f = interpolate.interp1d(score_pd['t'], score_pd['f%d'%feat], fill_value="extrapolate")
+            f_score = interpolate.interp1d(score_pd['t'], score_pd['s%d'%feat], fill_value="extrapolate")
+            xnew = np.arange(1, gt_importance_test[plot_id].shape[-1]-0.99, 0.01)
+            # print(xnew)
+            # print(score_pd['t'])
+            ynew = f(xnew)
+            score_new = f_score(xnew)
+            # axs[feat-1].scatter(xnew, ynew, c=cm.hot(score_new/2.+0.5), edgecolor='none')
+            axs[feat - 1].scatter(xnew, ynew, c=bottom(score_new / 2. + 0.5), edgecolor='none')
+
+            # g = sns.scatterplot(x=score_pd['t'], y=score_pd['f%d'%feat], hue=score_pd['s%d'%feat],
+            #                     marker='o', palette=cmap, ax=axs[feat-1])
+            # g.legend_.remove()
+        plt.legend()
         plt.savefig(os.path.join(plot_path, 'new_viz.pdf'), dpi=300, orientation='landscape')
 
 
-
-
-
-
-
+        t_len = gt_importance_test[plot_id].shape[-1]
         #print('gt_importance', gt_importance_test)
         #print('median scores:', np.median(ranked_features,axis=0))
-        f, axs = plt.subplots(3)
+        f, axs = plt.subplots(4 if args.explainer=='fit' else 3)
         plot_heatmap_text(ranked_features[plot_id,:,1:], score[plot_id,:,1:],
                           os.path.join(plot_path, '%s_example_heatmap.pdf' % args.explainer),axs[1])
-        t = np.arange(1, gt_importance_test[plot_id].shape[-1])
-        pred = []
+        t = np.arange(1, t_len)
+        pred_batch_vec = []
         model.eval()
         for tt in t:
             pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0))[0, 1].detach().cpu().numpy()
-            pred.append(pred_tt)
+            pred_batch_vec.append(pred_tt)
+
+        gt_soft_score = np.zeros(gt_importance_test.shape)
 
         if args.gt == 'pred_model':
             for tt in t:
                 if tt>1:
-                    label_change = abs((labels[:,tt-1]-labels[:,tt-2]).reshape(-1,1))
+                    #p_y_t = self.base_model(x[:, :, :min((tt + 1), t_len)])
+                    #labels = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
+                    #labels = p_y_t.cpu().detach().numpy()[:,1]
+                    label_change = abs((pred_batch_vec[tt-1][:,1]-pred_batch_vec[tt-2][:,1]).reshape(-1,1))
                     gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
                        gt_importance_test[:,:,tt-1])
         elif args.gt == 'true_model':
@@ -199,13 +219,20 @@ if __name__ == '__main__':
                     gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
                        gt_importance_test[:,:,tt-1])
 
+                    logits_change = abs((logits_test[:,tt-1]-logits_test[:,tt-2]).reshape(-1,1))
+                    gt_soft_score[:,:,tt-1] = np.multiply(np.repeat(logits_change,x.shape[1],axis=1), \
+                       gt_importance_test[:,:,tt-1])
+
         gt_importance_test.astype(int)
 
         shade_state_state_data(state_test[plot_id], t, axs[0])
         for i, ref_ind in enumerate(range(x[plot_id].shape[0])):
             axs[0].plot(t, x[plot_id, ref_ind, 1:].cpu().numpy(), linewidth=3, label='feature %d' % (i))
             axs[2].plot(t, score[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
-        axs[0].plot(t, pred, '--', linewidth=3, c='black')
+            if args.explainer=='fit':
+                axs[3].plot(t,
+                            score_mean_shift[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
+        axs[0].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
         axs[0].tick_params(axis='both', labelsize=36)
         axs[2].tick_params(axis='both', labelsize=36)
         axs[1].tick_params(axis='both', labelsize=36)
@@ -222,8 +249,7 @@ if __name__ == '__main__':
         fig_legend = plt.figure(figsize=(13, 1.2))
         handles, labels = axs[0].get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-        fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' %name), dpi=300,
-                           bbox_inches='tight')
+        fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' %name), dpi=300, bbox_inches='tight')
 
         # explainer_score = score.flatten()
         # gt_score = gt_importance_test[:n_samples].flatten()
@@ -244,7 +270,8 @@ if __name__ == '__main__':
 
     auc_score = metrics.roc_auc_score(gt_score, explainer_score)
     aupr_score = metrics.average_precision_score(gt_score, explainer_score)
-    _, median_rank, _= compute_median_rank(ranked_feats, gt_importance_test)
+
+    _, median_rank, _= compute_median_rank(ranked_feats, gt_soft_score, soft=True,K=4)
     # fdr = fp /(fp + tp)
     print('auc:', auc_score, ' aupr:', aupr_score, 'median rank:', median_rank)
     #break

@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from TSX.generator import train_joint_feature_generator, JointDistributionGenerator
 from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
-import shap
+#import shap
 import lime
 import lime.lime_tabular
 
@@ -62,7 +62,7 @@ class FITExplainer:
 
     def fit_generator(self, generator_model, train_loader, test_loader, n_epochs=300):
         train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint_generator',
-                                      n_epochs=n_epochs)
+                                      n_epochs=500, lr=0.001, weight_decay=0)
         self.generator = generator_model.to(self.device)
 
     def attribute(self, x, y, n_samples=10, retrospective=False, distance_metric='kl'):
@@ -82,7 +82,7 @@ class FITExplainer:
 
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :min((t + 1), t_len)])
+                p_y_t = self.base_model(x[:, :, :t+1])
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 div_all=[]
@@ -95,6 +95,7 @@ class FITExplainer:
                         # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
                         div = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
                              torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                        # print(x_hat_t[0], x[0, :, t], self.generator.forward_joint(x[:, :, :t])[0])
                         # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
                         div_all.append(div.cpu().detach().numpy())
                     elif distance_metric == 'mean_divergence':
@@ -102,7 +103,8 @@ class FITExplainer:
                         div_all.append(np.mean(div.detach().cpu().numpy(), -1))
                 E_div = np.mean(np.array(div_all), axis=0)
                 if distance_metric=='kl':
-                    score[:, i, t] = 2./(1+np.exp(-4*E_div)) - 1
+                    # print('********** E_div')
+                    score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
                 elif distance_metric=='mean_divergence':
                     score[:, i, t] = 1-E_div
         return score

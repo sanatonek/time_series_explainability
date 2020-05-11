@@ -3,6 +3,8 @@ import torch
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+# from pyro.distributions import MultivariateNormal
+# from pyro.distributions import OMTMultivariateNormal
 
 from torch.distributions.multivariate_normal import MultivariateNormal
 from sklearn.mixture import GaussianMixture
@@ -431,7 +433,6 @@ def train_feature_generator(generator_model, train_loader, valid_loader, generat
                 reconstruction_loss.backward()
                 optimizer.step()
 
-
         test_loss = test_feature_generator(generator_model, valid_loader, feature_to_predict)
         train_loss_trend.append(epoch_loss/((i+1)*num))
 
@@ -532,13 +533,22 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
         for i, (signals, _) in enumerate(train_loader):
             # for t in [np.random.randint(low=24, high=45)]:
             for t in [int(tt) for tt in np.logspace(1.2, np.log10(signals.shape[2]-1), num=num)]:
-                label = signals[:, :, t:t + generator_model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
                 optimizer.zero_grad()
-                prediction = generator_model.forward_joint(signals[:, :, :t])
-                reconstruction_loss = loss_criterion(prediction, label.to(device))
+                mean, covariance = generator_model.likelihood_distribution(signals[:, :, :t])
+                # dist = OMTMultivariateNormal(mean, torch.cholesky(covariance))
+                dist = MultivariateNormal(loc=mean, covariance_matrix=covariance)
+                reconstruction_loss = -dist.log_prob(signals[:, :, t].to(device)).mean()
                 epoch_loss = epoch_loss + reconstruction_loss.item()
                 reconstruction_loss.backward(retain_graph=True)
                 optimizer.step()
+
+                # label = signals[:, :, t:t + generator_model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
+                # optimizer.zero_grad()
+                # prediction = generator_model.forward_joint(signals[:, :, :t])
+                # reconstruction_loss = loss_criterion(prediction, label.to(device))
+                # epoch_loss = epoch_loss + reconstruction_loss.item()
+                # reconstruction_loss.backward(retain_graph=True)
+                # optimizer.step()
 
         test_loss = test_joint_feature_generator(generator_model, valid_loader)
         # train_loss_trend.append(epoch_loss / ((i + 1) * num))
@@ -596,9 +606,15 @@ def test_joint_feature_generator(model, test_loader):
         tvec = [int(tt) for tt in np.logspace(1.0,np.log10(signel_len), num=num)]
     for i, (signals, labels) in enumerate(test_loader):
         for t in tvec:
-            label = signals[:, :, t:t+model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
-            prediction = model.forward_joint(signals[:, :, :t])
-            loss = torch.nn.MSELoss()(prediction, label.to(device))
-            test_loss += loss.item()
+            mean, covariance = model.likelihood_distribution(signals[:, :, :t])
+            # dist = OMTMultivariateNormal(mean, torch.cholesky(covariance))
+            dist = MultivariateNormal(loc=mean, covariance_matrix=covariance)
+            reconstruction_loss = -dist.log_prob(signals[:, :, t].to(device)).mean()
+            test_loss = test_loss + reconstruction_loss.item()
+
+            # label = signals[:, :, t:t+model.prediction_size].contiguous().view(signals.shape[0], signals.shape[1])
+            # prediction = model.forward_joint(signals[:, :, :t])
+            # loss = torch.nn.MSELoss()(prediction, label.to(device))
+            # test_loss += loss.item()
 
     return test_loss/(i+1)
