@@ -198,7 +198,8 @@ if __name__ == '__main__':
         pred_batch_vec = []
         model.eval()
         for tt in t:
-            pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0))[0, 1].detach().cpu().numpy()
+            pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0)).detach().cpu().numpy()
+            pred_tt = np.argmax(pred_tt, -1)
             pred_batch_vec.append(pred_tt)
 
         gt_soft_score = np.zeros(gt_importance_test.shape)
@@ -233,6 +234,7 @@ if __name__ == '__main__':
                 axs[3].plot(t,
                             score_mean_shift[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
         axs[0].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
+        axs[0].plot(t, y[plot_id,1:], '--', linewidth=3, c='red')
         axs[0].tick_params(axis='both', labelsize=36)
         axs[2].tick_params(axis='both', labelsize=36)
         axs[1].tick_params(axis='both', labelsize=36)

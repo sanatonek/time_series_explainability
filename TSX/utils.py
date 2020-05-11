@@ -528,7 +528,7 @@ def test_cond(mean, covariance, sig_ind, x_ind):
 def shade_state_state_data(state_subj, t, ax, data='simulation'):
     cmap = plt.get_cmap("tab10")
     # Shade the state on simulation data plots
-    for ttt in range(1, len(t)):
+    for ttt in range(t[1], len(t)+1):
         if state_subj[ttt] == 0:
             ax.axvspan(ttt - 1, ttt, facecolor='g', alpha=0.3)
         elif state_subj[ttt] == 1:
@@ -544,7 +544,8 @@ def shade_state(gt_importance_subj, t, ax, data='simulation'):
 
     if not data == 'simulation_spike':
         prev_color = 'g' if np.argmax(gt_importance_subj[:, 1]) < np.argmax(gt_importance_subj[:, 2]) else 'y'
-        for ttt in range(1, len(t)):
+        print('######################', t[1])
+        for ttt in range(t[1], t[-1]):
             # state = np.argmax(gt_importance_subj[ttt, :])
             # ax.axvspan(ttt - 1, ttt, facecolor=cmap(state), alpha=0.3)
             if gt_importance_subj[ttt, 1] == 1:

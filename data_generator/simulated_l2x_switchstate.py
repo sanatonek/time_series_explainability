@@ -12,23 +12,27 @@ SIG_NUM = 3
 STATE_NUM = 3
 P_S0 = [1/3]
 
-imp_feature = [[0], [0], [0]]
+imp_feature = [[0], [1], [2]]
 correlated_feature = {0: {0: [1]} ,1: {1: [2]}, 2: {0:[1,2]}}
 scale = {0: [0.3, -0.4, 0.5], \
          1: [1.3, -0.4, 0.5],\
          2: [0.3, -0.4, 1.5]}
+transition_matrix = [[0.9, 0.05, 0.05],
+                     [0.05, 0.9, 0.05],
+                     [0.05, 0.05, 0.9]]
+
 
 def init_distribution_params():
     # Covariance matrix is constant across states but distribution means change based on the state value
     state_count = STATE_NUM
-    cov = np.eye(SIG_NUM)*0.8
+    cov = np.eye(SIG_NUM)*0.1
     covariance = []
     for i in range(state_count):
         c = cov.copy()
         for j in correlated_feature[i].keys():
             c[j,correlated_feature[i][j]] = 0.01
             c[correlated_feature[i][j], j] = 0.01
-        c = c + np.eye(SIG_NUM)*1e-3
+        # c = c + np.eye(SIG_NUM)*1e-3
         #print(c)
         covariance.append(c)
     covariance = np.array(covariance)
@@ -41,17 +45,18 @@ def init_distribution_params():
 
 
 def next_state(previous_state, t):
-    if previous_state == 0:
-        params = 0.85
-    elif previous_state==1:
-        params = 0.85
-    else:
-        params = 0.85
-
-    params = params - float(t / 500) if params > 0.7 else params
-    p_vec  = np.zeros(STATE_NUM)
-    p_vec[previous_state] = params
-    p_vec[np.setdiff1d([0,1,2], previous_state)] = (1-params)/2.
+    p_vec = transition_matrix[previous_state]
+    # if previous_state == 0:
+    #     params = 0.9
+    # elif previous_state==1:
+    #     params = 0.9
+    # else:
+    #     params = 0.9
+    #
+    # params = params - float(t / 500) if params > 0.7 else params
+    # p_vec = np.zeros(STATE_NUM)
+    # p_vec[previous_state] = params
+    # p_vec[np.setdiff1d([0,1,2], previous_state)] = (1-params)/2.
     next_st = np.random.choice([0,1,2], p=p_vec)
     return next_st
 
@@ -126,6 +131,7 @@ def create_signal(sig_len, gp_params, mean, cov):
     previous_label = None
     delta_state = 0
 
+    y_logit_past = 1
     for ii in range(sig_len):
         next_st = next_state(previous, delta_state)
         state_n = next_st
@@ -148,7 +154,9 @@ def create_signal(sig_len, gp_params, mean, cov):
         y_probs = generate_linear_labels(sample_ii[:, imp_feature[state_n]])
         
         y_logit = y_probs[0][1]
-        y_label = np.random.binomial(1, y_logit)
+        # y_label = np.random.binomial(1, y_logit)
+        y_label = np.random.binomial(1, (y_logit+y_logit_past)/2)
+        y_logit_past = y_logit
 
         imp_sig = np.zeros(SIG_NUM)
 
@@ -261,7 +269,7 @@ if __name__ == '__main__':
     if not os.path.exists('./data'):
         os.mkdir('./data')
     parser = argparse.ArgumentParser()
-    parser.add_argument('--signal_len', type=int, default=100, help='Length of the signal to generate')
+    parser.add_argument('--signal_len', type=int, default=50, help='Length of the signal to generate')
     parser.add_argument('--signal_num', type=int, default=1000, help='Number of the signals to generate')
     parser.add_argument('--plot', action='store_true')
     args = parser.parse_args()
