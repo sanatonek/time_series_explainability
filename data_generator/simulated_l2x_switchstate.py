@@ -14,12 +14,13 @@ P_S0 = [1/3]
 
 imp_feature = [[0], [1], [2]]
 correlated_feature = {0: {0: [1]} ,1: {1: [2]}, 2: {0:[1,2]}}
-scale = {0: [0.3, -0.4, 0.5], \
-         1: [1.3, -0.4, 0.5],\
-         2: [0.3, -0.4, 1.5]}
-transition_matrix = [[0.9, 0.05, 0.05],
-                     [0.05, 0.9, 0.05],
-                     [0.05, 0.05, 0.9]]
+scale = {0: [0.8, -0.5, -0.2], \
+         1: [0, -1.0, 0],\
+         2: [-0.2, -0.2, 0.8]}
+
+transition_matrix = [[0.95, 0.02, 0.03],
+                     [0.02, 0.95, 0.03],
+                     [0.03, 0.02, 0.95]]
 
 
 def init_distribution_params():
@@ -29,9 +30,9 @@ def init_distribution_params():
     covariance = []
     for i in range(state_count):
         c = cov.copy()
-        for j in correlated_feature[i].keys():
-            c[j,correlated_feature[i][j]] = 0.01
-            c[correlated_feature[i][j], j] = 0.01
+        # for j in correlated_feature[i].keys():
+        #     c[j,correlated_feature[i][j]] = 0.01
+        #     c[correlated_feature[i][j], j] = 0.01
         # c = c + np.eye(SIG_NUM)*1e-3
         #print(c)
         covariance.append(c)
@@ -66,7 +67,7 @@ def state_decoder(previous, next_st):
 
 
 def generate_linear_labels(X):
-    logit = np.exp(-2*np.sum(X, axis=1))
+    logit = np.exp(-3*np.sum(X, axis=1))
 
     prob_1 = np.expand_dims(1 / (1 + logit), 1)
     prob_0 = np.expand_dims(logit / (1 + logit), 1)
@@ -143,7 +144,6 @@ def create_signal(sig_len, gp_params, mean, cov):
 
         
         sample_ii = np.random.multivariate_normal(mean[state_n], cov[state_n])
-        previous = state_n
         signal.append(sample_ii)
 
         sample_ii = (sample_ii).reshape((1, -1))
@@ -154,17 +154,19 @@ def create_signal(sig_len, gp_params, mean, cov):
         y_probs = generate_linear_labels(sample_ii[:, imp_feature[state_n]])
         
         y_logit = y_probs[0][1]
-        # y_label = np.random.binomial(1, y_logit)
-        y_label = np.random.binomial(1, (y_logit+y_logit_past)/2)
+        y_label = np.random.binomial(1, y_logit)
+        # y_label = np.random.binomial(1, (y_logit+y_logit_past)/2)
         y_logit_past = y_logit
 
         imp_sig = np.zeros(SIG_NUM)
 
-        imp_sig[imp_feature[state_n]] = 1
-        imp_sig[-1] = 1
+        if previous!=state_n:
+            imp_sig[imp_feature[state_n]] = 1
+            imp_sig[-1] = 1
         importance.append(imp_sig)
 
         previous_label = y_label
+        previous = state_n
 
         y.append(y_label)
         y_logits.append(y_logit)
@@ -269,7 +271,7 @@ if __name__ == '__main__':
     if not os.path.exists('./data'):
         os.mkdir('./data')
     parser = argparse.ArgumentParser()
-    parser.add_argument('--signal_len', type=int, default=50, help='Length of the signal to generate')
+    parser.add_argument('--signal_len', type=int, default=100, help='Length of the signal to generate')
     parser.add_argument('--signal_num', type=int, default=1000, help='Number of the signals to generate')
     parser.add_argument('--plot', action='store_true')
     args = parser.parse_args()

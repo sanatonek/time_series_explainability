@@ -12,7 +12,7 @@ import pandas as pd
 from scipy import interpolate
 
 from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank, plot_heatmap_text
-from TSX.models import StateClassifier, RETAIN
+from TSX.models import StateClassifier, RETAIN, TrueClassifier
 from TSX.generator import JointFeatureGenerator, JointDistributionGenerator
 from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
@@ -64,10 +64,11 @@ if __name__ == '__main__':
             model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'retain'))))
 
     else:
+        # model = TrueClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
         model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
         if args.train:
             optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-3)
-            train_model_rt(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=140,
+            train_model_rt(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=50,
                            device=device, experiment='model', data=args.data)
         model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
 
@@ -159,7 +160,7 @@ if __name__ == '__main__':
         #print(np.any(np.isnan(gt_importance_test)), np.any(np.isnan(ranked_features)), np.any(np.isnan(score)))
 
         # Print results
-        plot_id = 3
+        plot_id = 5
 
         f, axs = plt.subplots(3)
         f.set_figheight(6)
@@ -199,30 +200,31 @@ if __name__ == '__main__':
         model.eval()
         for tt in t:
             pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0)).detach().cpu().numpy()
-            pred_tt = np.argmax(pred_tt, -1)
+            # pred_tt = np.argmax(pred_tt, -1)
+            pred_tt = pred_tt[:,-1]
             pred_batch_vec.append(pred_tt)
 
         gt_soft_score = np.zeros(gt_importance_test.shape)
 
-        if args.gt == 'pred_model':
-            for tt in t:
-                if tt>1:
-                    #p_y_t = self.base_model(x[:, :, :min((tt + 1), t_len)])
-                    #labels = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
-                    #labels = p_y_t.cpu().detach().numpy()[:,1]
-                    label_change = abs((pred_batch_vec[tt-1][:,1]-pred_batch_vec[tt-2][:,1]).reshape(-1,1))
-                    gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
-                       gt_importance_test[:,:,tt-1])
-        elif args.gt == 'true_model':
-            for tt in t:
-                if tt>1:
-                    label_change = abs((y[:,tt-1]-y[:,tt-2]).cpu().detach().numpy().reshape(-1,1))
-                    gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
-                       gt_importance_test[:,:,tt-1])
-
-                    logits_change = abs((logits_test[:,tt-1]-logits_test[:,tt-2]).reshape(-1,1))
-                    gt_soft_score[:,:,tt-1] = np.multiply(np.repeat(logits_change,x.shape[1],axis=1), \
-                       gt_importance_test[:,:,tt-1])
+        # if args.gt == 'pred_model':
+        #     for tt in t:
+        #         if tt>1:
+        #             #p_y_t = self.base_model(x[:, :, :min((tt + 1), t_len)])
+        #             #labels = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
+        #             #labels = p_y_t.cpu().detach().numpy()[:,1]
+        #             label_change = abs((pred_batch_vec[tt-1][:,1]-pred_batch_vec[tt-2][:,1]).reshape(-1,1))
+        #             gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
+        #                gt_importance_test[:,:,tt-1])
+        # elif args.gt == 'true_model':
+        #     for tt in t:
+        #         if tt>1:
+        #             label_change = abs((y[:,tt-1]-y[:,tt-2]).cpu().detach().numpy().reshape(-1,1))
+        #             gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
+        #                gt_importance_test[:,:,tt-1])
+        #
+        #             logits_change = abs((logits_test[:,tt-1]-logits_test[:,tt-2]).reshape(-1,1))
+        #             gt_soft_score[:,:,tt-1] = np.multiply(np.repeat(logits_change,x.shape[1],axis=1), \
+        #                gt_importance_test[:,:,tt-1])
 
         gt_importance_test.astype(int)
 

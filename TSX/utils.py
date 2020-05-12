@@ -158,7 +158,7 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
         for i, (signals, labels) in enumerate(train_loader):
             # signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
             signals, labels = signals.to(device), labels.to(device)
-            if data == 'simulation':
+            if 'simulation' in data:
                 num = 20
                 time_points = [int(tt) for tt in np.linspace(1, signals.shape[-1] - 2, num=num)]
             else:
@@ -207,8 +207,8 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
                   ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset) * test_num)),
                   ' AUC: %.2f' % (auc_test))
 
-    test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model, valid_loader)
-    print('Test loss: ', test_loss)
+    test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model, valid_loader, num=test_num)
+    print('Test AUC: ', auc_test)
 
     # Save model and results
     if not os.path.exists(os.path.join("./ckpt/", data)):
@@ -232,7 +232,7 @@ def train_model_rt_rg(model, train_loader, valid_loader, optimizer, n_epochs, de
     for epoch in range(n_epochs):
         model.train()
         epoch_loss = 0
-        num = 50
+        num = 20
         for i, (signals, labels) in enumerate(train_loader):
             signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
             for t in [int(tt) for tt in np.linspace(0, signals.shape[2] - 1, num=num)]:
@@ -530,11 +530,11 @@ def shade_state_state_data(state_subj, t, ax, data='simulation'):
     # Shade the state on simulation data plots
     for ttt in range(t[1], len(t)+1):
         if state_subj[ttt] == 0:
-            ax.axvspan(ttt - 1, ttt, facecolor='g', alpha=0.3)
+            ax.axvspan(ttt - 1, ttt, facecolor='b', alpha=0.3)
         elif state_subj[ttt] == 1:
-            ax.axvspan(ttt - 1, ttt, facecolor='y', alpha=0.3)
+            ax.axvspan(ttt - 1, ttt, facecolor='orange', alpha=0.3)
         elif state_subj[ttt] == 2:
-            ax.axvspan(ttt - 1, ttt, facecolor='m', alpha=0.3)
+            ax.axvspan(ttt - 1, ttt, facecolor='green', alpha=0.3)
 
 def shade_state(gt_importance_subj, t, ax, data='simulation'):
     cmap = plt.get_cmap("tab10")
