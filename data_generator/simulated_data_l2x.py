@@ -65,7 +65,7 @@ def generate_XOR_labels(X):
 
 
 def generate_orange_labels(X):
-    logit = np.exp(np.sum(X[:, :4] ** 2, axis=1) - 1.5)
+    logit = np.exp(np.sum(X[:, :4] ** 2, axis=1) - 4.0)
 
     prob_1 = np.expand_dims(1 / (1 + logit), 1)
     prob_0 = np.expand_dims(logit / (1 + logit), 1)
@@ -76,7 +76,7 @@ def generate_orange_labels(X):
 
 
 def generate_additive_labels(X):
-    logit = np.exp(-10 * np.sin(-0.2 * X[:, 0]) + 0.5*X[:, 1] + X[:, 2] + np.exp(X[:, 3]) - 0.8)
+    logit = np.exp(-10 * np.sin(-0.2 * X[:, 0]) + abs(X[:, 1]) + X[:, 2] + np.exp(-X[:, 3]) - 2.4)
 
     prob_1 = np.expand_dims(1 / (1 + logit), 1)
     prob_0 = np.expand_dims(logit / (1 + logit), 1)
@@ -109,7 +109,7 @@ def create_signal(sig_len, gp_params):
             delta_state = 0
 
 
-        sample[-1, ii] = 1 * (1 - state_n) + -1 * state_n
+        sample[-1, ii] = 0.5 * (1 - state_n) + -0.5 * state_n
         previous = state_n
         #signal.append(sample_ii)
 
@@ -230,7 +230,7 @@ def create_dataset(count, signal_len):
     with open('./data/simulated_data_l2x/state_dataset_states_test.pkl', 'wb') as f:
         pickle.dump(states[n_train:], f)
 
-    return dataset, labels, states
+    return dataset, labels, states,label_logits
 
 
 if __name__ == '__main__':
@@ -243,7 +243,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     np.random.seed(234)
-    dataset, labels, states = create_dataset(args.signal_num, args.signal_len)
+    dataset, labels, states,label_logits = create_dataset(args.signal_num, args.signal_len)
 
     if args.plot:
         import matplotlib.pyplot as plt
@@ -271,12 +271,12 @@ if __name__ == '__main__':
                 state_1_1.append(labels[idx1[0][c], idx1[1][c]])
         x1.hist(state_0_0,label='label 0')
         x1.hist(state_0_1, label = 'label 1')
-        x1.set_title('state 0')
+        x1.set_title('state 0: orange')
         x1.legend()
         
         x2.hist(state_1_0,label='label 0')
         x2.hist(state_1_1,label = 'label 1')
-        x2.set_title('state 1')
+        x2.set_title('state 1: additive')
         x2.legend()
         plt.savefig('plot.pdf')
 
@@ -295,3 +295,14 @@ if __name__ == '__main__':
             x1.set_title('Distribution based on label')
             x2.set_title('Distribution based on state')
         plt.savefig('plot2.pdf')
+
+        plot_id=2
+        f= plt.figure(figsize=(18,9))
+        x1 = f.subplots()
+        for i in range(SIG_NUM):
+            x1.plot(range(dataset.shape[2]), dataset[plot_id, i, :], linewidth=1, label='feature %d' % (0))
+        #x1.plot(range(dataset.shape[2]), dataset[plot_id, 1, :], linewidth=3, label='feature %d' % (1))
+        #x1.plot(range(dataset.shape[2]), dataset[plot_id, 2, :], linewidth=3, label='feature %d' % (2))
+        x1.plot(range(dataset.shape[2]), label_logits[plot_id, :], linewidth=3, label='label')
+        plt.legend()
+        plt.savefig('plotsample_l2x.pdf')
