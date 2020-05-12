@@ -62,7 +62,7 @@ class FITExplainer:
 
     def fit_generator(self, generator_model, train_loader, test_loader, n_epochs=300):
         train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint_generator',
-                                      n_epochs=500, lr=0.001, weight_decay=0)
+                                      n_epochs=300, lr=0.001, weight_decay=0)
         self.generator = generator_model.to(self.device)
 
     def attribute(self, x, y, n_samples=10, retrospective=False, distance_metric='kl'):
@@ -177,7 +177,7 @@ class FOExplainer:
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
                 for _ in range(n_samples):
-                    x_hat[:, i, t] = torch.Tensor(np.random.uniform(-3,+3, size=(len(x),)))#torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
+                    x_hat[:, i, t] = torch.Tensor(np.random.uniform(-1.5,+1.5, size=(len(x),)))#torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
                     y_hat_t = self.base_model(x_hat)
                     # kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
                     kl = torch.abs(y_hat_t-p_y_t)
