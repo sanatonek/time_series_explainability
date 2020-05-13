@@ -11,8 +11,8 @@ import time
 import pandas as pd
 from scipy import interpolate
 
-from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank, plot_heatmap_text
-from TSX.models import StateClassifier, RETAIN, TrueClassifier
+from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank, plot_heatmap_text, train_model_rt_binary
+from TSX.models import StateClassifier, RETAIN, EncoderRNN #, TrueClassifier
 from TSX.generator import JointFeatureGenerator, JointDistributionGenerator
 from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
@@ -29,15 +29,22 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--generator_type', type=str, default='history')
+    parser.add_argument('--binary', action='store_true', default=False)
     parser.add_argument('--gt', type=str, default='true_model', help='specify ground truth score')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if args.data == 'simulation':
         feature_size = 3
         data_path = './data/simulated_data'
+        data_type='state'
     elif args.data == 'simulation_l2x':
         feature_size = 3
         data_path = './data/simulated_data_l2x'
+        data_type='state'
+    elif args.data == 'simulation_spike':
+        feature_size = 3
+        data_path = './data/simulated_spike_data'
+        data_type='spike'
 
     output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s' % args.data
     if not os.path.exists(output_path):
@@ -48,7 +55,7 @@ if __name__ == '__main__':
 
     # Load data
     _, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, datapath=data_path,
-                                                                     percentage=0.8)
+                                                                     percentage=0.8, data_type=data_type)
 
 
     # Prepare model to explain
@@ -64,12 +71,22 @@ if __name__ == '__main__':
             model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'retain'))))
 
     else:
-        # model = TrueClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
-        model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
+        if not args.binary:
+            # model = TrueClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
+            model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
+        else:
+            model = EncoderRNN(feature_size=feature_size, hidden_size=50, regres=True, return_all=False, data=args.data, rnn="GRU")
         if args.train:
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-3)
-            train_model_rt(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=50,
+            if args.binary:
+                optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-3)
+                train_model_rt(model=model, train_loader=train_loader, valid_loader=valid_loader, optimizer=optimizer, n_epochs=50,
                            device=device, experiment='model', data=args.data)
+            else:
+                #this learning rate works much better for spike data
+                optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-3)
+                train_model_rt_binary(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=120,
+                           device=device, experiment='model', data=args.data)
+
         model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
 
         if args.explainer == 'fit':
@@ -129,22 +146,17 @@ if __name__ == '__main__':
         model.to(device)
         x = x.to(device)
         y = y.to(device)
-        with open(os.path.join(data_path, 'state_dataset_importance_test.pkl'), 'rb') as f:
-            gt_importance_test = pkl.load(f)
-        with open(os.path.join(data_path, 'state_dataset_states_test.pkl'),'rb') as f:
-            state_test = pkl.load(f)
-        with open(os.path.join(data_path, 'state_dataset_logits_test.pkl'),'rb') as f:
-            logits_test = pkl.load(f)
 
-        #
-        # n_avg = 1
-        # for i in range(n_avg):
-        #     if i==0:
-        #         score, labels = explainer.attribute(x, y[:, -1].long())
-        #     else:
-        #         scorez,_ = explainer.attribute(x, y[:, -1].long())
-        #         score +=scorez
-        # score /= n_avg
+        if data_type == 'state':
+            with open(os.path.join(data_path, 'state_dataset_importance_test.pkl'), 'rb') as f:
+                gt_importance_test = pkl.load(f)
+            with open(os.path.join(data_path, 'state_dataset_states_test.pkl'),'rb') as f:
+                state_test = pkl.load(f)
+            with open(os.path.join(data_path, 'state_dataset_logits_test.pkl'),'rb') as f:
+                logits_test = pkl.load(f)
+        elif data_type == 'spike':
+            with open(os.path.join(data_path, 'gt_test.pkl'), 'rb') as f:
+                gt_importance_test = pkl.load(f)
 
         score = explainer.attribute(x, y[:, -1].long())
         ranked_features = np.array([((-(score[n])).argsort(0).argsort(0) + 1) \
@@ -155,7 +167,7 @@ if __name__ == '__main__':
         ranked_feats.append(ranked_features)
         labels = np.zeros((x.shape[0], x.shape[-1]))
         for t in range(1, x.shape[-1]):
-            p_y_t = explainer.base_model(x[:, :, :t + 1])
+            p_y_t = explainer.base_model(x[:, :, :t + 1], return_multi=True)
             labels[:, t - 1] = np.array([p > 0.5 for p in p_y_t.cpu().detach().numpy()[:, 1]]).flatten()
         #print(np.any(np.isnan(gt_importance_test)), np.any(np.isnan(ranked_features)), np.any(np.isnan(score)))
 
@@ -175,8 +187,6 @@ if __name__ == '__main__':
             f = interpolate.interp1d(score_pd['t'], score_pd['f%d'%feat], fill_value="extrapolate")
             f_score = interpolate.interp1d(score_pd['t'], score_pd['s%d'%feat], fill_value="extrapolate")
             xnew = np.arange(1, gt_importance_test[plot_id].shape[-1]-0.99, 0.01)
-            # print(xnew)
-            # print(score_pd['t'])
             ynew = f(xnew)
             score_new = f_score(xnew)
             # axs[feat-1].scatter(xnew, ynew, c=cm.hot(score_new/2.+0.5), edgecolor='none')
@@ -190,45 +200,42 @@ if __name__ == '__main__':
 
 
         t_len = gt_importance_test[plot_id].shape[-1]
-        #print('gt_importance', gt_importance_test)
-        #print('median scores:', np.median(ranked_features,axis=0))
         f, axs = plt.subplots(4 if args.explainer=='fit' else 3)
+
         plot_heatmap_text(ranked_features[plot_id,:,1:], score[plot_id,:,1:],
                           os.path.join(plot_path, '%s_example_heatmap.pdf' % args.explainer),axs[1])
         t = np.arange(1, t_len)
         pred_batch_vec = []
         model.eval()
         for tt in t:
-            pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0)).detach().cpu().numpy()
-            # pred_tt = np.argmax(pred_tt, -1)
+            pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0),return_multi=True).detach().cpu().numpy()
             pred_tt = pred_tt[:,-1]
             pred_batch_vec.append(pred_tt)
+            #pred.append(pred_tt)
 
         gt_soft_score = np.zeros(gt_importance_test.shape)
 
-        # if args.gt == 'pred_model':
-        #     for tt in t:
-        #         if tt>1:
-        #             #p_y_t = self.base_model(x[:, :, :min((tt + 1), t_len)])
-        #             #labels = np.array([p>0.5 for p in p_y_t.cpu().detach().numpy()[:,1]]).flatten()
-        #             #labels = p_y_t.cpu().detach().numpy()[:,1]
-        #             label_change = abs((pred_batch_vec[tt-1][:,1]-pred_batch_vec[tt-2][:,1]).reshape(-1,1))
-        #             gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
-        #                gt_importance_test[:,:,tt-1])
-        # elif args.gt == 'true_model':
-        #     for tt in t:
-        #         if tt>1:
-        #             label_change = abs((y[:,tt-1]-y[:,tt-2]).cpu().detach().numpy().reshape(-1,1))
-        #             gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
-        #                gt_importance_test[:,:,tt-1])
-        #
-        #             logits_change = abs((logits_test[:,tt-1]-logits_test[:,tt-2]).reshape(-1,1))
-        #             gt_soft_score[:,:,tt-1] = np.multiply(np.repeat(logits_change,x.shape[1],axis=1), \
-        #                gt_importance_test[:,:,tt-1])
+        if data_type=='state':
+            shade_state_state_data(state_test[plot_id], t, axs[0])
+            '''
+            if args.gt == 'pred_model':
+                for tt in t:
+                    if tt>1:
+                        label_change = abs((pred_batch_vec[tt-1][:,1]-pred_batch_vec[tt-2][:,1]).reshape(-1,1))
+                        gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
+                        gt_importance_test[:,:,tt-1])
+            elif args.gt == 'true_model':
+                for tt in t:
+                    if tt>1:
+                        label_change = abs((y[:,tt-1]-y[:,tt-2]).cpu().detach().numpy().reshape(-1,1))
+                        gt_importance_test[:,:,tt-1] = np.multiply(np.repeat(label_change,x.shape[1],axis=1), \
+                        gt_importance_test[:,:,tt-1])
 
+                        logits_change = abs((logits_test[:,tt-1]-logits_test[:,tt-2]).reshape(-1,1))
+                        gt_soft_score[:,:,tt-1] = np.multiply(np.repeat(logits_change,x.shape[1],axis=1), \
+                        gt_importance_test[:,:,tt-1])
+            '''
         gt_importance_test.astype(int)
-
-        shade_state_state_data(state_test[plot_id], t, axs[0])
         for i, ref_ind in enumerate(range(x[plot_id].shape[0])):
             axs[0].plot(t, x[plot_id, ref_ind, 1:].cpu().numpy(), linewidth=3, label='feature %d' % (i))
             axs[2].plot(t, score[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
@@ -236,13 +243,13 @@ if __name__ == '__main__':
                 axs[3].plot(t,
                             score_mean_shift[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
         axs[0].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
-        axs[0].plot(t, y[plot_id,1:], '--', linewidth=3, c='red')
+        axs[0].plot(t, y[plot_id,1:].cpu().numpy(), '--', linewidth=3, c='red')
         axs[0].tick_params(axis='both', labelsize=36)
         axs[2].tick_params(axis='both', labelsize=36)
         axs[1].tick_params(axis='both', labelsize=36)
-        axs[0].margins(0.0)
-        axs[2].margins(0.0)
-        axs[1].margins(0.0)
+        axs[0].margins(0.03)
+        axs[2].margins(0.03)
+        axs[1].margins(0.03)
 
         # axs[0].grid()
         f.set_figheight(80)
@@ -255,11 +262,6 @@ if __name__ == '__main__':
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' %name), dpi=300, bbox_inches='tight')
 
-        # explainer_score = score.flatten()
-        # gt_score = gt_importance_test[:n_samples].flatten()
-        #
-        # print('auc:' ,metrics.roc_auc_score(gt_score,explainer_score), ' aupr:', metrics.average_precision_score(
-        # gt_score,explainer_score))
 
     importance_scores = np.concatenate(importance_scores, 0)
     ranked_feats = np.concatenate(ranked_feats,0)
