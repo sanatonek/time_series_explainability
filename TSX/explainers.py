@@ -17,6 +17,8 @@ from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
 import lime
 import lime.lime_tabular
 
+eps = 1e-10
+
 
 # class DistGenerator:
 #     def __init__(self, model, train_loader, n_componenets=5):
@@ -101,9 +103,8 @@ class FITExplainer:
                     elif distance_metric == 'mean_divergence':
                         div = torch.abs(y_hat_t - p_y_t)
                         div_all.append(np.mean(div.detach().cpu().numpy(), -1))
-                E_div = np.mean(np.array(div_all), axis=0)
-                if distance_metric=='kl':
-                    # print('********** E_div')
+                E_div = np.mean(np.array(div_all),axis=0)
+                if distance_metric =='kl':
                     score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
                 elif distance_metric=='mean_divergence':
                     score[:, i, t] = 1-E_div
@@ -133,19 +134,18 @@ class FFCExplainer:
         _, n_features, t_len = x.shape
         score = np.zeros(x.shape)
         if retrospective:
-            p_y_t = self.base_model(x)
-
+            p_y_t = self.base_model(x, return_multi=True)
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)])
+                p_y_t = self.base_model(x[:, :, :min((t+1), t_len)], return_multi=True)
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
                 for _ in range(n_samples):
                     x_hat_t = self.generator.forward_joint(x[:, :, :t])
                     x_hat[:, i, t] = x_hat_t[:,i]
-                    y_hat_t = self.base_model(x_hat)
-                    kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
+                    y_hat_t = self.base_model(x_hat, return_multi=True)
+                    kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t + eps), p_y_t)
                     kl_all.append(torch.sum(kl, -1).detach().cpu().numpy())
                 E_kl = np.mean(np.array(kl_all),axis=0)
                 score[:,i,t] =E_kl #* 1e-6
@@ -169,7 +169,6 @@ class FOExplainer:
         score = np.zeros(x.shape)
         if retrospective:
             p_y_t = self.base_model(x)
-
         for t in range(1, t_len):
             if not retrospective:
                 p_y_t = self.base_model(x[:, :, :t+1])

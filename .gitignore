@@ -1,8 +1,16 @@
+#ignore pdf and jpg for now
+._*.pdf
+._*.py
+.nfs*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
+#IDE/OS specific files
+.DS_Store
+._.DS_Store
+.idea
 # C extensions
 *.so
 

@@ -28,33 +28,32 @@ intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epi
                      'nivdurations']
 
 
-# def evaluate(labels, predicted_label, predicted_probability):
-#     labels_array = np.array(labels.cpu())
-#     prediction_array = np.array(predicted_label.cpu())
-#     if len(np.unique(labels_array)) < 2:
-#         auc = 0
-#     else:
-#         auc = roc_auc_score(np.array(labels.cpu()), np.array(predicted_probability.view(len(labels), -1).detach().cpu()))
-#     recall = torch.matmul(labels, predicted_label).item()
-#     precision = precision_score(labels_array, prediction_array)
-#     correct_label = torch.eq(labels, predicted_label).sum()
-#     return auc, recall, precision, correct_label
+def evaluate_binary(labels, predicted_label, predicted_probability):
+    labels_array = np.array(labels.cpu())
+    prediction_array = np.array(predicted_label.cpu())
+    if len(np.unique(labels_array)) < 2:
+        auc = 0
+    else:
+        auc = roc_auc_score(np.array(labels.cpu()), np.array(predicted_probability.view(len(labels), -1).detach().cpu()))
+    recall = torch.matmul(labels, predicted_label).item()
+    precision = precision_score(labels_array, prediction_array)
+    correct_label = torch.eq(labels, predicted_label).sum()
+    return auc, recall, precision, correct_label
 
 def evaluate(labels, predicted_label, predicted_probability):
     labels_array = labels.detach().cpu().numpy()
     prediction_array = predicted_label.detach().cpu().numpy()
-    l_idx = []
-    for l in range(labels_array.shape[1]):
-        if len(np.unique(labels_array[:, l])) >= 2:
-            l_idx.append(l)
-    auc = roc_auc_score(labels_array[:, l_idx], np.array(predicted_probability[:, l_idx].detach().cpu()))
-    report = classification_report(labels_array, prediction_array, labels=list(range(labels_array.shape[1])),
-                                   output_dict=True)
-    recall = 0
-    precision = 0
-    correct_label = 0
-    recall = report['macro avg']['recall']
-    precision = report['macro avg']['precision']
+    
+    #print(labels_array.shape, predicted_label.shape, predicted_probability.shape)
+    if len(np.unique(labels_array[:, 1])) >= 2:
+        auc = roc_auc_score(labels_array[:, 1], np.array(predicted_probability[:, 1].detach().cpu()))
+        report = classification_report(labels_array[:,1], prediction_array[:,1], output_dict=True)
+        recall = report['macro avg']['recall']
+        precision = report['macro avg']['precision']
+    else:
+        auc = 0
+        recall = 0
+        precision = 0
     correct_label = np.equal(np.argmax(labels_array, 1), np.argmax(prediction_array, 1)).sum()
     return auc, recall, precision, correct_label
 
@@ -162,13 +161,14 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
                 num = 20
                 time_points = [int(tt) for tt in np.linspace(1, signals.shape[-1] - 2, num=num)]
             else:
-                time_points = [int(tt) for tt in np.logspace(0, np.log10(signals.shape[2] - 1), num=num)]
+                time_points = [int(tt) for tt in np.logspace(1, np.log10(signals.shape[2] - 1), num=num)]
             for t in time_points:
                 input_signal = signals[:, :, :t + 1]
                 label = labels[:, t]
 
                 optimizer.zero_grad()
                 predictions = model(input_signal)
+
                 label_onehot = torch.zeros(predictions.shape).to(device)
                 pred_onehot = torch.zeros(predictions.shape).to(device)
                 _, predicted_label = predictions.max(1)
@@ -209,6 +209,66 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
 
     test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt(model, valid_loader, num=test_num)
     print('Test AUC: ', auc_test)
+
+    # Save model and results
+    if not os.path.exists(os.path.join("./ckpt/", data)):
+        os.mkdir(os.path.join("./ckpt/", data))
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
+    plt.plot(train_loss_trend, label='Train loss')
+    plt.plot(test_loss_trend, label='Validation loss')
+    plt.legend()
+    plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
+
+def train_model_rt_binary(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=5):
+    train_loss_trend = []
+    test_loss_trend = []
+
+    model.to(device)
+    loss_criterion = torch.nn.BCEWithLogitsLoss()
+    for epoch in range(n_epochs):
+        model.train()
+        recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
+        for i, (signals,labels) in enumerate(train_loader):
+            signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+            if data=='simulation':
+                time_points = [int(tt) for tt in np.linspace(1,signals.shape[2]-2, num=num)]
+            else:
+                time_points = [int(tt) for tt in np.logspace(0, np.log10(signals.shape[2] - 1), num=num)]
+
+            for t in time_points:
+                predictions_logits = model(signals[:,:,:t+1])
+                predictions = torch.sigmoid(predictions_logits)
+                predicted_label = (predictions > 0.5).float()
+                labels_th = labels[:,t].float()
+                auc, recall, precision, correct = evaluate_binary(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
+                correct_label_train += correct
+                auc_train += auc
+                recall_train += recall
+                precision_train += precision
+                count += 1
+                optimizer.zero_grad()
+                reconstruction_loss = loss_criterion(predictions_logits, labels[:,t].view(-1,1).to(device))
+                epoch_loss += reconstruction_loss.item()
+                reconstruction_loss.backward()
+                optimizer.step()
+
+        test_num=num
+        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt_binary(model,valid_loader,num=test_num)
+
+        train_loss_trend.append(epoch_loss/((i+1)*num))
+        test_loss_trend.append(test_loss)
+
+        if epoch % 10 == 0:
+            print('\nEpoch %d' % (epoch))
+            print('Training ===>loss: ', epoch_loss/((i+1)*num),
+                  ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset)*num)),
+                  ' AUC: %.2f' % (auc_train/((i+1)*num)))
+            print('Test ===>loss: ', test_loss,
+                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset)*test_num)),
+                  ' AUC: %.2f' % (auc_test))
+
+    test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_rt_binary(model, valid_loader)
+    print('Test loss: ', test_loss)
 
     # Save model and results
     if not os.path.exists(os.path.join("./ckpt/", data)):
@@ -276,10 +336,20 @@ def test_model_rt(model, test_loader, num=1):
     test_loss = 0
     for i, (signals, labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+        #print('testmodel', labels.shape)
         for t in [int(tt) for tt in np.linspace(0, signals.shape[2] - 2, num=num)]:
-            label_onehot = torch.FloatTensor(labels.shape[0], labels.shape[1]).to(device)
-            pred_onehot = torch.FloatTensor(labels.shape[0], labels.shape[1]).to(device)
-            predictions = model(signals[:, :, :t + 1])
+            label = labels[:,t].view(-1,1)
+            label_onehot = torch.FloatTensor(label.shape[0], 2).to(device)
+            pred_onehot = torch.FloatTensor(label.shape[0], 2).to(device)
+            preds = model(signals[:, :, :t + 1])
+
+            if preds.shape[1]==1 and 0:
+                predictions = torch.cuda.FloatTensor(preds.shape[0], 2).fill_(0)
+                predictions[:,1] = preds[:,0]
+                predictions[:,0] = 1-preds[:,0]
+            else:
+                predictions = preds
+
             _, predicted_label = predictions.max(1)
             pred_onehot.zero_()
             pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
@@ -288,17 +358,6 @@ def test_model_rt(model, test_loader, num=1):
             label_onehot.scatter_(1, labels[:, t].long().view(-1, 1), 1)
             # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
             auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, predictions)
-
-            # for t in [24]:
-            # prediction = model(signals[:,:,:t+1])
-            #
-            # # Multi-class classification
-            # if prediction.shape[1] > 1:
-            #     prediction = prediction[:, -1]
-            #
-            # predicted_label = (prediction > 0.5).float()
-            # labels_th = (labels[:,t] > 0.5).float()
-            # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))
             correct_label_test += correct
             auc_test += auc
             recall_test += recall
@@ -310,6 +369,34 @@ def test_model_rt(model, test_loader, num=1):
 
     test_loss = test_loss / ((i + 1) * num)
     return test_loss, recall_test, precision_test, auc_test / ((i + 1) * num), correct_label_test
+
+def test_model_rt_binary(model,test_loader,num=1):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.to(device)
+    model.eval()
+    correct_label_test = 0
+    recall_test, precision_test, auc_test = 0, 0, 0
+    count = 0
+    test_loss = 0
+    for i, (signals,labels) in enumerate(test_loader):
+        signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+        for t in [int(tt) for tt in np.linspace(0,signals.shape[2]-2,num=num)]:
+        #for t in [24]:
+            prediction_logits = model(signals[:,:,:t+1])
+            prediction = torch.sigmoid(prediction_logits)
+            predicted_label = (prediction > 0.5).float()
+            labels_th = labels[:,t].float()
+            auc, recall, precision, correct = evaluate_binary(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), prediction.contiguous().view(-1))
+            correct_label_test += correct
+            auc_test += auc
+            recall_test +=  recall
+            precision_test +=  precision
+            count +=  1
+            loss = torch.nn.BCEWithLogitsLoss()(prediction_logits, labels[:,t].view(-1,1).to(device))
+            test_loss += loss.item()
+
+    test_loss = test_loss/((i+1)*num)
+    return test_loss, recall_test, precision_test, auc_test/((i+1)*num), correct_label_test
 
 
 def test_model_rt_rg(model, test_loader):
@@ -487,6 +574,7 @@ def load_simulated_data(batch_size=100, datapath='./data/simulated_data', data_t
                                         torch.Tensor(y_train[train_idx, :]))
     valid_dataset = utils.TensorDataset(torch.Tensor(x_train[valid_idx, :, :]),
                                         torch.Tensor(y_train[valid_idx, :]))
+
     test_dataset = utils.TensorDataset(torch.Tensor(x_test[:, :, :]), torch.Tensor(y_test))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=len(x_train) - int(0.8 * n_train))

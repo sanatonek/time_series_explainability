@@ -192,7 +192,7 @@ class StateClassifier(nn.Module):
                                        nn.Linear(self.hidden_size, self.n_state))
                                        # nn.Softmax(-1))
 
-    def forward(self, input, past_state=None):
+    def forward(self, input, past_state=None, **kwargs):
         input = input.permute(2, 0, 1).to(self.device)
         self.rnn.to(self.device)
         self.regressor.to(self.device)
@@ -248,10 +248,10 @@ class EncoderRNN(nn.Module):
             self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
                                        nn.ReLU(),
                                        nn.Dropout(0.5),
-                                       nn.Linear(self.hidden_size, 1),
-                                       nn.Sigmoid())
+                                       nn.Linear(self.hidden_size, 1))#,
+                                       #nn.Sigmoid())
 
-    def forward(self, input, past_state=None):
+    def forward(self, input, past_state=None, return_multi=False):
         input = input.permute(2, 0, 1).to(self.device)
         if not past_state:
             #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
@@ -262,7 +262,13 @@ class EncoderRNN(nn.Module):
             all_encodings, (encoding, state) = self.rnn(input, (past_state, past_state))
         if self.regres:
             if not self.return_all:
-                return self.regressor(encoding.view(encoding.shape[1], -1))
+                if not return_multi:
+                    return self.regressor(encoding.view(encoding.shape[1], -1))
+                else:
+                    multiclass = torch.cuda.FloatTensor(encoding.shape[1], 2).fill_(0)
+                    multiclass[:,1] = torch.sigmoid(self.regressor(encoding.view(encoding.shape[1], -1))[:,0])
+                    multiclass[:,0] = 1 - multiclass[:,1]
+                    return multiclass
             else:
                 #print('before: ', all_encodings[-1,-1,:])
                 reshaped_encodings = all_encodings.view(all_encodings.shape[1]*all_encodings.shape[0],-1)
