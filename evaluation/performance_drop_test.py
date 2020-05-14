@@ -8,8 +8,6 @@ import torch
 
 from TSX.models import StateClassifier
 
-
-
 def main(args):
     if args.data == 'simulation':
         feature_size = 3
@@ -27,7 +25,7 @@ def main(args):
         importance_scores = pkl.load(f)
 
 
-    model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
+    model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
     model.load_state_dict(torch.load(os.path.join('./ckpt/simulation/%s.pt' % ('model'))))
     model.eval()
 

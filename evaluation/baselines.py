@@ -12,7 +12,7 @@ import pandas as pd
 from scipy import interpolate
 
 from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank, plot_heatmap_text
-from TSX.models import StateClassifier, RETAIN, TrueClassifier
+from TSX.models import StateClassifier, RETAIN
 from TSX.generator import JointFeatureGenerator, JointDistributionGenerator
 from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
@@ -65,10 +65,10 @@ if __name__ == '__main__':
 
     else:
         # model = TrueClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
-        model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=100)
+        model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
         if args.train:
             optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-3)
-            train_model_rt(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=50,
+            train_model_rt(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=80,
                            device=device, experiment='model', data=args.data)
         model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
 
@@ -153,10 +153,14 @@ if __name__ == '__main__':
             score_mean_shift = explainer.attribute(x, y[:, -1].long(), distance_metric='mean_divergence')
         importance_scores.append(score)
         ranked_feats.append(ranked_features)
-        labels = np.zeros((x.shape[0], x.shape[-1]))
-        for t in range(1, x.shape[-1]):
-            p_y_t = explainer.base_model(x[:, :, :t + 1])
-            labels[:, t - 1] = np.array([p > 0.5 for p in p_y_t.cpu().detach().numpy()[:, 1]]).flatten()
+        # labels = np.zeros((x.shape[0], x.shape[-1]))
+        # for t in range(1, x.shape[-1]):
+        #     if args.explainer == 'retain':
+        #         lengths = torch.ones((len(x),1))* t
+        #         p_y_t = explainer.base_model(x[:, :, :t + 1], lengths)
+        #     else:
+        #         p_y_t = explainer.base_model(x[:, :, :t + 1])
+        #     labels[:, t - 1] = np.array([p > 0.5 for p in p_y_t.cpu().detach().numpy()[:, 1]]).flatten()
         #print(np.any(np.isnan(gt_importance_test)), np.any(np.isnan(ranked_features)), np.any(np.isnan(score)))
 
         # Print results
@@ -196,13 +200,14 @@ if __name__ == '__main__':
         plot_heatmap_text(ranked_features[plot_id,:,1:], score[plot_id,:,1:],
                           os.path.join(plot_path, '%s_example_heatmap.pdf' % args.explainer),axs[1])
         t = np.arange(1, t_len)
-        pred_batch_vec = []
-        model.eval()
-        for tt in t:
-            pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0)).detach().cpu().numpy()
-            # pred_tt = np.argmax(pred_tt, -1)
-            pred_tt = pred_tt[:,-1]
-            pred_batch_vec.append(pred_tt)
+
+        # pred_batch_vec = []
+        # model.eval()
+        # for tt in t:
+        #     pred_tt = model(x[plot_id, :, :tt + 1].unsqueeze(0)).detach().cpu().numpy()
+        #     # pred_tt = np.argmax(pred_tt, -1)
+        #     pred_tt = pred_tt[:,-1]
+        #     pred_batch_vec.append(pred_tt)
 
         gt_soft_score = np.zeros(gt_importance_test.shape)
 
@@ -235,7 +240,7 @@ if __name__ == '__main__':
             if args.explainer=='fit':
                 axs[3].plot(t,
                             score_mean_shift[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
-        axs[0].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
+        # axs[0].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
         axs[0].plot(t, y[plot_id,1:], '--', linewidth=3, c='red')
         axs[0].tick_params(axis='both', labelsize=36)
         axs[2].tick_params(axis='both', labelsize=36)

@@ -78,19 +78,19 @@ class FITExplainer:
         _, n_features, t_len = x.shape
         score = np.zeros(x.shape)
         if retrospective:
-            p_y_t = self.base_model(x)
+            p_y_t = torch.nn.Softmax(-1)(self.base_model(x))
 
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :t+1])
+                p_y_t = torch.nn.Softmax(-1)(self.base_model(x[:, :, :t+1]))
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 div_all=[]
-                p_tm1 = self.base_model(x[:,:,0:t])
+                p_tm1 = torch.nn.Softmax(-1)(self.base_model(x[:,:,0:t]))
                 for _ in range(n_samples):
                     x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
                     x_hat[:, :, t] = x_hat_t
-                    y_hat_t = self.base_model(x_hat)
+                    y_hat_t = torch.nn.Softmax(-1)(self.base_model(x_hat))
                     if distance_metric == 'kl':
                         # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
                         div = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
@@ -219,20 +219,20 @@ class AFOExplainer:
                 for _ in range(10):
                     x_hat[:, i, t] = torch.Tensor(np.random.choice(feature_dist, size=(len(x),))).to(self.device)
                     y_hat_t = self.base_model(x_hat)
-                    kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
-                    # kl = torch.abs(y_hat_t[:, :] - p_y_t[:, :])
-                    kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
-                    # kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
+                    # kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
+                    kl = torch.abs(torch.nn.Softmax(-1)(y_hat_t[:, :]) - torch.nn.Softmax(-1)(p_y_t[:, :]))
+                    # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
                 E_kl = np.mean(np.array(kl_all), axis=0)
-                score[:, i, t] = 2./(1+np.exp(-1*E_kl)) - 1.
-                # score[:, i, t] = E_kl
+                # score[:, i, t] = 2./(1+np.exp(-1*E_kl)) - 1.
+                score[:, i, t] = E_kl
         return score
 
 
 class RETAINexplainer:
     def __init__(self, model, data):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.model = model.to(self.device)
+        self.base_model = model.to(self.device)
         self.data = data
 
     def _epoch(self, loader, criterion, optimizer=None, train=False):
@@ -240,10 +240,10 @@ class RETAINexplainer:
             raise AttributeError("Optimizer should be given for training")
 
         if train:
-            self.model.train()
+            self.base_model.train()
             mode = 'Train'
         else:
-            self.model.eval()
+            self.base_model.eval()
             mode = 'Eval'
 
         losses = AverageMeter()
@@ -263,7 +263,7 @@ class RETAINexplainer:
             input_var = input_var.to(self.device)
             target_var = target_var.to(self.device)
 
-            output, alpha, beta = self.model(input_var, lengths)
+            output, alpha, beta = self.base_model(input_var, lengths)
             loss = criterion(output, target_var.long())
             # print(loss.data[0])
             # assert not np.isnan(loss.data[0]), 'Model diverged with loss = NaN'
@@ -285,7 +285,7 @@ class RETAINexplainer:
 
     def fit_model(self, train_loader, valid_loader, test_loader, epochs=10, lr=0.001, plot=False):
         criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(self.base_model.parameters(), lr=lr)
         # optimizer = torch.optim.SGD(self.model.parameters(), lr=lr, momentum=0.95)
 
         best_valid_epoch = 0
@@ -370,7 +370,7 @@ class RETAINexplainer:
 
                 if not os.path.exists("./ckpt/%s" % self.data):
                     os.mkdir("./ckpt/%s" % self.data)
-                torch.save(self.model.state_dict(), './ckpt/%s/retain.pt' % self.data)
+                torch.save(self.base_model.state_dict(), './ckpt/%s/retain.pt' % self.data)
 
             # plot
             if plot:
@@ -395,11 +395,11 @@ class RETAINexplainer:
     def attribute(self, x, y):
         score = np.zeros(x.shape)
         x = x.permute(0, 2, 1)  # shape:[batch, time, feature]
-        logit, alpha, beta = self.model(x, (torch.ones((len(x),)) * x.shape[1]).long())
-        w_emb = self.model.embedding[1].weight
+        logit, alpha, beta = self.base_model(x, (torch.ones((len(x),)) * x.shape[1]).long())
+        w_emb = self.base_model.embedding[1].weight
         for i in range(x.shape[2]):
             for t in range(x.shape[1]):
-                imp = self.model.output(beta[:, t, :] * w_emb[:, i].expand_as(beta[:, t, :]))
+                imp = self.base_model.output(beta[:, t, :] * w_emb[:, i].expand_as(beta[:, t, :]))
                 score[:, i, t] = (alpha[:, t, 0] * imp[torch.range(0, len(imp) - 1).long(), y.long()] * x[:, t,
                                                                                                         i]).detach().cpu().numpy()
         return score
@@ -531,3 +531,47 @@ class LIMExplainer:
                             score[sample_ind, feat, t] = imp_score
         return score, p_y_t_vec
 
+
+class FITSubGroupExplainer:
+    def __init__(self, model, generator=None):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.generator = generator
+        self.base_model = model.to(self.device)
+
+    def fit_generator(self, generator_model, train_loader, test_loader, n_epochs=300):
+        train_joint_feature_generator(generator_model, train_loader, test_loader, generator_type='joint_generator',
+                                      n_epochs=n_epochs, lr=0.001, weight_decay=0)
+        self.generator = generator_model.to(self.device)
+
+    def attribute(self, x, y, n_samples=10):
+        """
+        Compute importance score for a sample x, over time and features
+        :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
+        :param n_samples: number of Monte-Carlo samples
+        :return: Importance score matrix of shape:[batch, features, time]
+        """
+        self.generator.eval()
+        self.generator.to(self.device)
+        x = x.to(self.device)
+        _, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+
+        for t in range(1, t_len):
+            p_y_t = self.base_model(x[:, :, :t+1])
+            for i in range(n_features):
+                x_hat = x[:,:,0:t+1].clone()
+                div_all=[]
+                p_tm1 = self.base_model(x[:,:,0:t])
+                for _ in range(n_samples):
+                    x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
+                    x_hat[:, :, t] = x_hat_t
+                    y_hat_t = self.base_model(x_hat)
+                    # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
+                    div = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
+                             torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                    # print(x_hat_t[0], x[0, :, t], self.generator.forward_joint(x[:, :, :t])[0])
+                    # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
+                    div_all.append(div.cpu().detach().numpy())
+                E_div = np.mean(np.array(div_all), axis=0)
+                score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
+        return score

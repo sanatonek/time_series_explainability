@@ -525,16 +525,18 @@ def test_cond(mean, covariance, sig_ind, x_ind):
     covariance_cond = cov_1_1 - torch.bmm(cov_1_2, torch.transpose(cov_1_2, 2, 1)) / cov_2_2
     return mean_cond, covariance_cond
 
+
 def shade_state_state_data(state_subj, t, ax, data='simulation'):
     cmap = plt.get_cmap("tab10")
     # Shade the state on simulation data plots
-    for ttt in range(t[1], len(t)+1):
+    for ttt in range(t[0], len(t)):
         if state_subj[ttt] == 0:
-            ax.axvspan(ttt - 1, ttt, facecolor='b', alpha=0.3)
+            ax.axvspan(ttt + 1, ttt, facecolor='b', alpha=0.3)
         elif state_subj[ttt] == 1:
-            ax.axvspan(ttt - 1, ttt, facecolor='orange', alpha=0.3)
+            ax.axvspan(ttt + 1, ttt, facecolor='green', alpha=0.3)
         elif state_subj[ttt] == 2:
-            ax.axvspan(ttt - 1, ttt, facecolor='green', alpha=0.3)
+            ax.axvspan(ttt + 1, ttt, facecolor='orange', alpha=0.3)
+
 
 def shade_state(gt_importance_subj, t, ax, data='simulation'):
     cmap = plt.get_cmap("tab10")
