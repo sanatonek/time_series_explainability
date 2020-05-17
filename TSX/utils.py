@@ -45,7 +45,7 @@ def evaluate(labels, predicted_label, predicted_probability):
     prediction_array = predicted_label.detach().cpu().numpy()
     
     #print(labels_array.shape, predicted_label.shape, predicted_probability.shape)
-    if len(np.unique(labels_array[:, 1])) >= 2:
+    if len(np.unique(labels_array)) >= 2:
         auc = roc_auc_score(labels_array[:, 1], np.array(predicted_probability[:, 1].detach().cpu()))
         report = classification_report(labels_array[:,1], prediction_array[:,1], output_dict=True)
         recall = report['macro avg']['recall']
@@ -58,11 +58,12 @@ def evaluate(labels, predicted_label, predicted_probability):
     return auc, recall, precision, correct_label
 
 
-def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
+def test(test_loader, model, device, criteria=torch.nn.CrossEntropyLoss(), verbose=True):
     model.to(device)
     correct_label = 0
     recall_test, precision_test, auc_test = 0, 0, 0
     count = 0
+    loss = 0
     total = 0
     auc_test = 0
     model.eval()
@@ -70,19 +71,32 @@ def test(test_loader, model, device, criteria=torch.nn.BCELoss(), verbose=True):
         x, y = torch.Tensor(x.float()).to(device), torch.Tensor(y.float()).to(device)
         out = model(x)
         y = y.view(y.shape[0], )
-        prediction = (out > 0.5).view(len(y), ).float()
-        auc, recall, precision, correct = evaluate(y, prediction, out)
+
+        risks = torch.nn.Softmax(-1)(out)[:,1]
+
+        label_onehot = torch.zeros(out.shape).to(device)
+        pred_onehot = torch.zeros(out.shape).to(device)
+        _, predicted_label = out.max(1)
+        pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
+
+        label_onehot.zero_()
+        label_onehot.scatter_(1, y.long().view(-1, 1), 1)
+
+        auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, torch.nn.Softmax(-1)(out))
+
+        # prediction = (out > 0.5).view(len(y), ).float()
+        # auc, recall, precision, correct = evaluate(y, prediction, out)
         correct_label += correct
         auc_test = auc_test + auc
         recall_test = + recall
         precision_test = + precision
         count = + 1
-        loss = + criteria(out.view(len(y), ), y).item()
+        loss += criteria(out, y.long()).item()
         total += len(x)
     return recall_test, precision_test, auc_test / (i + 1), correct_label, loss
 
 
-def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELoss()):
+def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.CrossEntropyLoss()):
     model = model.to(device)
     model.train()
     auc_train = 0
@@ -92,15 +106,28 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.BCELos
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
         labels = labels.view(labels.shape[0], )
         labels = labels.view(labels.shape[0], )
-        risks = model(signals)
-        predicted_label = (risks > 0.5).view(len(labels), ).float()
-        auc, recall, precision, correct = evaluate(labels, predicted_label, risks)
+        logits = model(signals)
+        risks = torch.nn.Softmax(-1)(logits)[:,1]
+
+        label_onehot = torch.zeros(logits.shape).to(device)
+        pred_onehot = torch.zeros(logits.shape).to(device)
+        _, predicted_label = logits.max(1)
+        pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
+
+        # labels_th = (labels[:,t]>0.5).float()
+        label_onehot.zero_()
+        label_onehot.scatter_(1, labels.long().view(-1, 1), 1)
+
+        # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
+        auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, torch.nn.Softmax(-1)(logits))
+
+        # auc, recall, precision, correct = evaluate(label_onehot, predicted_label, risks)
         correct_label += correct
         auc_train = auc_train + auc
         recall_train = + recall
         precision_train = + precision
 
-        loss = loss_criterion(risks.view(len(labels), ), labels)
+        loss = loss_criterion(logits, labels.long())
         epoch_loss = + loss.item()
         loss.backward()
         optimizer.step()
@@ -130,10 +157,8 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
 
     # Save model and results
     if not os.path.exists(os.path.join("./ckpt/", data)):
-        os.mkdir("./ckpt/")
         os.mkdir(os.path.join("./ckpt/", data))
     if not os.path.exists(os.path.join("./plots/", data)):
-        os.mkdir("./plots/")
         os.mkdir(os.path.join("./plots/", data))
     torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')

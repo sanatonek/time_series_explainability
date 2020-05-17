@@ -32,6 +32,7 @@ class PatientData():
         if os.path.exists(os.path.join(root,'patient_interventions.pkl')):
             with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
                 self.intervention = pickle.load(f)
+            self.n_train = int(0.8*len(self.intervention))
             self.train_intervention = self.intervention[0:self.n_train,:,:]
             self.test_intervention = self.intervention[self.n_train:,:,:]
         if shuffle:

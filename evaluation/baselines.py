@@ -11,12 +11,20 @@ import time
 import pandas as pd
 from scipy import interpolate
 
-from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank, plot_heatmap_text, train_model_rt_binary
+from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, compute_median_rank,\
+    plot_heatmap_text, train_model_rt_binary, train_model, load_data
 from TSX.models import StateClassifier, RETAIN, EncoderRNN #, TrueClassifier
 from TSX.generator import JointFeatureGenerator, JointDistributionGenerator
 from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, LIMExplainer
 from sklearn import metrics
+
+intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone',
+                     'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus', 'nivdurations']
+feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE',
+                     'HEMATOCRIT', 'HEMOGLOBIN', 'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM',
+                     'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP' , 'DiasBP' , 'MeanBP' ,
+                     'RespRate' , 'SpO2' , 'Glucose','Temp']
 
 ks = {'simulation_spike': 1, 'simulation': 3, 'simulation_l2x': 4}
 
@@ -33,6 +41,8 @@ if __name__ == '__main__':
     parser.add_argument('--gt', type=str, default='true_model', help='specify ground truth score')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
     if args.data == 'simulation':
         feature_size = 3
         data_path = './data/simulated_data'
@@ -45,6 +55,9 @@ if __name__ == '__main__':
         feature_size = 3
         data_path = './data/simulated_spike_data'
         data_type='spike'
+    elif args.data == 'mimic':
+        data_type = 'mimic'
+        timeseries_feature_size = len(feature_map_mimic)
 
     output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s' % args.data
     if not os.path.exists(output_path):
@@ -54,9 +67,12 @@ if __name__ == '__main__':
         os.mkdir(plot_path)
 
     # Load data
-    _, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, datapath=data_path,
-                                                                     percentage=0.8, data_type=data_type)
-
+    if args.data == 'mimic':
+        p_data, train_loader, valid_loader, test_loader = load_data(batch_size=100, path='./data')
+        feature_size = p_data.feature_size
+    else:
+        _, train_loader, valid_loader, test_loader = load_simulated_data(batch_size=100, datapath=data_path,
+                                                                         percentage=0.8, data_type=data_type)
 
     # Prepare model to explain
     if args.explainer == 'retain':
@@ -77,15 +93,23 @@ if __name__ == '__main__':
         else:
             model = EncoderRNN(feature_size=feature_size, hidden_size=50, regres=True, return_all=False, data=args.data, rnn="GRU")
         if args.train:
-            if args.binary:
+            if not args.binary:
                 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-3)
-                train_model_rt(model=model, train_loader=train_loader, valid_loader=valid_loader, optimizer=optimizer, n_epochs=50,
-                           device=device, experiment='model', data=args.data)
+                if args.data=='mimic':
+                    train_model(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=100,
+                                device=device, experiment='model')
+                else:
+                    train_model_rt(model=model, train_loader=train_loader, valid_loader=valid_loader, optimizer=optimizer, n_epochs=50,
+                               device=device, experiment='model', data=args.data)
             else:
                 #this learning rate works much better for spike data
                 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-3)
-                train_model_rt_binary(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=120,
-                           device=device, experiment='model', data=args.data)
+                if args.data=='mimic':
+                    train_model(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=200,
+                                device=device, experiment='model')
+                else:
+                    train_model_rt_binary(model, train_loader, valid_loader, optimizer=optimizer, n_epochs=120,
+                               device=device, experiment='model', data=args.data)
 
         model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
 
@@ -157,8 +181,10 @@ if __name__ == '__main__':
         elif data_type == 'spike':
             with open(os.path.join(data_path, 'gt_test.pkl'), 'rb') as f:
                 gt_importance_test = pkl.load(f)
+        else:
+            pass
 
-        score = explainer.attribute(x, y[:, -1].long())
+        score = explainer.attribute(x, y if args.data=='mimic' else y[:, -1].long())
         ranked_features = np.array([((-(score[n])).argsort(0).argsort(0) + 1) \
                                     for n in range(x.shape[0])])  # [:ks[args.data]]
         if args.explainer == 'fit':
@@ -179,7 +205,7 @@ if __name__ == '__main__':
         f.set_figheight(6)
         f.set_figwidth(10)
         score_pd = pd.DataFrame(columns=['f1', 'f2', 'f3', 's1', 's2', 's3'])
-        score_pd['t'] = pd.Series(np.arange(1, gt_importance_test[plot_id].shape[-1]))
+        score_pd['t'] = pd.Series(np.arange(1, score[plot_id].shape[-1]))
         cmap = sns.cubehelix_palette(rot=.2, as_cmap=True)
         bottom = cm.get_cmap('Blues', 128)
         for feat in [1, 2, 3]:#range(1,2):
@@ -187,7 +213,7 @@ if __name__ == '__main__':
             score_pd['s%d' % feat] = pd.Series(score[plot_id, feat - 1, :])
             f = interpolate.interp1d(score_pd['t'], score_pd['f%d'%feat], fill_value="extrapolate")
             f_score = interpolate.interp1d(score_pd['t'], score_pd['s%d'%feat], fill_value="extrapolate")
-            xnew = np.arange(1, gt_importance_test[plot_id].shape[-1]-0.99, 0.01)
+            xnew = np.arange(1, score[plot_id].shape[-1]-0.99, 0.01)
             ynew = f(xnew)
             score_new = f_score(xnew)
             # axs[feat-1].scatter(xnew, ynew, c=cm.hot(score_new/2.+0.5), edgecolor='none')
@@ -200,7 +226,7 @@ if __name__ == '__main__':
         plt.savefig(os.path.join(plot_path, 'new_viz.pdf'), dpi=300, orientation='landscape')
 
 
-        t_len = gt_importance_test[plot_id].shape[-1]
+        t_len = score[plot_id].shape[-1]
         f, axs = plt.subplots(4 if args.explainer=='fit' else 3)
 
         plot_heatmap_text(ranked_features[plot_id,:,1:], score[plot_id,:,1:],
@@ -216,7 +242,8 @@ if __name__ == '__main__':
         #     pred_batch_vec.append(pred_tt)
 
 
-        gt_soft_score = np.zeros(gt_importance_test.shape)
+        # gt_soft_score = np.zeros(gt_importance_test.shape)
+        # gt_importance_test.astype(int)
 
         if data_type=='state':
             shade_state_state_data(state_test[plot_id], t, axs[0])
@@ -238,7 +265,6 @@ if __name__ == '__main__':
                         gt_soft_score[:,:,tt-1] = np.multiply(np.repeat(logits_change,x.shape[1],axis=1), \
                         gt_importance_test[:,:,tt-1])
             '''
-        gt_importance_test.astype(int)
         for i, ref_ind in enumerate(range(x[plot_id].shape[0])):
             axs[0].plot(t, x[plot_id, ref_ind, 1:].cpu().numpy(), linewidth=3, label='feature %d' % (i))
             axs[2].plot(t, score[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
@@ -276,12 +302,14 @@ if __name__ == '__main__':
         pkl.dump(ranked_feats,f,protocol=pkl.HIGHEST_PROTOCOL)
 
     explainer_score = importance_scores.flatten()
-    gt_score = gt_importance_test.flatten()
 
-    auc_score = metrics.roc_auc_score(gt_score, explainer_score)
-    aupr_score = metrics.average_precision_score(gt_score, explainer_score)
+    if 'simulation' in args.data:
+        gt_score = gt_importance_test.flatten()
 
-    _, median_rank, _= compute_median_rank(ranked_feats, gt_soft_score, soft=True,K=4)
-    # fdr = fp /(fp + tp)
-    print('auc:', auc_score, ' aupr:', aupr_score, 'median rank:', median_rank)
-    #break
+        auc_score = metrics.roc_auc_score(gt_score, explainer_score)
+        aupr_score = metrics.average_precision_score(gt_score, explainer_score)
+
+        _, median_rank, _= compute_median_rank(ranked_feats, gt_soft_score, soft=True,K=4)
+        # fdr = fp /(fp + tp)
+        print('auc:', auc_score, ' aupr:', aupr_score, 'median rank:', median_rank)
+        #break

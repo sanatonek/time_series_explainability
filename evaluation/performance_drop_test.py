@@ -26,7 +26,7 @@ def main(args):
 
 
     model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
-    model.load_state_dict(torch.load(os.path.join('./ckpt/simulation/%s.pt' % ('model'))))
+    model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
     model.eval()
 
     min_t = 30
@@ -36,10 +36,12 @@ def main(args):
         imp = np.unravel_index(importance_scores[i,:,min_t:].argmax(), importance_scores[i,:,min_t:].shape)
         sample = x[:, :imp[1]+min_t+1]
         label.append(y_test[i,imp[1]+min_t])
-        y1.append(model(torch.Tensor(sample).unsqueeze(0))[:,1].detach().cpu().numpy())
+        y = torch.nn.Softmax(-1)(model(torch.Tensor(sample).unsqueeze(0)))[:, 1]
+        y1.append(y.detach().cpu().numpy())
         x_cf = sample.copy()
         x_cf[imp[0],-1] = x_cf[imp[0],-2]
-        y2.append(model(torch.Tensor(x_cf).unsqueeze(0))[:,1].detach().cpu().numpy())
+        y = torch.nn.Softmax(-1)(model(torch.Tensor(x_cf).unsqueeze(0)))[:, 1]
+        y2.append(y.detach().cpu().numpy())
 
     original_auc = metrics.roc_auc_score(np.array(label), np.array(y1))
     modified_auc = metrics.roc_auc_score(np.array(label), np.array(y2))
