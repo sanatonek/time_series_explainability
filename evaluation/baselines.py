@@ -185,6 +185,10 @@ if __name__ == '__main__':
             pass
 
         score = explainer.attribute(x, y if args.data=='mimic' else y[:, -1].long())
+
+        with open(os.path.join(output_path, '%s_test_importance_scores.pkl' % args.explainer), 'wb') as f:
+            pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
+
         ranked_features = np.array([((-(score[n])).argsort(0).argsort(0) + 1) \
                                     for n in range(x.shape[0])])  # [:ks[args.data]]
         if args.explainer == 'fit':
@@ -295,8 +299,6 @@ if __name__ == '__main__':
 
     importance_scores = np.concatenate(importance_scores, 0)
     ranked_feats = np.concatenate(ranked_feats,0)
-    with open(os.path.join(output_path, '%s_test_importance_scores.pkl' % args.explainer), 'wb') as f:
-        pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
 
     with open(os.path.join(output_path, '%s_test_ranked_scores.pkl' % args.explainer), 'wb') as f:
         pkl.dump(ranked_feats,f,protocol=pkl.HIGHEST_PROTOCOL)
