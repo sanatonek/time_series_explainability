@@ -716,6 +716,7 @@ def load_data(batch_size, path='./data/', **kwargs):
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size) #p_data.n_train - int(0.8 * p_data.n_train))
+
     if test_bs is not None:
         test_loader = DataLoader(test_dataset, batch_size=test_bs)
     else:

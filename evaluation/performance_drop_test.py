@@ -132,6 +132,17 @@ def main(args):
     # importance_path = '/scratch/gobi2/projects/tsx/new_results/%s' % args.data
     importance_path = os.path.join(args.path, args.data)
 
+    if args.data=='simulation_spike':
+        activation = torch.nn.Sigmoid()
+        if args.explainer=='retain':
+            activation = torch.nn.Softmax(-1)
+    elif args.data=='mimic_int':
+        activation = torch.nn.Sigmoid()
+        if args.explainer=='retain':
+            raise ValueError('%s explainer not defined for mimic-int!' % args.explainer)
+    else:
+        activation = torch.nn.Softmax(-1)
+
     auc_drop, aupr_drop = [], []
     for cv in [0, 1, 2]:
         with open(os.path.join(importance_path, '%s_test_importance_scores_%s.pkl' % (args.explainer, str(cv))),
@@ -237,8 +248,7 @@ def main(args):
             y_test = y_test[top_patients]
             importance_scores = importance_scores[top_patients]
 
-
-        min_t = 10
+        min_t = 10#25
         max_t = 40
         n_drops = args.n_drops
 
@@ -392,8 +402,10 @@ if __name__ == '__main__':
     parser.add_argument('--time_imp', action='store_true', default=False)
     parser.add_argument('--train_pc', type=float, default=1.)
     parser.add_argument('--percentile', action='store_true')
-    parser.add_argument('--time_imp', action='store_true')
     parser.add_argument('--path', type=str, default='/scratch/gobi1/sana/TSX_results/new_results/')
+    parser.add_argument('--subpop', action='store_true', default=False)
+    parser.add_argument('--time_imp', action='store_true', default=False)
+    parser.add_argument('--train_pc', type=float, default=1.)
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     main(args)

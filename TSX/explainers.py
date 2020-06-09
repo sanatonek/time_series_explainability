@@ -75,7 +75,8 @@ class FITExplainer:
             if not retrospective:
                 p_y_t = self.activation(self.base_model(x[:, :, :t+1]))
                 p_tm1 = self.activation(self.base_model(x[:,:,0:t]))
-            for i in subsets:
+
+            for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 div_all=[]
                 t1_all=[]
@@ -106,11 +107,7 @@ class FITExplainer:
                 E_div = np.mean(np.array(div_all),axis=0)
                 if distance_metric =='kl':
                     #score[:, i, t] = E_div#2./(1+np.exp(-1*E_div)) - 1
-                    if subsets is not None:
-                        for ii in i:
-                            score[:, ii, t] = 2./(1+np.exp(-1*E_div)) - 1
-                    else:
-                        score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
+                    score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
                 elif distance_metric=='mean_divergence':
                     score[:, i, t] = 1-E_div
                 else:
