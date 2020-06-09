@@ -125,6 +125,7 @@ class JointFeatureGenerator(torch.nn.Module):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         non_lin = kwargs["non_linearity"] if "non_linearity" in kwargs.keys() else torch.nn.Tanh()
         self.data=kwargs['data'] if 'data' in kwargs.keys() else 'mimic'
+        self.diag = kwargs['diag'] if 'diag' in kwargs.keys() else False
 
         # Generates the parameters of the distribution
         self.rnn = torch.nn.GRU(self.feature_size, self.hidden_size)
@@ -133,7 +134,7 @@ class JointFeatureGenerator(torch.nn.Module):
                 if 'weight' in p:
                     torch.nn.init.normal(self.rnn.__getattr__(p), 0.0, 0.02)
 
-        if self.data=='mimic' or self.data=='ghg':
+        if self.data=='mimic' or self.data=='ghg' or self.data=='mimic_int':
             self.dist_predictor = torch.nn.Sequential(torch.nn.Linear(self.hidden_size, 100),
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=100),
@@ -146,10 +147,16 @@ class JointFeatureGenerator(torch.nn.Module):
                                                  #torch.nn.Dropout(0.5),
                                                  torch.nn.Linear(10, self.latent_size*2), non_lin)
 
-        self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 10),#+self.hidden_size, 100),
+        if not self.diag:
+            self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 10),#+self.hidden_size, 100),
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=10),
                                                  torch.nn.Linear(10, self.feature_size*self.feature_size),torch.nn.ReLU())
+        else:
+            self.cov_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 10),#+self.hidden_size, 100),
+                                                 non_lin,
+                                                 torch.nn.BatchNorm1d(num_features=10),
+                                                 torch.nn.Linear(10, self.feature_size),torch.nn.ReLU())
         self.mean_generator = torch.nn.Sequential(torch.nn.Linear(self.latent_size, 10),#+self.hidden_size, 100),
                                                  non_lin,
                                                  torch.nn.BatchNorm1d(num_features=10),
@@ -218,8 +225,12 @@ class JointFeatureGenerator(torch.nn.Module):
         # Generate the distribution P(X|H,Z)
         mean = self.mean_generator(Z)
         cov_noise = (torch.eye(self.feature_size).unsqueeze(0).repeat(len(Z), 1, 1) * 1e-5).to(self.device)
-        A = self.cov_generator(Z).view(-1, self.feature_size, self.feature_size)
-        covariance = torch.bmm(A, torch.transpose(A, 1, 2)) + cov_noise
+        if not self.diag:
+            A = self.cov_generator(Z).view(-1, self.feature_size, self.feature_size)
+            covariance = torch.bmm(A, torch.transpose(A, 1, 2)) + cov_noise
+        else:
+            A = self.cov_generator(Z).view(-1, self.feature_size)
+            covariance = torch.diag_embed(A**2) + cov_noise
         return mean, covariance
 
     def forward_joint(self, past):
@@ -503,13 +514,13 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
     generator_model.to(device)
     data = generator_model.data
     generator_model.train()
-    if data=='mimic':
+    if data=='mimic' or data=='mimic_int':
         feature_map = feature_map_mimic
     elif 'simulation' in data:
         feature_map = ['0','1','2']
 
     # Overwrite default learning parameters if values are passed
-    default_params = {'lr':0.0001, 'weight_decay':1e-3}
+    default_params = {'lr':0.0001, 'weight_decay':1e-3, 'cv': 0}
     for k,v in kwargs.items():
         if k in default_params.keys():
             default_params[k] = v
@@ -518,21 +529,30 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
     optimizer = torch.optim.Adam(parameters, lr=default_params['lr'], weight_decay=default_params['weight_decay'])
     loss_criterion = torch.nn.MSELoss()
 
-    if data=='mimic':
+    if data=='mimic' or data=='mimic_int':
         num = 1
     else:
         num = 3
 
     best_loss = 1000000
+    print('data name in generator:', data)
     
-    fname=os.path.join('./ckpt', data, '%s.pt'%(generator_type))
+    fname=os.path.join('./ckpt/', data, '%s.pt'%(generator_type))
 
     for epoch in range(n_epochs + 1):
         generator_model.train()
         epoch_loss = 0
+
         for i, (signals, _) in enumerate(train_loader):
             # for t in [np.random.randint(low=24, high=45)]:
-            for t in [int(tt) for tt in np.logspace(1.2, np.log10(signals.shape[2]-1), num=num)]:
+            #for t in [int(tt) for tt in np.logspace(1.2, np.log10(signals.shape[2]-1), num=num)]:
+
+            if num == 1:
+                timepoints=[signals.shape[2]-1]
+            else:
+                timepoints = [int(tt) for tt in np.logspace(1.0, np.log10(signals.shape[2]-1), num=num)]
+
+            for t in timepoints:
                 optimizer.zero_grad()
                 mean, covariance = generator_model.likelihood_distribution(signals[:, :, :t])
                 # dist = OMTMultivariateNormal(mean, torch.cholesky(covariance))
@@ -572,9 +592,9 @@ def train_joint_feature_generator(generator_model, train_loader, valid_loader, g
     # Save model and results
     if not os.path.exists('./ckpt'):
         os.mkdir('./ckpt')
-    if not os.path.exists('./ckpt'+ data):
-        os.mkdir('./ckpt' + data)
-    torch.save(generator_model.state_dict(), './ckpt/%s/%s.pt'%(data, generator_type))
+    if not os.path.exists('./ckpt/'+ data):
+        os.mkdir('./ckpt/' + data)
+    torch.save(generator_model.state_dict(), './ckpt/%s/%s_%d.pt'%(data, generator_type,default_params['cv']))
 
 
     plt.figure(feature_to_predict)
@@ -601,6 +621,8 @@ def test_joint_feature_generator(model, test_loader):
     test_loss = 0
     if data == 'mimic':
         tvec = [24]
+    elif data =='mimic_int':
+        tvec = [5]
     else:
         num = 1
         tvec = [int(tt) for tt in np.logspace(1.0,np.log10(signel_len), num=num)]

@@ -145,6 +145,7 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
 def load_simulated_data(x_train, y_train, x_test, y_test, batch_size=100, percentage=1., **kwargs):
 
     features = kwargs['features'] if 'features' in kwargs.keys() else list(range(x_test.shape[1]))
+    test_bs = kwargs['test_bs'] if 'test_bs' in kwargs.keys() else None
     permutation = np.random.permutation(x_train.shape[0])
     x_train = x_train[permutation]
     y_train = y_train[permutation]
@@ -275,3 +276,35 @@ class EncoderPredictor(Experiment):
         _, _, auc_test, correct_label, test_loss = test(self.test_loader, self.model, self.device)
         print('\nFinal performance on held out test set ===> AUC: ', auc_test)
 
+
+'''
+from scipy.io import arff
+def process_data(dataff):
+    n_samples = len(data)
+    n_features = len(dataff[0][0])
+    T = len(dataff[0][0][0])
+    Xx = np.zeros((n_samples, n_features, T))
+    for n in range(n_samples):
+        Xf = data[n][0]
+        for feat in range(n_features):
+            Xx[n, feat, :] = np.array([Xf[feat][t] for t in range(T)]).astype(float)
+    yy = np.array([dataff[n][1] for n in range(n_samples)])
+    return Xx, yy
+
+
+with open('/scratch/gobi1/shalmali/DuckDuckGeese/DuckDuckGeese_TEST.arff', 'r') as f:
+    data, _ = arff.loadarff(f)
+    X_test, y_test = process_data(data)
+
+with open('/scratch/gobi1/shalmali/DuckDuckGeese/DuckDuckGeese_TRAIN.arff', 'r') as f:
+    data, _ = arff.loadarff(f)
+    X_train, y_train = process_data(data)
+
+ohe = OneHotEncoder(sparse=False)
+y_train = ohe.fit_transform(y_train.reshape(-1, 1))
+y_test = ohe.transform(y_test.reshape(-1, 1))
+
+with open("/scratch/gobi1/shalmali/DuckDuckGeese/ddg_real.pkl", 'wb') as f:
+    pkl.dump({'Xtrain': X_train, 'ytrain': y_train, 'Xtest': X_test, 'ytest': y_test, 'enc': ohe}, f)
+
+'''
