@@ -1,5 +1,5 @@
 import numpy as np
-import os
+import os, sys
 import torch
 import torch.utils.data as utils
 from torch.utils.data import DataLoader
@@ -8,9 +8,10 @@ from TSX.models import PatientData, NormalPatientData, GHGData
 import matplotlib.pyplot as plt
 import matplotlib
 import pickle as pkl
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedShuffleSplit
 from sklearn.metrics import classification_report
 import seaborn as sns
+#np.set_printoptions(threshold=sys.maxsize)
 
 #sns.set()
 
@@ -26,7 +27,6 @@ warnings.filterwarnings("ignore")
 intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone',
                      'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus',
                      'nivdurations']
-
 
 def evaluate_binary(labels, predicted_label, predicted_probability):
     labels_array = np.array(labels.cpu())
@@ -56,6 +56,54 @@ def evaluate(labels, predicted_label, predicted_probability):
         precision = 0
     correct_label = np.equal(np.argmax(labels_array, 1), np.argmax(prediction_array, 1)).sum()
     return auc, recall, precision, correct_label
+
+def evaluate_multiclass(labels, predicted_label, predicted_probability, task='multiclass'):
+    labels_array = labels.detach().cpu().numpy() #one hot
+    prediction_array = predicted_label.detach().cpu().numpy() #one hot
+    
+    if task=='multiclass':
+        if len(np.unique(np.argmax(labels_array,1))) >= 2:
+            labels_array = labels_array[:,np.unique(np.argmax(labels_array,1))]
+            prediction_array = prediction_array[:,np.unique(np.argmax(labels_array,1))]
+            predicted_probability = predicted_probability[:,np.unique(np.argmax(labels_array,1))] 
+            predicted_probability = np.array(predicted_probability.detach().cpu())
+            auc_list = roc_auc_score(labels_array, predicted_probability, average=None)
+            #print('macro auc:', auc_list)
+            auc = np.mean(auc_list)
+
+            report = classification_report(labels_array, prediction_array, output_dict=True)
+            recall = report['macro avg']['recall']
+            precision = report['macro avg']['precision']
+        else:
+            auc = 0
+            recall = 0
+            precision = 0
+            auc_list=[]
+        correct_label = np.equal(np.argmax(labels_array, 1), np.argmax(prediction_array, 1)).sum()
+    elif task=='multilabel':
+        idx = []
+        for l in range(labels_array.shape[1]):
+            if len(np.unique(labels_array[:,l])) >=2:
+                idx.append(l)
+        if len(idx) >0:
+            labels_array = labels_array[:,idx]
+            prediction_array = prediction_array[:,idx]
+            predicted_probability = predicted_probability[:,idx] 
+            predicted_probability = np.array(predicted_probability.detach().cpu())
+            #print(labels_array, np.any(np.isnan(labels_array)))
+            #print(prediction_array, np.any(np.isnan(prediction_array)))
+            auc_list = roc_auc_score(labels_array, predicted_probability, average=None)
+            auc = np.mean(auc_list)
+            report = classification_report(labels_array, prediction_array, output_dict=True)
+            recall = report['macro avg']['recall']
+            precision = report['macro avg']['precision']
+        else:
+            auc = 0
+            recall = 0
+            precision = 0
+            auc_list=[]
+        correct_label = np.equal(np.argmax(labels_array, 1), np.argmax(prediction_array, 1)).sum()
+    return auc, recall, precision, correct_label, auc_list
 
 
 def test(test_loader, model, device, criteria=torch.nn.CrossEntropyLoss(), verbose=True):
@@ -134,7 +182,7 @@ def train(train_loader, model, device, optimizer, loss_criterion=torch.nn.CrossE
     return recall_train, precision_train, auc_train / (i + 1), correct_label, epoch_loss, i + 1
 
 
-def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='mimic'):
+def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='mimic',cv=0):
     train_loss_trend = []
     test_loss_trend = []
 
@@ -160,7 +208,93 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
         os.mkdir(os.path.join("./ckpt/", data))
     if not os.path.exists(os.path.join("./plots/", data)):
         os.mkdir(os.path.join("./plots/", data))
-    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '_' + str(cv)+ '.pt')
+    plt.plot(train_loss_trend, label='Train loss')
+    plt.plot(test_loss_trend, label='Validation loss')
+    plt.legend()
+    plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
+
+
+def train_model_multiclass(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='ddg',num=5, loss_criterion=torch.nn.CrossEntropyLoss(),cv=0):
+    print('Training black-box model on ', data)
+    train_loss_trend = []
+    test_loss_trend = []
+
+    model.to(device)
+
+    for epoch in range(n_epochs):
+        model.train()
+        recall_train, precision_train, auc_train, correct_label_train, epoch_loss, count = 0, 0, 0, 0, 0, 0
+        for i, (signals, labels) in enumerate(train_loader):
+            signals, labels = signals.to(device), labels.to(device)
+            if num>1:
+                #time_points = [int(tt) for tt in np.linspace(20, signals.shape[-1] - 1, num=num)]
+                time_points = np.random.randint(low=4,high=signals.shape[-1]-1,size=num)
+                time_points = np.sort(time_points)
+                time_points[-1] = signals.shape[-1]-1
+            else:
+                time_points = [signals.shape[-1]-1]
+
+            for t in time_points:
+                input_signal = signals[:,:,:(t+1)]
+
+                optimizer.zero_grad()
+                predictions = model(input_signal)
+
+                if len(labels.shape)==3: #has labels over time
+                    label = labels[:, :, t]
+                else:
+                    label = labels
+                
+                label_onehot = label # assumed already one-hot encoded
+                if type(loss_criterion).__name__==type(torch.nn.CrossEntropyLoss()).__name__:
+                    pred_onehot = torch.zeros(predictions.shape).to(device)
+                    _, predicted_label = predictions.max(1)
+                    pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
+                    task='multiclass'
+                else:
+                    pred_onehot  = (torch.sigmoid(predictions) > 0.5).float()
+                    task='multilabel'
+
+                auc, recall, precision, correct,auc_list = evaluate_multiclass(label_onehot, pred_onehot, predictions,task=task)
+                correct_label_train += correct
+                auc_train += auc
+                recall_train += recall
+                precision_train += precision
+                count += 1
+
+                if type(loss_criterion).__name__==type(torch.nn.CrossEntropyLoss()).__name__:#multiclass
+                    #print('here')
+                    _, targets = label.max(1)
+                    targets = targets.long()
+                else: #multilabel
+                    targets = label_onehot
+                reconstruction_loss = loss_criterion(predictions, targets)
+                epoch_loss += reconstruction_loss.item()
+                reconstruction_loss.backward()
+                optimizer.step()
+
+        test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_multiclass(model, valid_loader,num=num,loss_criterion=loss_criterion)
+
+        train_loss_trend.append(epoch_loss / ((i + 1) *num))
+        test_loss_trend.append(test_loss)
+
+        if epoch % 1 == 0:
+            print('\nEpoch %d' % (epoch))
+            print('Training ===>loss: ', epoch_loss / ((i + 1)*num),
+                  ' Accuracy: %.2f percent' % (100 * correct_label_train / (len(train_loader.dataset) *num)),
+                  ' AUC: %.2f' % (auc_train / ((i + 1) * num)))
+            print('Test ===>loss: ', test_loss,
+                  ' Accuracy: %.2f percent' % (100 * correct_label_test / (len(valid_loader.dataset)* num)),
+                  ' AUC: %.2f' % (auc_test))
+
+    test_loss, recall_test, precision_test, auc_test, correct_label_test = test_model_multiclass(model, valid_loader,num=num, loss_criterion=loss_criterion)
+    print('Test AUC: ', auc_test)
+
+    # Save model and results
+    if not os.path.exists(os.path.join("./ckpt/", data)):
+        os.mkdir(os.path.join("./ckpt/", data))
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '_'+ str(cv) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
@@ -168,13 +302,12 @@ def train_model(model, train_loader, valid_loader, optimizer, n_epochs, device, 
 
 
 def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',
-                   num=5):
+                   num=5,cv=0):
     print('Training black-box model on ', data)
     train_loss_trend = []
     test_loss_trend = []
 
     model.to(device)
-    # loss_criterion = torch.nn.BCELoss()
     loss_criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(n_epochs):
         model.train()
@@ -199,12 +332,10 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
                 _, predicted_label = predictions.max(1)
                 pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
 
-                # labels_th = (labels[:,t]>0.5).float()
                 label_onehot.zero_()
                 label_onehot.scatter_(1, label.long().view(-1, 1), 1)
 
-                # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
-                auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, predictions)
+                auc, recall, precision, correct,_ = evaluate_multiclass(label_onehot, pred_onehot, predictions)
                 correct_label_train += correct
                 auc_train += auc
                 recall_train += recall
@@ -238,13 +369,13 @@ def train_model_rt(model, train_loader, valid_loader, optimizer, n_epochs, devic
     # Save model and results
     if not os.path.exists(os.path.join("./ckpt/", data)):
         os.mkdir(os.path.join("./ckpt/", data))
-    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '_'+ str(cv) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
     plt.savefig(os.path.join('./plots', data, 'train_loss.pdf'))
 
-def train_model_rt_binary(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=5):
+def train_model_rt_binary(model, train_loader, valid_loader, optimizer, n_epochs, device, experiment, data='simulation',num=5,cv=0):
     train_loss_trend = []
     test_loss_trend = []
 
@@ -298,7 +429,7 @@ def train_model_rt_binary(model, train_loader, valid_loader, optimizer, n_epochs
     # Save model and results
     if not os.path.exists(os.path.join("./ckpt/", data)):
         os.mkdir(os.path.join("./ckpt/", data))
-    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment) + '.pt')
+    torch.save(model.state_dict(), './ckpt/' + data + '/' + str(experiment)  + '_' + str(cv) + '.pt')
     plt.plot(train_loss_trend, label='Train loss')
     plt.plot(test_loss_trend, label='Validation loss')
     plt.legend()
@@ -361,7 +492,6 @@ def test_model_rt(model, test_loader, num=1):
     test_loss = 0
     for i, (signals, labels) in enumerate(test_loader):
         signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
-        #print('testmodel', labels.shape)
         for t in [int(tt) for tt in np.linspace(0, signals.shape[2] - 2, num=num)]:
             label = labels[:,t].view(-1,1)
             label_onehot = torch.FloatTensor(label.shape[0], 2).to(device)
@@ -378,11 +508,9 @@ def test_model_rt(model, test_loader, num=1):
             _, predicted_label = predictions.max(1)
             pred_onehot.zero_()
             pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
-            # labels_th = (labels[:,t]>0.5).float()
             label_onehot.zero_()
             label_onehot.scatter_(1, labels[:, t].long().view(-1, 1), 1)
-            # auc, recall, precision, correct = evaluate(labels_th.contiguous().view(-1), predicted_label.contiguous().view(-1), predictions.contiguous().view(-1))
-            auc, recall, precision, correct = evaluate(label_onehot, pred_onehot, predictions)
+            auc, recall, precision, correct,_ = evaluate_multiclass(label_onehot, pred_onehot, predictions)
             correct_label_test += correct
             auc_test += auc
             recall_test += recall
@@ -438,6 +566,63 @@ def test_model_rt_rg(model, test_loader):
 
     test_loss = test_loss / (num * (i + 1))
     return test_loss
+
+def test_model_multiclass(model, test_loader,num=5, loss_criterion=torch.nn.CrossEntropyLoss()):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.to(device)
+    model.eval()
+    correct_label_test = 0
+    recall_test, precision_test, auc_test = 0, 0, 0
+    count = 0
+    test_loss = 0
+    auc_class_list=[]
+    for i, (signals, labels) in enumerate(test_loader):
+        signals, labels = torch.Tensor(signals.float()).to(device), torch.Tensor(labels.float()).to(device)
+        if num>1:
+            time_points = [int(tt) for tt in np.linspace(20, signals.shape[-1] - 2, num=num)]
+        else:
+            time_points = [signals.shape[2] - 1]
+        for t in time_points:
+            if len(labels.shape)==3: #has labels over time
+                label = labels[:, :, t]
+            else:
+                label = labels
+
+            label_onehot = label
+            predictions = model(signals)
+
+            #print(loss_criterion)
+            if type(loss_criterion).__name__==type(torch.nn.CrossEntropyLoss()).__name__:
+                pred_onehot = torch.FloatTensor(labels.shape[0], labels.shape[1]).to(device)
+                _, predicted_label = predictions.max(1)
+                pred_onehot.zero_()
+                pred_onehot.scatter_(1, predicted_label.view(-1, 1), 1)
+                task='multiclass'
+            else:
+                pred_onehot = (torch.sigmoid(predictions) >0.5).float()
+                task='multilabel'
+ 
+
+            auc, recall, precision, correct,auc_list = evaluate_multiclass(label_onehot, pred_onehot, 
+                torch.sigmoid(predictions),task=task)
+            auc_class_list.append(auc_list)
+            correct_label_test += correct
+            auc_test += auc
+            recall_test += recall
+            precision_test += precision
+            count += 1
+            if type(loss_criterion).__name__==type(torch.nn.CrossEntropyLoss()).__name__:
+                _, targets = label.max(1)
+                targets = targets.long()
+            else:
+                targets = label
+            loss = loss_criterion(predictions, targets)
+            test_loss += loss.item()
+
+    test_loss = test_loss /((i + 1)* num)
+    auc_class_list = np.array(auc_class_list).sum(0)
+    print('class auc:', auc_class_list/((i+1)*num))
+    return test_loss, recall_test, precision_test, auc_test / ((i + 1)*num), correct_label_test
 
 
 def train_reconstruction(model, train_loader, valid_loader, n_epochs, device, experiment):
@@ -496,38 +681,56 @@ def test_reconstruction(model, valid_loader, device):
 
 def load_data(batch_size, path='./data/', **kwargs):
     transform = kwargs['transform'] if 'transform' in kwargs.keys() else 'normalize'
-    p_data = PatientData(path, transform=transform)
+    task = kwargs['task'] if 'task' in kwargs.keys() else 'mortality'
+    p_data = PatientData(path, task = task,shuffle=False,transform=transform)
+    test_bs = kwargs['test_bs'] if 'test_bs' in kwargs.keys() else None
+    train_pc = kwargs['train_pc'] if 'train_pc' in kwargs.keys() else 1.
 
     features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
     p_data.train_data = p_data.train_data[:, features, :]
     p_data.test_data = p_data.test_data[:, features, :]
+
     p_data.feature_size = len(features)
-    n_train = int(0.8 * p_data.n_train)
+    n_train = int(0.9 * p_data.train_data.shape[0])
     if 'cv' in kwargs.keys():
-        kf = KFold(n_splits=5, random_state=42)
-        # print(p_data.train_data[:,:,0].shape,kf.split(p_data.train_data))
-        train_idx, valid_idx = list(kf.split(p_data.train_data))[kwargs['cv']]
+        if task=='mortality':
+            kf = KFold(n_splits=5, random_state=42)
+            train_idx, valid_idx = list(kf.split(p_data.train_data))[kwargs['cv']]
+        else:
+            sss = StratifiedShuffleSplit(n_splits=5, test_size=0.2, random_state=88)
+            train_idx, valid_idx = list(sss.split(p_data.train_data[:,:,-1], p_data.train_label[:,:,-1]))[kwargs['cv']]
     else:
-        train_idx = range(n_train)
-        valid_idx = range(n_train, p_data.n_train)
+        if task=='mortality':
+            train_idx = range(n_train)
+            valid_idx = range(n_train, p_data.n_train)
+        else:
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=88)
+            train_idx, valid_idx = list(sss.split(p_data.train_data[:,:,-1], p_data.train_label[:,:,-1]))[0]
 
     train_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[train_idx, :, :]),
                                         torch.Tensor(p_data.train_label[train_idx]))
+
     valid_dataset = utils.TensorDataset(torch.Tensor(p_data.train_data[valid_idx, :, :]),
                                         torch.Tensor(p_data.train_label[valid_idx]))
     test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data), torch.Tensor(p_data.test_label))
+    
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size) #p_data.n_train - int(0.8 * p_data.n_train))
-    test_loader = DataLoader(test_dataset, batch_size=200)#p_data.n_test)
-    print('Train set: ', np.count_nonzero(p_data.train_label[0:int(0.8 * p_data.n_train)]),
-          'patient who died out of %d total' % (int(0.8 * p_data.n_train)),
-          '(Average missing in train: %.2f)' % (np.mean(p_data.train_missing[0:int(0.8 * p_data.n_train)])))
-    print('Valid set: ', np.count_nonzero(p_data.train_label[int(0.8 * p_data.n_train):]),
-          'patient who died out of %d total' % (len(p_data.train_label[int(0.8 * p_data.n_train):])),
-          '(Average missing in validation: %.2f)' % (np.mean(p_data.train_missing[int(0.8 * p_data.n_train):])))
-    print('Test set: ', np.count_nonzero(p_data.test_label),
-          'patient who died  out of %d total' % (len(p_data.test_data)),
-          '(Average missing in test: %.2f)' % (np.mean(p_data.test_missing)))
+    if test_bs is not None:
+        test_loader = DataLoader(test_dataset, batch_size=test_bs)
+    else:
+        test_loader = DataLoader(test_dataset, batch_size=len(p_data.test_data))
+
+    if task=='mortality':
+        print('Train set: ', np.count_nonzero(p_data.train_label[0:int(0.8 * p_data.n_train)]),
+              'patient who died out of %d total' % (int(0.8 * p_data.n_train)),
+              '(Average missing in train: %.2f)' % (np.mean(p_data.train_missing[0:int(0.8 * p_data.n_train)])))
+        print('Valid set: ', np.count_nonzero(p_data.train_label[int(0.8 * p_data.n_train):]),
+              'patient who died out of %d total' % (len(p_data.train_label[int(0.8 * p_data.n_train):])),
+              '(Average missing in validation: %.2f)' % (np.mean(p_data.train_missing[int(0.8 * p_data.n_train):])))
+        print('Test set: ', np.count_nonzero(p_data.test_label),
+              'patient who died  out of %d total' % (len(p_data.test_data)),
+              '(Average missing in test: %.2f)' % (np.mean(p_data.test_missing)))
     return p_data, train_loader, valid_loader, test_loader
 
 
@@ -580,6 +783,11 @@ def load_simulated_data(batch_size=100, datapath='./data/simulated_data', data_t
         y_test = pkl.load(f)
 
     features = kwargs['features'] if 'features' in kwargs.keys() else list(range(x_test.shape[1]))
+    test_bs = kwargs['test_bs'] if 'test_bs' in kwargs.keys() else None
+
+    perm = np.random.permutation(x_train.shape[0])
+    x_train = x_train[perm]
+    y_train = y_train[perm]
 
     total_sample_n = int(len(x_train) * percentage)
     x_train = x_train[:total_sample_n]
@@ -590,7 +798,8 @@ def load_simulated_data(batch_size=100, datapath='./data/simulated_data', data_t
 
     n_train = int(0.8 * len(x_train))
     if 'cv' in kwargs.keys():
-        kf = KFold(n_splits=5, random_state=42)
+        print('cv : ', kwargs['cv'])
+        kf = KFold(n_splits=5, random_state=88)
         train_idx, valid_idx = list(kf.split(x_train))[kwargs['cv']]
     else:
         train_idx = range(n_train)
@@ -604,7 +813,10 @@ def load_simulated_data(batch_size=100, datapath='./data/simulated_data', data_t
     test_dataset = utils.TensorDataset(torch.Tensor(x_test[:, :, :]), torch.Tensor(y_test))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     valid_loader = DataLoader(valid_dataset, batch_size=len(x_train) - int(0.8 * n_train))
-    test_loader = DataLoader(test_dataset, batch_size=len(x_test))
+    if test_bs is not None:
+        test_loader = DataLoader(test_dataset, batch_size=test_bs)
+    else:
+        test_loader = DataLoader(test_dataset, batch_size=len(x_test))
     return np.concatenate([x_train, x_test]), train_loader, valid_loader, test_loader
 
 
@@ -645,7 +857,7 @@ def shade_state_state_data(state_subj, t, ax, data='simulation'):
     # Shade the state on simulation data plots
     for ttt in range(t[0], len(t)):
         if state_subj[ttt] == 0:
-            ax.axvspan(ttt + 1, ttt, facecolor='b', alpha=0.3)
+            ax.axvspan(ttt + 1, ttt, facecolor='blue', alpha=0.3)
         elif state_subj[ttt] == 1:
             ax.axvspan(ttt + 1, ttt, facecolor='green', alpha=0.3)
         elif state_subj[ttt] == 2:

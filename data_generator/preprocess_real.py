@@ -9,6 +9,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from scipy.special import expit
 from scipy.signal import butter, lfilter, freqz
 from preprocess_utils import *
+from TSX.models import StateClassifier, EncoderRNN
 
 
 def butter_lowpass(cutoff, fs, order=5):
@@ -42,39 +43,6 @@ plt.title("Lowpass Filter Frequency Response")
 plt.xlabel('Frequency [Hz]')
 plt.grid()
 
-from scipy.io import arff
-
-'''
-def process_data(dataff):
-    n_samples = len(data)
-    n_features = len(dataff[0][0])
-    T = len(dataff[0][0][0])
-    Xx = np.zeros((n_samples, n_features, T))
-    for n in range(n_samples):
-        Xf = data[n][0]
-        for feat in range(n_features):
-            Xx[n, feat, :] = np.array([Xf[feat][t] for t in range(T)]).astype(float)
-    yy = np.array([dataff[n][1] for n in range(n_samples)])
-    return Xx, yy
-
-
-with open('/scratch/gobi1/shalmali/DuckDuckGeese/DuckDuckGeese_TEST.arff', 'r') as f:
-    data, _ = arff.loadarff(f)
-    X_test, y_test = process_data(data)
-
-with open('/scratch/gobi1/shalmali/DuckDuckGeese/DuckDuckGeese_TRAIN.arff', 'r') as f:
-    data, _ = arff.loadarff(f)
-    X_train, y_train = process_data(data)
-
-ohe = OneHotEncoder(sparse=False)
-y_train = ohe.fit_transform(y_train.reshape(-1, 1))
-y_test = ohe.transform(y_test.reshape(-1, 1))
-
-with open("/scratch/gobi1/shalmali/DuckDuckGeese/ddg_real.pkl", 'wb') as f:
-    pkl.dump({'Xtrain': X_train, 'ytrain': y_train, 'Xtest': X_test, 'ytest': y_test, 'enc': ohe}, f)
-
-'''
-
 def softmax(latent_in):
     prob_mat = np.exp(latent_in) / np.sum(np.exp(latent_in), axis=0)
     return prob_mat
@@ -82,7 +50,7 @@ def softmax(latent_in):
 
 def logistic(latent_in):
     return expit(latent_in)
-
+    
 
 def generate_sample(seeds, Tt=80):
     latent = np.zeros((len(seeds), Tt))
