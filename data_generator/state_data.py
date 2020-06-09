@@ -10,7 +10,7 @@ P_S0 = [0.5]
 correlated_feature = [0, 0] # Features that re correlated with the important feature in each state
 
 imp_feature = [1,2]  # Feature that is always set as important
-scale = [[0.1, 1.6, 0.7],[-0.1, -0.8,-1.5]]  # Scaling factor for distribution mean in each state
+scale = [[0.1, 1.6, 0.5],[-0.1, -0.4,-1.5]]  # Scaling factor for distribution mean in each state
 trans_mat = np.array([[0.1,0.9],[0.1,0.9]])
 #print(trans_mat.shape)
 

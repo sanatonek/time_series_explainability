@@ -12,7 +12,7 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import classification_report
 import seaborn as sns
 
-sns.set()
+#sns.set()
 
 line_styles_map = ['-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--', '-.', ':', '-', '--', '-.', ':']
 marker_styles_map = ['o', 'v', '^', '*', '+', 'p', '8', 'h', 'o', 'v', '^', '*', '+', 'p', '8', 'h', 'o', 'v', '^', '*',
@@ -1061,7 +1061,7 @@ def plot_heatmap_text(ranked_scores, scores, filepath,ax):
         for x in range(ranked_scores.shape[1]):
             ax.text(x + 0.5, y + 0.5, '%d' % ranked_scores[y, x],
                      horizontalalignment='center',
-                     verticalalignment='center',fontsize=56,color='r',fontweight='bold')
+                     verticalalignment='center',fontsize=20,color='r',fontweight='bold')
 
     #ax.colorbar(heatmap)
     #plt.savefig(filepath, dpi=300, bbox_inches='tight')

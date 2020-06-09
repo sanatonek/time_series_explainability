@@ -245,7 +245,7 @@ def create_dataset(count, signal_len):
     states = []
     label_logits = []
     mean, cov = init_distribution_params()
-    gp_lengthscale = np.random.uniform(0.5,0.5, SIG_NUM)
+    gp_lengthscale = np.random.uniform(0.2,0.2, SIG_NUM)
     for num in range(count):
         sig, y, state, importance, y_logits = create_signal(signal_len, gp_params=gp_lengthscale , mean=mean, cov=cov)
         dataset.append(sig)

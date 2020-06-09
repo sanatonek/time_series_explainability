@@ -487,7 +487,6 @@ class RETAIN(nn.Module):
             batch_size, max_len = x.size()[:2]
         else:
             max_len, batch_size = x.size()[:2]
-
         # emb -> batch_size X max_len X dim_emb
         emb = self.embedding(x)
         # print('Embedding: ', emb.shape)
