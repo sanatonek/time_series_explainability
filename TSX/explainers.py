@@ -13,47 +13,10 @@ import matplotlib.pyplot as plt
 
 from TSX.generator import train_joint_feature_generator, JointDistributionGenerator
 from captum.attr import IntegratedGradients, DeepLift, GradientShap, Saliency
-#import shap
 import lime
 import lime.lime_tabular
 
 eps = 1e-10
-
-
-# class DistGenerator:
-#     def __init__(self, model, train_loader, n_componenets=5):
-#         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-#         self.base_model = model
-#         self.base_model.device = self.device
-#         self.distribution = JointDistributionGenerator(n_componenets, train_loader)
-#
-#     def attribute(self, x, y, retrospective=False):
-#         x = x.to(self.device)
-#         _, n_features, t_len = x.shape
-#         score = np.zeros(x.shape)
-#         if retrospective:
-#             p_y_t = self.base_model(x)
-#
-#         for t in range(1, t_len):
-#             if not retrospective:
-#                 p_y_t = self.base_model(x[:, :, :t + 1])
-#             for i in range(n_features):
-#                 x_hat = x[:, :, 0:t + 1].clone()
-#                 kl_all = []
-#                 for _ in range(10):
-#                     conditional = self.distribution.forward_conditional(x[:, :, t], [i])
-#                     # print('sample', x[2, :, t])
-#                     # print('Cond', conditional[2])
-#                     x_hat[:, :, t] = conditional.to(self.device)
-#                     y_hat_t = self.base_model(x_hat)
-#                     # kl = torch.nn.KLDivLoss(reduction='none')(torch.Tensor(np.log(y_hat_t)).to(self.device), p_y_t)
-#                     kl = torch.abs(y_hat_t[:, :] - p_y_t[:, :])
-#                     # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
-#                     kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
-#                 E_kl = np.mean(np.array(kl_all), axis=0)
-#                 # score[:, i, t] = 2./(1+np.exp(-1*E_kl)) - 1.
-#                 score[:, i, t] = E_kl
-#         return score
 
 
 class FITExplainer:
@@ -103,11 +66,19 @@ class FITExplainer:
                     elif distance_metric == 'mean_divergence':
                         div = torch.abs(y_hat_t - p_y_t)
                         div_all.append(np.mean(div.detach().cpu().numpy(), -1))
+                    elif distance_metric=='LHS':
+                        div = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1)
+                        div_all.append(div.cpu().detach().numpy())
+                    elif distance_metric=='RHS':
+                        div = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                        div_all.append(div.cpu().detach().numpy())
                 E_div = np.mean(np.array(div_all),axis=0)
                 if distance_metric =='kl':
-                    score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
+                    score[:, i, t] = E_div#2./(1+np.exp(-1*E_div)) - 1
                 elif distance_metric=='mean_divergence':
                     score[:, i, t] = 1-E_div
+                else:
+                    score[:, i, t] = E_div
         return score
 
 
@@ -168,16 +139,16 @@ class FOExplainer:
         _, n_features, t_len = x.shape
         score = np.zeros(x.shape)
         if retrospective:
-            p_y_t = self.base_model(x)
+            p_y_t = torch.nn.Softmax(-1)(self.base_model(x))
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :t+1])
+                p_y_t = torch.nn.Softmax(-1)(self.base_model(x[:, :, :t+1]))
             for i in range(n_features):
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
                 for _ in range(n_samples):
-                    x_hat[:, i, t] = torch.Tensor(np.random.uniform(-1.5,+1.5, size=(len(x),)))#torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
-                    y_hat_t = self.base_model(x_hat)
+                    x_hat[:, i, t] = torch.Tensor(np.random.uniform(-3,+3, size=(len(x),)))#torch.Tensor(np.array([np.random.uniform(-3,+3)]).reshape(-1)).to(self.device)
+                    y_hat_t = torch.nn.Softmax(-1)(self.base_model(x_hat))
                     # kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
                     kl = torch.abs(y_hat_t-p_y_t)
                     # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
@@ -206,20 +177,20 @@ class AFOExplainer:
         _, n_features, t_len = x.shape
         score = np.zeros(x.shape)
         if retrospective:
-            p_y_t = self.base_model(x)
+            p_y_t = torch.nn.Softmax(-1)(self.base_model(x))
 
         for t in range(1, t_len):
             if not retrospective:
-                p_y_t = self.base_model(x[:, :, :t + 1])
+                p_y_t = torch.nn.Softmax(-1)(self.base_model(x[:, :, :t + 1]))
             for i in range(n_features):
                 feature_dist = (np.array(self.data_distribution[:, i, :]).reshape(-1))
                 x_hat = x[:,:,0:t+1].clone()
                 kl_all=[]
                 for _ in range(10):
                     x_hat[:, i, t] = torch.Tensor(np.random.choice(feature_dist, size=(len(x),))).to(self.device)
-                    y_hat_t = self.base_model(x_hat)
+                    y_hat_t = torch.nn.Softmax(-1)(self.base_model(x_hat))
                     # kl = torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t)
-                    kl = torch.abs(torch.nn.Softmax(-1)(y_hat_t[:, :]) - torch.nn.Softmax(-1)(p_y_t[:, :]))
+                    kl = torch.abs((y_hat_t[:, :]) - (p_y_t[:, :]))
                     # kl_all.append(torch.sum(kl, -1).cpu().detach().numpy())
                     kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
                 E_kl = np.mean(np.array(kl_all), axis=0)
@@ -285,7 +256,7 @@ class RETAINexplainer:
     def fit_model(self, train_loader, valid_loader, test_loader, epochs=10, lr=0.001, plot=False):
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(self.base_model.parameters(), lr=lr)
-        # optimizer = torch.optim.SGD(self.model.parameters(), lr=lr, momentum=0.95)
+        # optimizer = torch.optim.SGD(self.base_model.parameters(), lr=lr*10, momentum=0.95)
 
         best_valid_epoch = 0
         best_valid_loss = sys.float_info.max
@@ -411,7 +382,6 @@ class DeepLiftExplainer:
         self.explainer = DeepLift(self.base_model)
 
     def attribute(self, x, y, retrospective=False):
-        print(x.shape, y.shape)
         self.base_model.zero_grad()
         if retrospective:
             score = self.explainer.attribute(x, target=y.long(), baselines=(x * 0))
@@ -419,7 +389,9 @@ class DeepLiftExplainer:
         else:
             score = np.zeros(x.shape)
             for t in range(1,x.shape[-1]):
-                imp = self.explainer.attribute(x[:,:,:t+1], target=y.long(), baselines=(x[:,:,:t+1] * 0))
+                x_in = torch.Tensor(x[:, :, :t + 1])
+                pred =torch.nn.Softmax(-1)(self.base_model(x_in))
+                imp = self.explainer.attribute(x_in, target=torch.argmax(pred,-1), baselines=(x[:,:,:t+1] * 0))
                 score[:, :, t] = imp.detach().cpu().numpy()[:,:,-1]
         return score
 
@@ -435,12 +407,17 @@ class IGExplainer:
         x, y = x.to(self.device), y.to(self.device)
         self.base_model.zero_grad()
         if retrospective:
-            score = self.explainer.attribute(x, target=y.long(), baselines=(x * 0))
+            score = self.attribute(x, target=y.long(), baselines=(x * 0))
             score = score.detach().cpu().numpy()
         else:
             score = np.zeros(x.shape)
             for t in range(1,x.shape[-1]):
-                imp = self.explainer.attribute(x[:,:,:t+1], target=y.long(), baselines=torch.zeros(x[:,:,:t+1].shape).to(self.device))
+                x_in = torch.Tensor(x[:, :, :t + 1])
+                pred = torch.nn.Softmax(-1)(self.base_model(x_in))
+                imp = self.explainer.attribute(x_in, target=torch.argmax(pred, -1),
+                                               baselines=(x[:, :, :t + 1] * 0))
+                # pred = self.base_model(torch.Tensor(x[:,:,:t+1]))
+                # imp = self.explainer.attribute(x[:,:,:t+1], target=pred.cpu().numpy(), baselines=torch.zeros(x[:,:,:t+1].shape).to(self.device))
                 score[:, :, t] = imp.detach().cpu().numpy()[:,:,-1]
         return score
 
@@ -455,13 +432,16 @@ class GradientShapExplainer:
     def attribute(self, x, y, retrospective=False):
         x, y = x.to(self.device), y.to(self.device)
         if retrospective:
-            score = self.explainer.attribute(x, target=y[:, -1].long(),
+            score = self.explainer.attribute(x, target=y.long(),
                                              n_samples=50, stdevs=0.0001, baselines=torch.cat([x * 0, x * 1]))
             score = score.cpu().numpy()
         else:
             score = np.zeros(x.shape)
             for t in range(1,x.shape[-1]):
-                imp = self.explainer.attribute(x[:,:,:t+1], target=y[:, t].long(),
+                x_in = torch.Tensor(x[:, :, :t + 1])
+                pred = torch.nn.Softmax(-1)(self.base_model(x_in))
+                # pred = self.base_model(torch.Tensor(x[:,:,:t+1]))
+                imp = self.explainer.attribute(x_in, target=torch.argmax(pred, -1),
                                              n_samples=50, stdevs=0.0001, baselines=torch.cat([x[:,:,:t+1] * 0, x[:,:,:t+1] * 1]))
                 score[:, :, t] = imp.cpu().numpy()[:,:,-1]
         return score
@@ -515,20 +495,20 @@ class LIMExplainer:
     def attribute(self, x, y, retrospective=False):
         x = x.cpu().numpy()
         score = np.zeros(x.shape)
-        p_y_t_vec = np.zeros((x.shape[0], x.shape[-1]))
-        for t in range(1, x.shape[-1]):
-            p_y_t = self.base_model(x[:, :, :t + 1])
-            p_y_t_vec[:, t - 1] = np.array([p > 0.5 for p in p_y_t.cpu().detach().numpy()[:, 1]]).flatten()
+        # p_y_t_vec = np.zeros((x.shape[0], x.shape[-1]))
+        # for t in range(1, x.shape[-1]):
+            # p_y_t = self.base_model(torch.Tensor(x[:, :, :t + 1]).to(self.device))
+            # p_y_t_vec[:, t - 1] = np.array([p > 0.5 for p in p_y_t.cpu().detach().numpy()[:, 1]]).flatten()
         for sample_ind, sample in enumerate(x):
             for t in range(1, x.shape[-1]):
-                imp = self.explainer.explain_instance(sample[:, t], self._predictor_wrapper, top_labels=x.shape[1])
+                imp = self.explainer.explain_instance(sample[:, t], self._predictor_wrapper)
                 for ind, st in enumerate(imp.as_list()):
                     imp_score = st[1]
                     terms = re.split('< | > | <= | >=', st[0])
                     for feat in range(x.shape[1]):
                         if 'f%d'%feat in terms:
                             score[sample_ind, feat, t] = imp_score
-        return score, p_y_t_vec
+        return score
 
 
 class FITSubGroupExplainer:
