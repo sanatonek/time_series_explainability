@@ -28,12 +28,9 @@ python3 data_generator/icu_mortality.py ---sqluser YOUR_USER --sqlpass YOUR_PASS
 ```
 
 ## Running the importance assignment baselines
-For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator. Run the folowing script to train the models for your required dataset (simulation, simulation_spike, mimic)
+For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator (You can do this by passing the --train argument). To generate explanations for test samples using any of the baselines and for your required dataset (simulation, simulation_spike, mimic), run the following module.
+
 ```
-./train.sh DATASET_NAME
-```
-Once you have the trained models, run the experiment string to generate feature importance results for all baselines
-```
-python3 -m TSX.main --data DATASET_NAME
+python3 -m evaluation.baselines --data DATASET_NAME --explainer EXPLAINER_MODEL --train
 ```
 
