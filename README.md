@@ -7,7 +7,7 @@ Two different simulated datasets are used in the experiments. The process of cre
 
 
 ### Simulated dataset (State data):
-Run the following script to create the data and the ground thruth explanations for the state experiment. You can choose the total number of samples in the dataset as well as the lenght of eachrecording. The deafualts are set to 1000 samples of length 100.
+Run the following script to create the data and the ground thruth explanations for the state experiment. You can choose the total number of samples in the dataset as well as the lenght of each recording. The defaults are set to 1000 samples of length 100.
 ```
 python3 data_generator/state_data.py --signal_len LENGTH_OF_SIGNALS --signal_num TOTAL_NUMBER_OF_SAMPLES
 ```
@@ -22,7 +22,7 @@ You need to have the MIMICIII database running on a server. Run the following sc
 ```
 python3 data_generator/icu_mortality.py --sqluser YOUR_USER --sqlpass YOUR_PASSWORD
 ```
-Run the following scripts to query and preprocess the ICU mrtality data (This step might take a few hours)
+Run the following scripts to query and preprocess the ICU mortality data (This step might take a few hours)
 ```
 python3 data_generator/icu_mortality.py ---sqluser YOUR_USER --sqlpass YOUR_PASSWORD
 ```
