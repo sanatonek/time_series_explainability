@@ -18,6 +18,7 @@ rc('font', weight='bold')
 from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, \
 compute_median_rank, plot_heatmap_text, train_model_rt_binary, train_model_multiclass, train_model, load_data
 from TSX.models import StateClassifier, RETAIN, EncoderRNN, ConvClassifier, StateClassifierMIMIC
+
 from TSX.generator import JointFeatureGenerator, JointDistributionGenerator
 from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplainer, \
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, \
@@ -251,7 +252,6 @@ if __name__ == '__main__':
                 explainer = LIMExplainer(model, train_loader, activation=activation,n_classes=n_classes)
             else:
                 explainer = LIMExplainer(model, train_loader)
-
         elif args.explainer == 'retain':
              explainer = RETAINexplainer(model,self.data)
         else:
@@ -278,15 +278,12 @@ if __name__ == '__main__':
         x = x.to(device)
         y = y.to(device)
 
-
         t0 = time.time()
         score = explainer.attribute(x, y if args.data=='mimic' else y[:, -1].long())
-
         ranked_features = np.array([((-(score[n])).argsort(0).argsort(0) + 1) \
                                     for n in range(x.shape[0])])  # [:ks[args.data]]
         importance_scores.append(score)
         ranked_feats.append(ranked_features)
-
 
     importance_scores = np.concatenate(importance_scores, 0)
     print('Saving file to ', os.path.join(output_path, '%s_test_importance_scores_%d.pkl' % (args.explainer, args.cv)))
