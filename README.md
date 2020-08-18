@@ -7,7 +7,7 @@ Two different simulated datasets are used in the experiments. The process of cre
 
 
 ### Simulated dataset (State data):
-Run the following script to create the data and the ground thruth explanations for the state experiment. You can choose the total number of samples in the dataset as well as the lenght of eachrecording. The deafualts are set to 1000 samples of length 100.
+Run the following script to create the data and the ground thruth explanations for the state experiment. You can choose the total number of samples in the dataset as well as the lenght of each recording. The defaults are set to 1000 samples of length 100.
 ```
 python3 data_generator/state_data.py --signal_len LENGTH_OF_SIGNALS --signal_num TOTAL_NUMBER_OF_SAMPLES
 ```
@@ -22,18 +22,15 @@ You need to have the MIMICIII database running on a server. Run the following sc
 ```
 python3 data_generator/icu_mortality.py --sqluser YOUR_USER --sqlpass YOUR_PASSWORD
 ```
-Run the following scripts to query and preprocess the ICU mrtality data (This step might take a few hours)
+Run the following scripts to query and preprocess the ICU mortality data (This step might take a few hours)
 ```
 python3 data_generator/icu_mortality.py ---sqluser YOUR_USER --sqlpass YOUR_PASSWORD
 ```
 
 ## Running the importance assignment baselines
-For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator. Run the folowing script to train the models for your required dataset (simulation, simulation_spike, mimic)
+For running the experiments, you need to train: 1) The black-box predictor model and 2) the conditional generator (You can do this by passing the --train argument). To generate explanations for test samples using any of the baselines and for your required dataset (simulation, simulation_spike, mimic), run the following module.
+
 ```
-./train.sh DATASET_NAME
-```
-Once you have the trained models, run the experiment string to generate feature importance results for all baselines
-```
-python3 -m TSX.main --data DATASET_NAME
+python3 -m evaluation.baselines --data DATASET_NAME --explainer EXPLAINER_MODEL --train
 ```
 
