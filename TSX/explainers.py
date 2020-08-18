@@ -59,10 +59,6 @@ class FITExplainer:
         :param n_samples: number of Monte-Carlo samples
         :return: Importance score matrix of shape:[batch, features, time]
         """
-        if subsets is not None:
-            subsets=subsets
-        else:
-            subsets = list(range(n_features))
         self.generator.eval()
         self.generator.to(self.device)
         x = x.to(self.device)
@@ -82,7 +78,7 @@ class FITExplainer:
                 t1_all=[]
                 t2_all=[]
                 for _ in range(n_samples):
-                    x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], i)
+                    x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
                     x_hat[:, :, t] = x_hat_t
                     y_hat_t = self.activation(self.base_model(x_hat))
                     if distance_metric == 'kl':

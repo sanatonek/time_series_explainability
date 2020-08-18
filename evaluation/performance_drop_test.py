@@ -3,19 +3,32 @@ import pickle as pkl
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
-
 from sklearn import metrics
 import torch
-
-top_patients = [1534, 3734, 82, 3663, 3509, 870, 3305, 1484, 2604, 1672, 2733, 1057, 2599, 3319, 1239, 1671, 3095, 3783, 1935, 720, 1961, 3476, 262, 816, 2268, 723, 4469, 3818, 4126, 1575, 1526, 1457, 4542, 2015, 2512, 1419, 1749, 3822, 466, 165, 306, 1922, 1973, 1218, 1987, 701, 3344, 2285, 2363, 1429, 808, 3266, 3643, 8, 4528, 156, 229, 2684, 3588, 532, 436, 2934, 503, 2635, 4077, 2112, 2776, 2012, 2724, 420, 2978, 4265, 832, 309, 3748, 1260, 1294, 1423, 2787, 1012, 2177, 1335, 53, 2054, 2135, 4266, 3379, 379, 1580, 1720, 4409, 415, 4273, 3927, 3226, 2316, 1933, 3442, 3047, 1219, 1308, 614, 3115, 1237, 2191, 838, 3367, 1751, 2362, 3180, 2800, 2871, 3168, 3839, 4153, 7, 1014, 4428, 1803, 766, 494, 3184, 3179, 2004, 3450, 3586, 2460, 429, 1547, 1630, 1586, 4090, 2781, 2108, 1849, 4278, 2820, 1799, 1936, 1895, 1741, 4015, 3373, 973, 2291, 3122, 2979, 3377, 3892, 3742, 508, 155, 1122, 1919, 708, 1909, 3950, 4236, 3797, 4403, 4220, 3779, 1954, 3754, 3174, 2850, 2303, 1375, 1431, 67, 1278, 1757, 789, 3716, 2666, 2145, 658, 2270, 3829, 3600, 811, 3334, 79, 3803, 4131, 300, 3026, 2013, 3064, 4369, 1174, 1857, 55, 3156, 2732, 1573, 4423, 3856, 2882, 831, 2933, 3325, 1994, 440, 3788, 3126, 434, 1777, 3717, 3067, 4253, 4301, 3380, 4584, 1307, 1043, 1786, 670, 3644, 1524, 4489, 1886, 3258, 1115, 2394, 3008, 364, 4065, 3515, 2348, 2141, 3060, 1642, 1868, 4575, 4271, 967, 834, 1906, 2836, 2138, 3641, 30, 1611, 4360, 3472, 3117, 3732, 1728, 4537, 3154, 4513, 4474, 453, 3002, 4103, 4348, 2745, 3510, 299, 2157, 2718, 4127, 1811, 2523, 261, 4337, 2541, 2244, 3158, 1236, 589, 285, 2445, 4413, 893, 2272, 2422, 3639, 4556, 1067, 907, 350, 2491, 3841, 3876, 3921, 2117, 39, 2788, 179, 3314, 1083, 2038, 1776, 4356, 2926, 3786, 3323, 147]
-
 from TSX.models import StateClassifier, ConvClassifier, EncoderRNN, StateClassifierMIMIC, RETAIN
 from TSX.utils import load_data
+
+TOP_PATIENTS = [1534, 3734, 82, 3663, 3509, 870, 3305, 1484, 2604, 1672, 2733, 1057, 2599, 3319, 1239, 1671, 
+3095, 3783, 1935, 720, 1961, 3476, 262, 816, 2268, 723, 4469, 3818, 4126, 1575, 1526, 1457, 4542, 2015, 2512, 
+1419, 1749, 3822, 466, 165, 306, 1922, 1973, 1218, 1987, 701, 3344, 2285, 2363, 1429, 808, 3266, 3643, 8, 4528, 
+156, 229, 2684, 3588, 532, 436, 2934, 503, 2635, 4077, 2112, 2776, 2012, 2724, 420, 2978, 4265, 832, 309, 3748, 1260, 
+1294, 1423, 2787, 1012, 2177, 1335, 53, 2054, 2135, 4266, 3379, 379, 1580, 1720, 4409, 415, 4273, 3927, 3226, 2316, 
+1933, 3442, 3047, 1219, 1308, 614, 3115, 1237, 2191, 838, 3367, 1751, 2362, 3180, 2800, 2871, 3168, 3839, 4153, 7, 1014, 
+4428, 1803, 766, 494, 3184, 3179, 2004, 3450, 3586, 2460, 429, 1547, 1630, 1586, 4090, 2781, 2108, 1849, 4278, 2820, 1799, 1936, 
+1895, 1741, 4015, 3373, 973, 2291, 3122, 2979, 3377, 3892, 3742, 508, 155, 1122, 1919, 708, 1909, 3950, 4236, 3797, 4403, 4220, 3779, 
+1954, 3754, 3174, 2850, 2303, 1375, 1431, 67, 1278, 1757, 789, 3716, 2666, 2145, 658, 2270, 3829, 3600, 811, 3334, 79, 3803, 4131, 300, 
+3026, 2013, 3064, 4369, 1174, 1857, 55, 3156, 2732, 1573, 4423, 3856, 2882, 831, 2933, 3325, 1994, 440, 3788, 3126, 434, 1777, 3717, 3067, 
+4253, 4301, 3380, 4584, 1307, 1043, 1786, 670, 3644, 1524, 4489, 1886, 3258, 1115, 2394, 3008, 364, 4065, 3515, 2348, 2141, 3060, 
+1642, 1868, 4575, 4271, 967, 834, 1906, 2836, 2138, 3641, 30, 1611, 4360, 3472, 3117, 3732, 1728, 4537, 3154, 4513, 4474, 453, 3002, 
+4103, 4348, 2745, 3510, 299, 2157, 2718, 4127, 1811, 2523, 261, 4337, 2541, 2244, 3158, 1236, 589, 285, 2445, 4413, 893, 2272, 2422, 
+3639, 4556, 1067, 907, 350, 2491, 3841, 3876, 3921, 2117, 39, 2788, 179, 3314, 1083, 2038, 1776, 4356, 2926, 3786, 3323, 147]
+
 
 feature_map_mimic = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE',
                      'HEMATOCRIT', 'HEMOGLOBIN', 'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM',
                      'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC', 'HeartRate', 'SysBP' , 'DiasBP' , 'MeanBP' ,
                      'RespRate' , 'SpO2' , 'Glucose','Temp']
+
 
 select_examples = [5, 8, 10, 40]
 def main(args):
@@ -82,11 +95,14 @@ def main(args):
         # print([xx[1] for xx in span[0:300]])
         # top_patients = [xx[0] for xx in span[0:300]]
 
-        testset = list(test_loader.dataset)
-        if args.percentile:
-            top_patients = list(range(len(testset)))
-        x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
-        y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
+    testset = list(test_loader.dataset)
+    if args.percentile:
+        top_patients = list(range(len(testset)))
+    else:
+        top_patients = TOP_PATIENTS
+
+    x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
+    y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
 
 
     # importance_path = '/scratch/gobi2/projects/tsx/new_results/%s' % args.data
@@ -145,6 +161,7 @@ def main(args):
 
     auc_drop, aupr_drop = [], []
     for cv in [0, 1, 2]:
+    #for cv in [0]:
         with open(os.path.join(importance_path, '%s_test_importance_scores_%s.pkl' % (args.explainer, str(cv))),
                   'rb') as f:
             importance_scores = pkl.load(f)
@@ -163,8 +180,8 @@ def main(args):
         plot_path = './plots/mimic/'
         t_len = importance_scores[plot_id].shape[-1]
         t = np.arange(1, t_len)
-        model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
-        model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
+        #model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
+        #model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
         model.eval()
         for tt in t:
             pred_tt = model(torch.Tensor(x_test[plot_id, :, :tt + 1]).unsqueeze(0)).detach().cpu().numpy()
@@ -402,10 +419,7 @@ if __name__ == '__main__':
     parser.add_argument('--time_imp', action='store_true', default=False)
     parser.add_argument('--train_pc', type=float, default=1.)
     parser.add_argument('--percentile', action='store_true')
-    parser.add_argument('--path', type=str, default='/scratch/gobi1/sana/TSX_results/new_results/')
-    parser.add_argument('--subpop', action='store_true', default=False)
-    parser.add_argument('--time_imp', action='store_true', default=False)
-    parser.add_argument('--train_pc', type=float, default=1.)
+    parser.add_argument('--path', type=str, default='/scratch/gobi1/shalmali/TSX_results/new_results/')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     main(args)

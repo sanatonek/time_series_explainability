@@ -303,6 +303,8 @@ if __name__ == '__main__':
     with open(os.path.join(output_path, '%s_test_importance_scores_%d.pkl' % (args.explainer, args.cv)), 'wb') as f:
         pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
 
+    #print(importance_scores)
+
     ranked_feats = np.concatenate(ranked_feats,0)
     with open(os.path.join(output_path, '%s_test_ranked_scores.pkl' % args.explainer), 'wb') as f:
         pkl.dump(ranked_feats, f, protocol=pkl.HIGHEST_PROTOCOL)
