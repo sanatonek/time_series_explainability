@@ -25,51 +25,6 @@ top_patients = [3095]#, 1534, 3663, 4126, 3734, 82, 2604, 3305, 870, 2733, 3319,
                 # 2455, 1191, 2439, 4514, 3041, 4538, 8, 3168, 165, 3567, 299, 1935, 3373, 4489, 1773, 2112, 4220, 3609]
 
 
-p_data, train_loader, valid_loader, test_loader = load_data(batch_size=100, path='./data',  transform=None, cv=0)
-testset = list(test_loader.dataset)
-x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
-y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
-
-# age, ethnicity(unknown=0 ,white=1, black=2, hispanic=3, asian=4, other=5), first_icu_stay(True=1, False=0
-
-for j, x in enumerate(x_test):
-    pid = top_patients[j]
-    fig = plt.figure(constrained_layout=True)
-    gs = fig.add_gridspec(8, 2)
-    fig.set_figheight(16)
-    fig.set_figwidth(24)
-    axs_table = fig.add_subplot(gs[:,1])
-    axs_table.set_title('lab results', fontsize=24)
-
-    # Initialize the vertical-offset for the stacked bar chart.
-    y_offset = 1
-    columns = range(0,49, 4)
-    # Plot bars and create text labels for the table
-    cell_text = []
-    bar_width = 6
-    bar_heigth = 1.5
-    for row in range(19):
-        cell_text.append([meas for i,meas in enumerate(x[row, :]) if i%4==0])
-    the_table = axs_table.table(cellText=cell_text,
-                                rowLabels=feature_map_mimic[:19],
-                                colLabels=columns,
-                                loc='center')
-    the_table.scale(0.4, 3)
-    the_table.set_fontsize(24)
-    axs_table.axis("off")
-
-    # f, axs = plt.subplots(8)
-    ethnicity = ['unknown' ,'white', 'black', 'hispanic', 'asian', 'other'][int(x[len(feature_map_mimic)+2,0])]
-    gender = ['Male', 'Female'][int(x[len(feature_map_mimic),0])]
-    fig.suptitle('Gender:%s \t Age: %d \t Ethnicity: %s'%(gender, x[len(feature_map_mimic)+1, 0], ethnicity), fontsize=24)
-    axs = []
-    for i, sig in enumerate(range(19, len(feature_map_mimic))):
-        ax = fig.add_subplot(gs[i, 0])
-        axs.append(ax)
-        axs[i].plot(x[sig,:], 'x')
-        axs[i].set_title(feature_map_mimic[sig], fontsize=24)
-    plt.savefig('./plots/mimic_clinical_eval/sample_%d.pdf'%pid)
-
 
 
     # labels = np.zeros((x.shape[0], x.shape[-1]))
@@ -186,39 +141,88 @@ for j, x in enumerate(x_test):
 
 
 
-# if __name__ == '__main__':
-#     np.random.seed(1234)
-#     parser = argparse.ArgumentParser(description='Run baseline model for explanation')
-#     parser.add_argument('--explainer', type=str, default='fit', help='Explainer model')
-#     parser.add_argument('--data', type=str, default='simulation')
-#     parser.add_argument('--train', action='store_true')
-#     parser.add_argument('--train_gen', action='store_true')
-#     parser.add_argument('--generator_type', type=str, default='history')
-#     parser.add_argument('--binary', action='store_true', default=False)
-#     parser.add_argument('--gt', type=str, default='true_model', help='specify ground truth score')
-#     parser.add_argument('--cv', type=int, default=1)
-#     args = parser.parse_args()
-#     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-#
-#
-#     if args.data == 'simulation':
-#         feature_size = 3
-#         data_path = './data/simulated_data'
-#         data_type='state'
-#     elif args.data == 'simulation_l2x':
-#         feature_size = 3
-#         data_path = './data/simulated_data_l2x'
-#         data_type='state'
-#     elif args.data == 'simulation_spike':
-#         feature_size = 3
-#         data_path = './data/simulated_spike_data'
-#         data_type='spike'
-#     elif args.data == 'mimic':
-#         data_type = 'mimic'
-#         timeseries_feature_size = len(feature_map_mimic)
-#
-#     output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s' % args.data
-#     with open(os.path.join(output_path, '%s_test_importance_scores_%d.pkl' % (args.explainer, args.cv)), 'wb') as f:
-#         importance_scores = pkl.load(f)
-#
-#     x = importance_scores[top_patients, :, :]
+if __name__ == '__main__':
+    np.random.seed(1234)
+    parser = argparse.ArgumentParser(description='Run baseline model for explanation')
+    parser.add_argument('--explainer', type=str, default='fit', help='Explainer model')
+    parser.add_argument('--data', type=str, default='simulation')
+    parser.add_argument('--train', action='store_true')
+    parser.add_argument('--train_gen', action='store_true')
+    parser.add_argument('--generator_type', type=str, default='history')
+    parser.add_argument('--binary', action='store_true', default=False)
+    parser.add_argument('--gt', type=str, default='true_model', help='specify ground truth score')
+    parser.add_argument('--cv', type=int, default=1)
+    args = parser.parse_args()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
+    if args.data == 'simulation':
+        feature_size = 3
+        data_path = './data/simulated_data'
+        data_type='state'
+    elif args.data == 'simulation_l2x':
+        feature_size = 3
+        data_path = './data/simulated_data_l2x'
+        data_type='state'
+    elif args.data == 'simulation_spike':
+        feature_size = 3
+        data_path = './data/simulated_spike_data'
+        data_type='spike'
+    elif args.data == 'mimic':
+        data_type = 'mimic'
+        timeseries_feature_size = len(feature_map_mimic)
+
+    output_path = '/scratch/gobi1/sana/TSX_results/new_results/%s' % args.data
+    with open(os.path.join(output_path, '%s_test_importance_scores_%d.pkl' % (args.explainer, args.cv)), 'wb') as f:
+        importance_scores = pkl.load(f)
+
+
+    if args.data == 'mimic':
+        # Plot patient summary sheet
+        p_data, train_loader, valid_loader, test_loader = load_data(batch_size=100, path='./data', transform=None, cv=0)
+        testset = list(test_loader.dataset)
+        x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
+        y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
+
+        for j, x in enumerate(x_test):
+            pid = top_patients[j]
+            fig = plt.figure(constrained_layout=True)
+            gs = fig.add_gridspec(8, 2)
+            fig.set_figheight(16)
+            fig.set_figwidth(24)
+            axs_table = fig.add_subplot(gs[:, 1])
+            axs_table.set_title('lab results', fontsize=24)
+
+            # Initialize the vertical-offset for the stacked bar chart.
+            y_offset = 1
+            columns = range(0, 49, 4)
+            # Plot bars and create text labels for the table
+            cell_text = []
+            bar_width = 6
+            bar_heigth = 1.5
+            for row in range(19):
+                cell_text.append([meas for i, meas in enumerate(x[row, :]) if i % 4 == 0])
+            the_table = axs_table.table(cellText=cell_text,
+                                        rowLabels=feature_map_mimic[:19],
+                                        colLabels=columns,
+                                        loc='center')
+            the_table.scale(0.4, 3)
+            the_table.set_fontsize(24)
+            axs_table.axis("off")
+
+            # f, axs = plt.subplots(8)
+            ethnicity = ['unknown', 'white', 'black', 'hispanic', 'asian', 'other'][
+                int(x[len(feature_map_mimic) + 2, 0])]
+            gender = ['Male', 'Female'][int(x[len(feature_map_mimic), 0])]
+            fig.suptitle(
+                'Gender:%s \t Age: %d \t Ethnicity: %s' % (gender, x[len(feature_map_mimic) + 1, 0], ethnicity),
+                fontsize=24)
+            axs = []
+            for i, sig in enumerate(range(19, len(feature_map_mimic))):
+                ax = fig.add_subplot(gs[i, 0])
+                axs.append(ax)
+                axs[i].plot(x[sig, :], 'x')
+                axs[i].set_title(feature_map_mimic[sig], fontsize=24)
+            plt.savefig('./plots/mimic_clinical_eval/sample_%d.pdf' % pid)
+
+        # Plot importance scores
