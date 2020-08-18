@@ -64,7 +64,6 @@ def main(args):
         with open(os.path.join(data_path, file_name +'y_test.pkl'), 'rb') as f:
             y_test = pkl.load(f)
 
-<<<<<<< HEAD
         ## Select patients with varying state
         # span = []
         # testset = list(test_loader.dataset)
@@ -92,9 +91,8 @@ def main(args):
 
     # importance_path = '/scratch/gobi2/projects/tsx/new_results/%s' % args.data
     importance_path = os.path.join(args.path, args.data)
-=======
     #importance_path = '/scratch/gobi2/projects/tsx/new_results/%s' % args.data
-    importance_path = '/scratch/gobi1/shalmali/TSX_results/new_results/%s' % args.data
+    #importance_path = '/scratch/gobi1/shalmali/TSX_results/new_results/%s' % args.data
 
     if args.data=='simulation_spike':
         activation = torch.nn.Sigmoid()
@@ -106,7 +104,6 @@ def main(args):
             raise ValueError('%s explainer not defined for mimic-int!' % args.explainer)
     else:
         activation = torch.nn.Softmax(-1)
->>>>>>> intermediate commit - code clean up
 
     auc_drop, aupr_drop = [], []
     for cv in [0, 1, 2]:
@@ -114,7 +111,14 @@ def main(args):
                   'rb') as f:
             importance_scores = pkl.load(f)
 
-<<<<<<< HEAD
+        if args.data=='simulation_spike':
+            model = EncoderRNN(feature_size=feature_size, hidden_size=50, regres=True, return_all=False, data=args.data, rnn="GRU")
+        elif args.data=='mimic_int':
+            model = StateClassifierMIMIC(feature_size=feature_size, n_state=n_classes, hidden_size=128,rnn='LSTM')
+        elif args.data=='mimic' or args.data=='simulation' or args.data=='simulation_l2x':
+            model = StateClassifier(feature_size=feature_size, n_state=n_classes, hidden_size=200,rnn='GRU')
+        model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s_%d.pt' % (args.data, 'model',cv))))
+
         #### Plotting
         plot_id = 10
         pred_batch_vec = []
@@ -151,15 +155,6 @@ def main(args):
         handles, labels = axs[0].get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
         fig_legend.savefig(os.path.join(plot_path, '%s_example_legend.pdf' % name), dpi=300, bbox_inches='tight')
-=======
-        if args.data=='simulation_spike':
-            model = EncoderRNN(feature_size=feature_size, hidden_size=50, regres=True, return_all=False, data=args.data, rnn="GRU")
-        elif args.data=='mimic_int':
-            model = StateClassifierMIMIC(feature_size=feature_size, n_state=n_classes, hidden_size=128,rnn='LSTM')
-        elif args.data=='mimic' or args.data=='simulation' or args.data=='simulation_l2x':
-            model = StateClassifier(feature_size=feature_size, n_state=n_classes, hidden_size=200,rnn='GRU')
-        model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s_%d.pt' % (args.data, 'model',cv))))
->>>>>>> intermediate commit - code clean up
 
         if args.explainer == 'retain':
             if args.data=='mimic_int':
@@ -215,7 +210,8 @@ def main(args):
             y_test = y_test[top_patients]
             importance_scores = importance_scores[top_patients]
 
-        min_t = 10#25
+
+        min_t = 10
         max_t = 40
         n_drops = args.n_drops
 
@@ -233,7 +229,6 @@ def main(args):
                         importance_scores[i, :, imp[1] + min_t:] = -1
                         x_cf = x_cf[:,:imp[1] + min_t]
                 else:
-<<<<<<< HEAD
                     if args.percentile:
                         min_t_feat = [np.min(np.where(importance_scores[i, f, min_t:] >= q)[0]) if
                                       len(np.where(importance_scores[i, f, min_t:] >= q)[0]) > 0 else
@@ -243,13 +238,6 @@ def main(args):
                     else:
                         for _ in range(n_drops):
                             imp = np.unravel_index(importance_scores[i, :, min_t:].argmax(), importance_scores[i, :, min_t:].shape)
-=======
-                    for _ in range(n_drops):
-                        imp = np.unravel_index(importance_scores[i, :, min_t:].argmax(), importance_scores[i, :, min_t:].shape)
-                        if importance_scores[i,imp[0], imp[1]+ min_t]<0:
-                            continue
-                        else:  
->>>>>>> intermediate commit - code clean up
                             importance_scores[i, imp[0], imp[1] + min_t:] = -1
                             x_cf[imp[0], imp[1] + min_t:] = x_cf[imp[0], imp[1] + min_t-1]
                 label.append(y_test[i])

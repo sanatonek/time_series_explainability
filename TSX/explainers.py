@@ -52,13 +52,17 @@ class FITExplainer:
                                       n_epochs=300, lr=0.001, weight_decay=0,cv=cv)
         self.generator = generator_model.to(self.device)
 
-    def attribute(self, x, y, n_samples=10, retrospective=False, distance_metric='kl'):
+    def attribute(self, x, y, n_samples=10, retrospective=False, distance_metric='kl',subsets=None):
         """
         Compute importance score for a sample x, over time and features
         :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
         :param n_samples: number of Monte-Carlo samples
         :return: Importance score matrix of shape:[batch, features, time]
         """
+        if subsets is not None:
+            subsets=subsets
+        else:
+            subsets = list(range(n_features))
         self.generator.eval()
         self.generator.to(self.device)
         x = x.to(self.device)
@@ -71,13 +75,13 @@ class FITExplainer:
             if not retrospective:
                 p_y_t = self.activation(self.base_model(x[:, :, :t+1]))
                 p_tm1 = self.activation(self.base_model(x[:,:,0:t]))
-            for i in range(n_features):
+            for i in subsets:
                 x_hat = x[:,:,0:t+1].clone()
                 div_all=[]
                 t1_all=[]
                 t2_all=[]
                 for _ in range(n_samples):
-                    x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], [i])
+                    x_hat_t, _ = self.generator.forward_conditional(x[:, :, :t], x[:, :, t], i)
                     x_hat[:, :, t] = x_hat_t
                     y_hat_t = self.activation(self.base_model(x_hat))
                     if distance_metric == 'kl':
@@ -102,7 +106,11 @@ class FITExplainer:
                 E_div = np.mean(np.array(div_all),axis=0)
                 if distance_metric =='kl':
                     #score[:, i, t] = E_div#2./(1+np.exp(-1*E_div)) - 1
-                    score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
+                    if subsets is not None:
+                        for ii in i:
+                            score[:, ii, t] = 2./(1+np.exp(-1*E_div)) - 1
+                    else:
+                        score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
                 elif distance_metric=='mean_divergence':
                     score[:, i, t] = 1-E_div
                 else:

@@ -9,6 +9,8 @@ import time
 
 import pandas as pd
 from scipy import interpolate
+from scipy.stats import spearmanr
+from scipy.cluster import hierarchy
 import matplotlib._color_data as mcd
 from matplotlib import rc, rcParams
 rc('font', weight='bold')
@@ -280,11 +282,11 @@ if __name__ == '__main__':
         t0 = time.time()
         score = explainer.attribute(x, y if args.data=='mimic' else y[:, -1].long())
 
-
         ranked_features = np.array([((-(score[n])).argsort(0).argsort(0) + 1) \
                                     for n in range(x.shape[0])])  # [:ks[args.data]]
         importance_scores.append(score)
         ranked_feats.append(ranked_features)
+
 
     importance_scores = np.concatenate(importance_scores, 0)
     print('Saving file to ', os.path.join(output_path, '%s_test_importance_scores_%d.pkl' % (args.explainer, args.cv)))

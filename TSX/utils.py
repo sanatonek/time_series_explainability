@@ -686,6 +686,7 @@ def load_data(batch_size, path='./data/', **kwargs):
     test_bs = kwargs['test_bs'] if 'test_bs' in kwargs.keys() else None
     train_pc = kwargs['train_pc'] if 'train_pc' in kwargs.keys() else 1.
 
+
     features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
     p_data.train_data = p_data.train_data[:, features, :]
     p_data.test_data = p_data.test_data[:, features, :]
