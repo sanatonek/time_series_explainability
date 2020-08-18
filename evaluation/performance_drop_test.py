@@ -33,34 +33,35 @@ def main(args):
         feature_size = p_data.feature_size
 
         ## Select patients with varying state
-        span = []
-        testset = list(test_loader.dataset)
-        model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
-        model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
-        for i,(signal,label) in enumerate(testset):
-           model.to(device)
-           model.eval()
-           risk=[]
-           for t in range(1,48):
-                pred = torch.nn.Softmax(-1)(model(torch.Tensor(signal[:, 0:t]).unsqueeze(0).to(device)))[:, 1]
-                risk.append(pred.item())
-           span.append((i,max(risk) - min(risk)))
-        span.sort(key= lambda pair:pair[1], reverse=True)
-        print([xx[0] for xx in span[0:300]])
-        print([xx[1] for xx in span[0:300]])
-        top_patients = [xx[0] for xx in span[0:300]]
+        # span = []
+        # testset = list(test_loader.dataset)
+        # model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
+        # model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
+        # for i,(signal,label) in enumerate(testset):
+        #    model.to(device)
+        #    model.eval()
+        #    risk=[]
+        #    for t in range(1,48):
+        #         pred = torch.nn.Softmax(-1)(model(torch.Tensor(signal[:, 0:t]).unsqueeze(0).to(device)))[:, 1]
+        #         risk.append(pred.item())
+        #    span.append((i,max(risk) - min(risk)))
+        # span.sort(key= lambda pair:pair[1], reverse=True)
+        # print([xx[0] for xx in span[0:300]])
+        # print([xx[1] for xx in span[0:300]])
+        # top_patients = [xx[0] for xx in span[0:300]]
 
         testset = list(test_loader.dataset)
-        # top_patients = list(range(len(testset)))
+        if args.percentile:
+            top_patients = list(range(len(testset)))
         x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
         y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
 
 
-    importance_path = '/scratch/gobi2/projects/tsx/new_results/%s' % args.data
-    # with open(os.path.join(score_path, '%s_test_importance_scores_%s.pkl' %(args.explainer, str(cv))), 'rb') as f:
+    # importance_path = '/scratch/gobi2/projects/tsx/new_results/%s' % args.data
+    importance_path = os.path.join(args.path, args.data)
 
     auc_drop, aupr_drop = [], []
-    for cv in [0]:#, 1]:#, 2]:
+    for cv in [0, 1, 2]:
         with open(os.path.join(importance_path, '%s_test_importance_scores_%s.pkl' % (args.explainer, str(cv))),
                   'rb') as f:
             importance_scores = pkl.load(f)
@@ -85,9 +86,6 @@ def main(args):
         for i, ref_ind in enumerate(range(x_test[plot_id].shape[0])):
             axs[0].plot(t, x_test[plot_id, ref_ind, 1:], linewidth=3, label='feature %d' % (i))
             axs[1].plot(t, importance_scores[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
-            # if args.explainer == 'fit':
-            #     axs[3].plot(t,
-            #                 score_mean_shift[plot_id, ref_ind, 1:], linewidth=3, label='importance %d' % (i))
 
         axs[0].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
         # axs[0].plot(t, y[plot_id, 1:].cpu().numpy(), '--', linewidth=3, c='red')
@@ -116,7 +114,7 @@ def main(args):
             model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
             model.eval()
 
-        min_t = 25
+        min_t = 10#25
         max_t = 40
         n_drops = args.n_drops
 
@@ -134,17 +132,18 @@ def main(args):
                         imp = np.unravel_index(importance_scores[i, :, min_t:max_t].argmax(), importance_scores[i, :, min_t:max_t].shape)
                         importance_scores[i, :, imp[1] + min_t:] = -1
                         x_cf = x_cf[:,:imp[1] + min_t]
-                    lengths = (torch.ones((1,)) * x_cf.shape[1])
                 else:
-                    # min_t_feat = [np.min(np.where(importance_scores[i, f, min_t:] >= q)[0]) if
-                    #               len(np.where(importance_scores[i, f, min_t:] >= q)[0]) > 0 else
-                    #               x.shape[-1] - min_t - 1 for f in range(p_data.feature_size)]
-                    # for f in range(importance_scores[i].shape[0]):
-                    #     x_cf[f, min_t_feat[f] + min_t:] = x_cf[f, min_t_feat[f] + min_t - 1]
-                    for _ in range(n_drops):
-                        imp = np.unravel_index(importance_scores[i, :, min_t:].argmax(), importance_scores[i, :, min_t:].shape)
-                        importance_scores[i, imp[0], imp[1] + min_t:] = -1
-                        x_cf[imp[0], imp[1] + min_t:] = x_cf[imp[0], imp[1] + min_t-1]
+                    if args.percentile:
+                        min_t_feat = [np.min(np.where(importance_scores[i, f, min_t:] >= q)[0]) if
+                                      len(np.where(importance_scores[i, f, min_t:] >= q)[0]) > 0 else
+                                      x.shape[-1] - min_t - 1 for f in range(p_data.feature_size)]
+                        for f in range(importance_scores[i].shape[0]):
+                            x_cf[f, min_t_feat[f] + min_t:] = x_cf[f, min_t_feat[f] + min_t - 1]
+                    else:
+                        for _ in range(n_drops):
+                            imp = np.unravel_index(importance_scores[i, :, min_t:].argmax(), importance_scores[i, :, min_t:].shape)
+                            importance_scores[i, imp[0], imp[1] + min_t:] = -1
+                            x_cf[imp[0], imp[1] + min_t:] = x_cf[imp[0], imp[1] + min_t-1]
                 label.append(y_test[i])
                 if args.explainer=='retain':
                     x_t = torch.Tensor(x).unsqueeze(0).permute(0, 2, 1)
@@ -161,7 +160,6 @@ def main(args):
 
             else:
                 imp = np.unravel_index(importance_scores[i,:,min_t:].argmax(), importance_scores[i,:,min_t:].shape)
-                # print(importance_scores[i,imp[0], imp[1]+ min_t])
                 if importance_scores[i,imp[0], imp[1]+ min_t]<0:
                     continue
                 else:
@@ -190,12 +188,10 @@ def main(args):
         original_acc = metrics.accuracy_score(np.array(label), np.round(np.array(y1)))
         modified_acc = metrics.accuracy_score(np.array(label), np.round(np.array(y2)))
 
-        # print('AUROC drop: ', original_auc-modified_auc, "(", original_auc, modified_auc, ")")
-        # print('Accuracy drop: ', original_acc-modified_acc, "(", original_acc, modified_acc, ")")
         auc_drop.append(original_auc-modified_auc)
         aupr_drop.append(original_acc-modified_acc)
     print('auc: %.3f +- %.3f' % (np.mean(auc_drop), np.std(auc_drop)),
-          ' acc: %.3f +- %.3f' % (np.mean(aupr_drop), np.std(aupr_drop)))
+          ' auprc: %.3f +- %.3f' % (np.mean(aupr_drop), np.std(aupr_drop)))
 
 
 if __name__ == '__main__':
@@ -205,7 +201,9 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=str, default='simulation')
     parser.add_argument('--generator_type', type=str, default='history')
     parser.add_argument('--n_drops', type=int, default=1)
+    parser.add_argument('--percentile', action='store_true')
     parser.add_argument('--time_imp', action='store_true')
+    parser.add_argument('--path', type=str, default='/scratch/gobi1/sana/TSX_results/new_results/')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     main(args)
