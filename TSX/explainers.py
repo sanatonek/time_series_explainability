@@ -199,6 +199,76 @@ class AFOExplainer:
         return score
 
 
+class MeanImpExplainer:
+    def __init__(self, model, train_loader):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model.to(self.device)
+        trainset = list(train_loader.dataset)
+        self.data_distribution = torch.stack([x[0] for x in trainset])
+
+    def attribute(self, x, y, retrospective=False):
+        """
+        Compute importance score for a sample x, over time and features
+        :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
+        :param n_samples: number of Monte-Carlo samples
+        :return: Importance score matrix of shape:[batch, features, time]
+        """
+        x = x.to(self.device)
+        _, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+        if retrospective:
+            p_y_t = torch.nn.Softmax(-1)(self.base_model(x))
+
+        for t in range(1, t_len):
+            if not retrospective:
+                p_y_t = torch.nn.Softmax(-1)(self.base_model(x[:, :, :t + 1]))
+            for i in range(n_features):
+                p_tm1 = torch.nn.Softmax(-1)(self.base_model(x[:, :, 0:t]))
+                feature_dist = (np.array(self.data_distribution[:, i, :]).reshape(-1))
+                x_hat = x[:,:,0:t+1].clone()
+                x_hat[:, i, t] = (torch.zeros(size=(len(x),))+ np.mean(feature_dist)).to(self.device)
+                y_hat_t = torch.nn.Softmax(-1)(self.base_model(x_hat))
+                kl = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
+                     torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                # kl = torch.abs((y_hat_t[:, :]) - (p_y_t[:, :]))
+                score[:, i, t] = np.mean(kl.detach().cpu().numpy(), -1)
+        return score
+
+
+class CarryForwardExplainer:
+    def __init__(self, model, train_loader):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.base_model = model.to(self.device)
+        trainset = list(train_loader.dataset)
+
+    def attribute(self, x, y, retrospective=False):
+        """
+        Compute importance score for a sample x, over time and features
+        :param x: Sample instance to evaluate score for. Shape:[batch, features, time]
+        :param n_samples: number of Monte-Carlo samples
+        :return: Importance score matrix of shape:[batch, features, time]
+        """
+        x = x.to(self.device)
+        _, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+        if retrospective:
+            p_y_t = torch.nn.Softmax(-1)(self.base_model(x))
+
+        for t in range(1, t_len):
+            if not retrospective:
+                p_y_t = torch.nn.Softmax(-1)(self.base_model(x[:, :, :t + 1]))
+            for i in range(n_features):
+                p_tm1 = torch.nn.Softmax(-1)(self.base_model(x[:, :, 0:t]))
+                x_hat = x[:,:,0:t+1].clone()
+                x_hat[:, i, t] = x_hat[:, i, t-1].to(self.device)
+                y_hat_t = torch.nn.Softmax(-1)(self.base_model(x_hat))
+                kl = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
+                     torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                # kl = torch.abs((y_hat_t[:, :]) - (p_y_t[:, :]))
+                score[:, i, t] = np.mean(kl.detach().cpu().numpy(), -1)
+        return score
+
+
 class RETAINexplainer:
     def __init__(self, model, data):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -302,9 +372,6 @@ class RETAINexplainer:
                 best_valid_auc = valid_auc
                 best_valid_aupr = valid_aupr
 
-                # print("\t New best validation AUC!")
-                # print('\t Evaluation on the test set')
-
                 # evaluate on the test set
                 test_y_true, test_y_pred, test_loss = self._epoch(test_loader, criterion=criterion)
 
@@ -322,9 +389,6 @@ class RETAINexplainer:
                 test_aupr = average_precision_score(test_y_true.cpu().numpy(), test_y_pred.cpu().numpy()[:, 1],
                                                     average="weighted")
 
-                # print("Train - Loss: {}, AUC: {}".format(train_loss, train_auc))
-                # print("Valid - Loss: {}, AUC: {}".format(valid_loss, valid_auc))
-                # print(" Test - Loss: {}, AUC: {}".format(valid_loss, test_auc))
 
                 with open('./outputs/retain_train_result.txt', 'w') as f:
                     f.write('Best Validation Epoch: {}\n'.format(ei))
@@ -440,7 +504,6 @@ class GradientShapExplainer:
             for t in range(1,x.shape[-1]):
                 x_in = torch.Tensor(x[:, :, :t + 1])
                 pred = torch.nn.Softmax(-1)(self.base_model(x_in))
-                # pred = self.base_model(torch.Tensor(x[:,:,:t+1]))
                 imp = self.explainer.attribute(x_in, target=torch.argmax(pred, -1),
                                              n_samples=50, stdevs=0.0001, baselines=torch.cat([x[:,:,:t+1] * 0, x[:,:,:t+1] * 1]))
                 score[:, :, t] = imp.cpu().numpy()[:,:,-1]
