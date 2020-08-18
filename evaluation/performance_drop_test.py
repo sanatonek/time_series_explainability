@@ -104,6 +104,33 @@ def main(args):
             raise ValueError('%s explainer not defined for mimic-int!' % args.explainer)
     else:
         activation = torch.nn.Softmax(-1)
+        ## Select patients with varying state
+        # span = []
+        # testset = list(test_loader.dataset)
+        # model = StateClassifier(feature_size=feature_size, n_state=2, hidden_size=200)
+        # model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s.pt' % (args.data, 'model'))))
+        # for i,(signal,label) in enumerate(testset):
+        #    model.to(device)
+        #    model.eval()
+        #    risk=[]
+        #    for t in range(1,48):
+        #         pred = torch.nn.Softmax(-1)(model(torch.Tensor(signal[:, 0:t]).unsqueeze(0).to(device)))[:, 1]
+        #         risk.append(pred.item())
+        #    span.append((i,max(risk) - min(risk)))
+        # span.sort(key= lambda pair:pair[1], reverse=True)
+        # print([xx[0] for xx in span[0:300]])
+        # print([xx[1] for xx in span[0:300]])
+        # top_patients = [xx[0] for xx in span[0:300]]
+
+        testset = list(test_loader.dataset)
+        if args.percentile:
+            top_patients = list(range(len(testset)))
+        x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
+        y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset) if x_ind in top_patients])).cpu().numpy()
+
+
+    # importance_path = '/scratch/gobi2/projects/tsx/new_results/%s' % args.data
+    importance_path = os.path.join(args.path, args.data)
 
     auc_drop, aupr_drop = [], []
     for cv in [0, 1, 2]:
@@ -364,6 +391,9 @@ if __name__ == '__main__':
     parser.add_argument('--subpop', action='store_true', default=False)
     parser.add_argument('--time_imp', action='store_true', default=False)
     parser.add_argument('--train_pc', type=float, default=1.)
+    parser.add_argument('--percentile', action='store_true')
+    parser.add_argument('--time_imp', action='store_true')
+    parser.add_argument('--path', type=str, default='/scratch/gobi1/sana/TSX_results/new_results/')
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     main(args)
