@@ -495,7 +495,8 @@ def test_reconstruction(model, valid_loader, device):
 
 
 def load_data(batch_size, path='./data/', **kwargs):
-    p_data = PatientData(path)
+    transform = kwargs['transform'] if 'transform' in kwargs.keys() else 'normalize'
+    p_data = PatientData(path, transform=transform)
 
     features = kwargs['features'] if 'features' in kwargs.keys() else range(p_data.train_data.shape[1])
     p_data.train_data = p_data.train_data[:, features, :]
@@ -516,8 +517,8 @@ def load_data(batch_size, path='./data/', **kwargs):
                                         torch.Tensor(p_data.train_label[valid_idx]))
     test_dataset = utils.TensorDataset(torch.Tensor(p_data.test_data), torch.Tensor(p_data.test_label))
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
-    valid_loader = DataLoader(valid_dataset, batch_size=p_data.n_train - int(0.8 * p_data.n_train))
-    test_loader = DataLoader(test_dataset, batch_size=p_data.n_test)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size) #p_data.n_train - int(0.8 * p_data.n_train))
+    test_loader = DataLoader(test_dataset, batch_size=200)#p_data.n_test)
     print('Train set: ', np.count_nonzero(p_data.train_label[0:int(0.8 * p_data.n_train)]),
           'patient who died out of %d total' % (int(0.8 * p_data.n_train)),
           '(Average missing in train: %.2f)' % (np.mean(p_data.train_missing[0:int(0.8 * p_data.n_train)])))
