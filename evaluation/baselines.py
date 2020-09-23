@@ -1,33 +1,18 @@
 import os
 import argparse
-
 import torch
 import numpy as np
 import seaborn as sns; sns.set()
 import pickle as pkl
 import time
 
-import pandas as pd
-from scipy import interpolate
-from scipy.stats import spearmanr
-from scipy.cluster import hierarchy
-import matplotlib._color_data as mcd
+from matplotlib import rc, rcParams
+rc('font', weight='bold')
 from matplotlib import rc, rcParams
 rc('font', weight='bold')
 
-from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, \
-compute_median_rank, plot_heatmap_text, train_model_rt_binary, train_model_multiclass, train_model, load_data
-from TSX.models import StateClassifier, RETAIN, EncoderRNN, ConvClassifier, StateClassifierMIMIC
-
-
-import pandas as pd
-from scipy import interpolate
-import matplotlib._color_data as mcd
-from matplotlib import rc, rcParams
-rc('font', weight='bold')
-
-from TSX.utils import load_simulated_data, train_model_rt, shade_state, shade_state_state_data, \
-compute_median_rank, plot_heatmap_text, train_model_rt_binary, train_model_multiclass, train_model, load_data
+from TSX.utils import load_simulated_data, train_model_rt, compute_median_rank, train_model_rt_binary, \
+    train_model_multiclass, train_model, load_data
 from TSX.models import StateClassifier, RETAIN, EncoderRNN, ConvClassifier, StateClassifierMIMIC
 
 from TSX.generator import JointFeatureGenerator, JointDistributionGenerator
@@ -35,6 +20,7 @@ from TSX.explainers import RETAINexplainer, FITExplainer, IGExplainer, FFCExplai
     DeepLiftExplainer, GradientShapExplainer, AFOExplainer, FOExplainer, SHAPExplainer, \
     LIMExplainer, CarryForwardExplainer, MeanImpExplainer
 from sklearn import metrics
+
 
 intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone',
                      'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus', 'nivdurations']
@@ -59,6 +45,8 @@ if __name__ == '__main__':
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--train_gen', action='store_true')
     parser.add_argument('--generator_type', type=str, default='history')
+    parser.add_argument('--out_path', type=str, default='./output/')
+    parser.add_argument('--out_path', type=str)
     parser.add_argument('--binary', action='store_true', default=False)
     parser.add_argument('--gt', type=str, default='true_model', help='specify ground truth score')
     parser.add_argument('--cv', type=int, default=0, help='cross validation')
@@ -66,6 +54,9 @@ if __name__ == '__main__':
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 100
     activation = torch.nn.Softmax(-1)
+    output_path = args.out_path
+    if not os.exists(output_path):
+        os.mkdir(output_path)
     if args.data == 'simulation':
         feature_size = 3
         data_path = './data/simulated_data'
@@ -101,8 +92,6 @@ if __name__ == '__main__':
         activation = torch.nn.Sigmoid()
         #activation = torch.nn.Softmax(-1)
 
-    output_path = '/scratch/gobi1/shalmali/TSX_results/new_results/%s' % args.data
-
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     plot_path = os.path.join('./plots/%s' % args.data)
@@ -111,8 +100,10 @@ if __name__ == '__main__':
 
     # Load data
     if args.data == 'mimic' or args.data=='mimic_int':
+        if args.mimic_path is None:
+            raise ValueError('Specify the data directory containing processed mimic data')
         p_data, train_loader, valid_loader, test_loader = load_data(batch_size=batch_size, \
-            path='/scratch/gobi2/projects/tsx/',task=task,cv=args.cv)
+            path=args.mimic_path,task=task,cv=args.cv)
         feature_size = p_data.feature_size
         class_weight = p_data.pos_weight
     else:
@@ -294,7 +285,7 @@ if __name__ == '__main__':
         score = explainer.attribute(x, y if args.data=='mimic' else y[:, -1].long())
 
         ranked_features = np.array([((-(score[n])).argsort(0).argsort(0) + 1) \
-                                    for n in range(x.shape[0])])  # [:ks[args.data]]
+                                    for n in range(x.shape[0])])
         importance_scores.append(score)
         ranked_feats.append(ranked_features)
 
@@ -303,7 +294,6 @@ if __name__ == '__main__':
     with open(os.path.join(output_path, '%s_test_importance_scores_%d.pkl' % (args.explainer, args.cv)), 'wb') as f:
         pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
 
-    #print(importance_scores)
 
     ranked_feats = np.concatenate(ranked_feats,0)
     with open(os.path.join(output_path, '%s_test_ranked_scores.pkl' % args.explainer), 'wb') as f:

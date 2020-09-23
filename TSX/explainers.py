@@ -17,26 +17,21 @@ import lime.lime_tabular
 
 eps = 1e-10
 
+
 def kl_multiclass(p1, p2,reduction='none'):
     return torch.nn.KLDivLoss(reduction=reduction)(torch.log(p2 + eps), p1 + eps)
+
 
 def kl_multilabel(p1,p2,reduction='none'):
     #treats each column as separate class and calculates KL over the class, sums it up and sends batched
     n_classes = p1.shape[1]
-    #print('looping over', n_classes)
     total_kl = torch.zeros(p1.shape)
-    #p1 += eps
-    #p2 += eps
     for n in range(n_classes):
         p2_tensor = torch.stack([p2[:,n], 1-p2[:,n]],dim=1)
-        #print(p2_tensor)
         p1_tensor = torch.stack([p1[:,n], 1-p1[:,n]], dim=1)
-        #print(p1_tensor)
         kl = torch.nn.KLDivLoss(reduction=reduction)(torch.log(p2_tensor), p1_tensor)
-        #print(kl)
         total_kl[:,n] = torch.sum(kl,dim=1)
     return total_kl
-
 
 
 class FITExplainer:
@@ -85,6 +80,9 @@ class FITExplainer:
                         if type(self.activation).__name__==type(torch.nn.Softmax(-1)).__name__:
                             div = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1) - \
                              torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                            lhs = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(p_tm1), p_y_t), -1)
+                            rhs = torch.sum(torch.nn.KLDivLoss(reduction='none')(torch.log(y_hat_t), p_y_t), -1)
+                            # div = torch.where(rhs>lhs, torch.zeros(rhs.shape), rhs/lhs)
                         else:
                             t1 = kl_multilabel(p_y_t, p_tm1)
                             t2 = kl_multilabel(p_y_t, y_hat_t)
@@ -102,8 +100,8 @@ class FITExplainer:
                         div_all.append(div.cpu().detach().numpy())
                 E_div = np.mean(np.array(div_all),axis=0)
                 if distance_metric =='kl':
-                    #score[:, i, t] = E_div#2./(1+np.exp(-1*E_div)) - 1
-                    score[:, i, t] = 2./(1+np.exp(-1*E_div)) - 1
+                    # score[:, i, t] = E_div
+                    score[:, i, t] = 2./(1+np.exp(-5*E_div)) - 1
                 elif distance_metric=='mean_divergence':
                     score[:, i, t] = 1-E_div
                 else:
@@ -349,8 +347,6 @@ class RETAINexplainer:
 
             output, alpha, beta = self.base_model(input_var, lengths)
             loss = criterion(output, target_var.long())
-            # print(loss.data[0])
-            # assert not np.isnan(loss.data[0]), 'Model diverged with loss = NaN'
 
             labels.append(targets)
 

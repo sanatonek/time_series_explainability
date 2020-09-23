@@ -489,13 +489,13 @@ if __name__ == '__main__':
         activation = torch.nn.Sigmoid()
         #activation = torch.nn.Softmax(-1)
 
-    output_path = os.path.join(args.path, args.data)
+    output_path = os.path.join(args.path, 'mimic_submission')#args.data)
     with open(os.path.join(output_path, '%s_test_importance_scores_%d.pkl' % (args.explainer, args.cv)), 'rb') as f:
         importance_scores = pkl.load(f)
 
 
     if args.data == 'mimic' or args.data=='mimic_int':
-        p_data, train_loader, valid_loader, test_loader = load_data(batch_size=100, path=data_path,task=task,cv=0,train_pc=1.)
+        p_data, _, _, test_loader = load_data(batch_size=100, path=data_path,task=task,cv=0,train_pc=1.)
         feature_size = p_data.feature_size
         x_test = torch.stack(([x[0] for x in list(test_loader.dataset)])).cpu().numpy()
         y_test = torch.stack(([x[1] for x in list(test_loader.dataset)])).cpu().numpy()
@@ -515,12 +515,12 @@ if __name__ == '__main__':
         model = StateClassifierMIMIC(feature_size=feature_size, n_state=n_classes, hidden_size=128,rnn='LSTM')
     elif args.data=='mimic' or args.data=='simulation' or args.data=='simulation_l2x':
         model = StateClassifier(feature_size=feature_size, n_state=n_classes, hidden_size=200,rnn='GRU')
-    model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s_%d.pt' % (args.data, 'model',args.cv))))
+    model.load_state_dict(torch.load(os.path.join('./ckpt/%s/%s_%d.pt' % ('mimic_submission', 'model',args.cv))))# % (args.data, 'model',args.cv))))
 
     t_len = importance_scores.shape[-1]
     t = np.arange(1, t_len)
     for n, plot_id in enumerate(top_patients):
-        f, axs = plt.subplots(2)
+        f, axs = plt.subplots(3 if args.data=='mimic' else 2)
         f.set_figheight(16)
         f.set_figwidth(24)
         plt.subplots_adjust(hspace=.5)
@@ -542,23 +542,32 @@ if __name__ == '__main__':
             
             if ref_ind in top_features:
                 plt_label = '%s'%feature_map_mimic[ref_ind] if data_type=='mimic' else 'feature %d' % (i)
-                axs[0].plot(t, x_test[plot_id, ref_ind, 1:], linewidth=3, label=plt_label)#'feature %d' % (i))
-                axs[1].plot(t, importance_scores[plot_id, ref_ind, 1:], linewidth=3, label=plt_label)#'importance %d' % (i))
+                if args.data=='mimic':
+                    if ref_ind< 19:
+                        axs[0].plot(t, x_test[plot_id, ref_ind, 1:], label=plt_label, marker='*', linewidth=1)
+                        axs[0].set_title('Lab measures')
+                    else:
+                        axs[1].plot(t, x_test[plot_id, ref_ind, 1:], linewidth=3, label=plt_label)
+                        axs[1].set_title('Physiological signals')
+                        axs[1].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
+                else:
+                    axs[0].plot(t, x_test[plot_id, ref_ind, 1:], linewidth=3, label=plt_label)#'feature %d' % (i))
+                axs[-1].plot(t, importance_scores[plot_id, ref_ind, 1:], linewidth=3, label=plt_label)#'importance %d' % (i))
 
         axs[0].plot(t, pred_batch_vec, '--', linewidth=3, c='black')
         #axs[0].plot(t, y_test[plot_id, 1:].cpu().numpy(), '--', linewidth=3, c='red')
         axs[0].tick_params(axis='both', labelsize=20)
         axs[1].tick_params(axis='both', labelsize=20)
-        axs[1].set_title('%s'%args.explainer, fontsize=30)
+        axs[-1].set_title('%s'%args.explainer, fontsize=30)
         axs[0].margins(0.03)
         axs[1].margins(0.03)
         axs[0].grid()
         name = args.explainer + '_' + args.generator_type if args.explainer == 'fit' else args.explainer
-        print('**************', int(y_test[plot_id]))
-        plt.savefig(os.path.join(plot_path, '%s_example_%d_%s.pdf' %(name, plot_id, ['survived', 'dead'][int(y_test[plot_id])])), dpi=300, orientation='landscape')
+        print('Saving file ', os.path.join(plot_path, '%s_example_%d_%s.pdf' %(name, top_patients[n], ['survived', 'dead'][int(y_test[plot_id])])))
+        plt.savefig(os.path.join(plot_path, '%s_example_%d_%s.pdf' %(name, top_patients[n], ['survived', 'dead'][int(y_test[plot_id])])), dpi=300, orientation='landscape')
         
         fig_legend = plt.figure(figsize=(13, 1.2))
         handles, labels = axs[0].get_legend_handles_labels()
         plt.figlegend(handles, labels, loc='upper left', ncol=4, fancybox=True, handlelength=6, fontsize='xx-large')
-        fig_legend.savefig(os.path.join(plot_path, '%s_example_legend_%d_%s.pdf'%(name, plot_id, ['survived', 'dead'][int(y_test[plot_id])])), dpi=300, bbox_inches='tight')
+        fig_legend.savefig(os.path.join(plot_path, '%s_example_legend_%d_%s.pdf'%(name, top_patients[n], ['survived', 'dead'][int(y_test[plot_id])])), dpi=300, bbox_inches='tight')
 
