@@ -46,7 +46,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_gen', action='store_true')
     parser.add_argument('--generator_type', type=str, default='history')
     parser.add_argument('--out_path', type=str, default='./output/')
-    parser.add_argument('--out_path', type=str)
+    parser.add_argument('--mimic_path', type=str)
     parser.add_argument('--binary', action='store_true', default=False)
     parser.add_argument('--gt', type=str, default='true_model', help='specify ground truth score')
     parser.add_argument('--cv', type=int, default=0, help='cross validation')
@@ -55,7 +55,7 @@ if __name__ == '__main__':
     batch_size = 100
     activation = torch.nn.Softmax(-1)
     output_path = args.out_path
-    if not os.exists(output_path):
+    if not os.path.exists(output_path):
         os.mkdir(output_path)
     if args.data == 'simulation':
         feature_size = 3
