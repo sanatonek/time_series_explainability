@@ -85,7 +85,7 @@ def main(n_samples, plot, Tt=80):
     y_train = []
     ground_truth_importance_train=[]
     ground_truth_importance_test=[]
-    pvec=[0.99,0.01]
+    pvec=[0.7,0.3]
     lamda_poisson = 3
     
     for i in range(n_train):

@@ -3,13 +3,18 @@ import pickle
 import random
 import torch
 import os
-from torch import nn
 import torch.nn.functional as F
-from sklearn.neighbors import KDTree
+from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.autograd import Variable
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import StratifiedShuffleSplit
 
-len_of_stay = 48
+intervention_list = ['vent', 'vaso', 'adenosine', 'dobutamine', 'dopamine', 'epinephrine', 'isuprel', 'milrinone',
+                     'norepinephrine', 'phenylephrine', 'vasopressin', 'colloid_bolus', 'crystalloid_bolus',
+                     'nivdurations']
 
+len_of_stay=48
 
 class PatientData():
     """Dataset of patient vitals, demographics and lab results
@@ -20,18 +25,170 @@ class PatientData():
         transform: Preprocessing transformation on the dataset
     """
 
-    def __init__(self, root, train_ratio=0.8, shuffle=False, random_seed='1234', transform="normalize"):
+    def __init__(self, root, train_ratio=0.8, shuffle=False, random_seed='1234', transform="normalize", task='mortality'):
         self.data_dir = os.path.join(root, 'patient_vital_preprocessed.pkl')
         self.train_ratio = train_ratio
         self.random_seed = random.seed(random_seed)
+        self.task = task
+        self.pos_weight=None
 
         if not os.path.exists(self.data_dir):
             raise RuntimeError('Dataset not found')
         with open(self.data_dir, 'rb') as f:
             self.data = pickle.load(f)
-        if os.path.exists(os.path.join(root,'patient_interventions.pkl'):
+
+        if os.path.exists(os.path.join(root,'patient_interventions.pkl')):
             with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
                 self.intervention = pickle.load(f)
+
+        self.n_train = int(self.train_ratio*len(self.intervention))
+        if shuffle:
+            inds = np.arange(len(self.data))
+            random.shuffle(inds)
+            self.data = self.data[inds]
+            self.intervention = self.intervention[inds,:,:]
+
+        if self.task == 'mortality':
+            X = np.array([x for (x, y, z) in self.data])
+            self.train_data = X[0:self.n_train]
+            self.test_data = X[self.n_train:]
+            self.train_label = np.array([y for (x, y, z) in self.data[0:self.n_train]])
+            self.test_label = np.array([y for (x, y, z) in self.data[self.n_train:]])
+            self.train_missing = np.array([np.mean(z) for (x, y, z) in self.data[0:self.n_train]])
+            self.test_missing = np.array([np.mean(z) for (x, y, z) in self.data[self.n_train:]])
+
+        elif self.task=='intervention':
+            print('predicting intervention')
+            if 0: # suresh et al - predicts intervention state (onset, wean, stay off, stay on)
+                X, y, z = self.__preprocess_predict_int__()
+                choose_int=0
+                self.intervention = y[:,choose_int,:]
+                self.pos_weight = np.sum(self.intervention)/np.sum(self.intervention,0)
+                self.pos_weight = 1*self.pos_weight/self.pos_weight.sum()
+
+            else: # predicts interventions
+                n = 3
+                feat_hist = np.sum(np.sum(self.intervention,2),0)
+                feat_idx = np.argsort(feat_hist)[::-1][:n]
+                intervention_int = np.zeros((len(self.intervention), n+1, self.intervention.shape[-1]))
+                intervention_int[:,:n,:] = self.intervention[:,feat_idx,:]
+                intervention_int[:,-1,:] = 1- (np.sum(intervention_int[:,:n,:],1)>0).astype(int)
+                self.intervention = intervention_int
+                self.pos_weight = 1/(np.sum(np.sum(self.intervention,2),0)/(self.intervention.shape[0]*self.intervention.shape[-1]))
+                X = np.array([x for (x, y, z) in self.data])
+                z = np.array([z for (x, y, z) in self.data])
+
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=88)
+            for train_idx, test_idx in sss.split(X[:,:,0],self.intervention[:,:,0]):
+                self.train_data = X[train_idx]
+                self.test_data = X[test_idx]
+                self.train_intervention = self.intervention[train_idx]
+                self.test_intervention = self.intervention[test_idx]
+                self.train_label = self.train_intervention
+                self.test_label = self.test_intervention
+                missing = np.array([np.mean(zz) for zz in z])
+                self.train_missing = missing[train_idx]
+                self.test_missing = missing[test_idx]
+        self.n_train = self.train_data.shape[0]
+        self.n_test = self.test_data.shape[0]
+        self.feature_size = len(self.data[0][0])
+        self.time = len(self.data[0][0][0])
+        self.len_of_stay = self.train_data.shape[-1]
+        if transform == "normalize":
+            self.normalize()
+
+    def __getitem__(self, index):
+        signals, target = self.data[index]
+        return signals, target
+
+    def __len__(self):
+        return len(self.data)
+
+    def __preprocess_predict_int__(self):
+        "This replicates preprocessing of suresh et al for intervention prediction"
+        X_orig = np.array([x for (x, y, z) in self.data])
+        y_orig = self.intervention
+        z_orig = np.array([z for (x, y, z) in self.data])
+
+        X=[]
+        y=[]
+        z=[]
+        T=24
+        gaptime = 4
+        window=6
+        stride=6
+        for h in range(0,self.time,6):
+            if h+T+gaptime+window >= self.time-1:
+                break
+
+            X.append(X_orig[:,:,h:h+T])
+            z.append(z_orig)
+            y_t1 = y_orig[:,:,range(h+T+gaptime,h+T+gaptime+window)]
+            n_ints = self.intervention.shape[1]
+            y_label = np.zeros((X_orig.shape[0],n_ints, 4))
+            for f in range(n_ints):
+                onset_patients = np.where((y_t1[:,f,0]==0) & (y_t1[:,f,-1]==1))[0]
+                y_label[onset_patients,f,0] = 1
+                wean_patients = np.where((y_t1[:,f,0]==1) & (y_t1[:,f,-1]==0))[0]
+                y_label[wean_patients,f,1] = 1
+                stay_on_patients = np.where((y_t1[:,f,0]==1) & (y_t1[:,f,-1]==1))[0]
+                y_label[stay_on_patients,f,2] = 1
+                stay_off_patients = np.where((y_t1[:,f,0]==0) & (y_t1[:,f,-1]==0))[0]
+                y_label[stay_off_patients,f,3] = 1
+            y.append(y_label)
+
+        X = np.array(X)
+        X = X.reshape((X.shape[0]*X.shape[1],X.shape[2], X.shape[3]))
+        y = np.array(y)
+        y = y.reshape((y.shape[0]*y.shape[1],y.shape[2], y.shape[3]))
+        z = np.array(z)
+        z = z.reshape((z.shape[0]*z.shape[1],-1))
+        return X, y, z
+
+
+    def normalize(self): # TODO: Have multiple normalization option or possibly take in a function for the transform
+        """ Calculate the mean and std of each feature from the training set
+        """
+        d = [x.T for x in self.train_data]
+        d = np.stack(d, axis=0)
+        self.feature_max = np.tile(np.max(d.reshape(-1, self.feature_size), axis=0), (self.len_of_stay, 1)).T
+        self.feature_min = np.tile(np.min(d.reshape(-1, self.feature_size), axis=0), (self.len_of_stay, 1)).T
+        self.feature_means = np.tile(np.mean(d.reshape(-1, self.feature_size), axis=0), (self.len_of_stay, 1)).T
+        self.feature_std = np.tile(np.std(d.reshape(-1, self.feature_size), axis=0), (self.len_of_stay, 1)).T
+        np.seterr(divide='ignore', invalid='ignore')
+        self.train_data = np.array(
+           [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
+            x in self.train_data])
+        self.test_data = np.array(
+           [np.where(self.feature_std == 0, (x - self.feature_means), (x - self.feature_means) / self.feature_std) for
+            x in self.test_data])
+        #self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.train_data])
+        #self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
+'''
+
+class PatientData():
+    """Dataset of patient vitals, demographics and lab results
+    Args:
+        root: Root directory of the pickled dataset
+        train_ratio: train/test ratio
+        shuffle: Shuffle dataset before separating train/test
+        transform: Preprocessing transformation on the dataset
+    """
+
+    def __init__(self, root, train_ratio=0.8, shuffle=False, random_seed='1234', transform="normalize",task='mortality'):
+        self.data_dir = os.path.join(root, 'patient_vital_preprocessed.pkl')
+        self.train_ratio = train_ratio
+        self.random_seed = random.seed(random_seed)
+        self.pos_weight=[1,1]
+
+        if not os.path.exists(self.data_dir):
+            raise RuntimeError('Dataset not found')
+        with open(self.data_dir, 'rb') as f:
+            self.data = pickle.load(f)
+        if os.path.exists(os.path.join(root,'patient_interventions.pkl')):
+            with open(os.path.join(root,'patient_interventions.pkl'), 'rb') as f:
+                self.intervention = pickle.load(f)
+            self.n_train = int(0.8*len(self.intervention))
             self.train_intervention = self.intervention[0:self.n_train,:,:]
             self.test_intervention = self.intervention[self.n_train:,:,:]
         if shuffle:
@@ -76,7 +233,7 @@ class PatientData():
             x in self.test_data])
         # self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.train_data])
         # self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
-
+'''
 
 class NormalPatientData(PatientData):
     """ Data class for the generator model that only includes patients who survived in the ICU
@@ -168,43 +325,133 @@ class GHGData():
         self.train_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.train_data])
         self.test_data = np.array([ np.where(self.feature_min==self.feature_max,(x-self.feature_min),(x-self.feature_min)/(self.feature_max-self.feature_min) ) for x in self.test_data])
 
+class ConvClassifier(nn.Module):
+    def __init__(self, feature_size, n_state, hidden_size, regres=True, return_all=False,
+                 seed=random.seed('2019'),data='simulation'):
+        super(ConvClassifier, self).__init__()
+        self.hidden_size = hidden_size
+        self.n_state = n_state
+        self.seed = seed
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.regres = regres
+        self.return_all = return_all
+        self.data = data
 
-class DeepKnn:
-    """
-    Look for the nearest neighbors (from training samples) of a test instance in the encoding space and
-    determine prediction certainty based on the neighbors' labels
-    """
-    def __init__(self, model, training_samples, training_labels, device):
-        self.model = model
-        self.encoder_model = list(self.model.children())[0]
-        self.device = device
-        self.training_samples = self.encoder_model(torch.Tensor(training_samples).permute(2, 0, 1).to(self.device))
-        self.training_samples = self.training_samples.detach().cpu().numpy()
-        self.training_labels = training_labels
-        self.encoding_tree = KDTree(self.training_samples, leaf_size=2)
+        # Input to torch Conv
+        self.regressor = nn.Sequential(torch.nn.Conv1d(in_channels=feature_size, out_channels=self.hidden_size, kernel_size=1, padding=0),
+                                       torch.nn.ReLU(),
+                                       torch.nn.Conv1d(in_channels=self.hidden_size, out_channels=self.hidden_size, kernel_size=1,padding=0),
+                                       torch.nn.ReLU(),
+                                       torch.nn.Conv1d(in_channels=self.hidden_size, out_channels=self.hidden_size, kernel_size=1,padding=0),
+                                       torch.nn.ReLU(),
+                                       torch.nn.Conv1d(in_channels=self.hidden_size, out_channels=self.n_state, kernel_size=1,padding=0))
 
-    def find_neighbors(self, sample, n_nearest_neighbors=10):
-        sample = self.encoder_model(torch.Tensor(sample).permute(2, 0, 1).to(self.device))
-        sample = sample.detach().cpu().numpy()
-        dists, indxs = self.encoding_tree.query(sample, k=n_nearest_neighbors)
-        neighbors_labels = self.training_labels[indxs]
-        return neighbors_labels
+    def forward(self, input, **kwargs):
+        return self.regressor(input)[:,:,-1]
 
-    def evaluate_confidence(self, sample, sample_label, n_nearest_neighbors=10, verbose=True):
-        knn_labels = self.find_neighbors(sample, n_nearest_neighbors)
-        matches = np.where(knn_labels==sample_label, 1, 0)
-        prediction = self.model(torch.Tensor(sample).permute(2, 0, 1).to(self.device))
-        if verbose:
-            print('Sample true label: ', sample_label)
-            print('Sample predicted risk: ', prediction.item())
-            print('Closest neighbors labels: ', knn_labels.reshape(-1,))
-            print('Confidence: ', np.count_nonzero(matches)/float(n_nearest_neighbors))
-        return knn_labels
+
+class StateClassifierMIMIC(nn.Module):
+    def __init__(self, feature_size, n_state, hidden_size, rnn="LSTM", regres=True, bidirectional=False, return_all=False,
+                 seed=random.seed('2019'),data='simulation'):
+        super(StateClassifierMIMIC, self).__init__()
+        self.hidden_size = hidden_size
+        self.n_state = n_state
+        self.seed = seed
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.rnn_type = rnn
+        self.regres = regres
+        self.return_all = return_all
+        self.data = data
+        # Input to torch LSTM should be of size (seq_len, batch, input_size)
+        if self.rnn_type == 'GRU':
+            self.rnn1 = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
+            self.rnn2 = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
+        else:
+            self.rnn1 = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
+            self.rnn2 = nn.LSTM(self.hidden_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
+
+        self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
+                                       #nn.ReLU(),
+                                       nn.Dropout(0.7),
+                                       nn.Linear(self.hidden_size, self.n_state))
+                                       # nn.Softmax(-1))
+
+    def forward(self, input, past_state=None, **kwargs):
+        input = input.permute(2, 0, 1).to(self.device)
+        self.rnn1.to(self.device)
+        self.rnn2.to(self.device)
+        self.regressor.to(self.device)
+        if not past_state:
+            #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
+            #past_state1 = torch.normal(mean=0,std=1, size=[1, input.shape[1], self.hidden_size]).to(self.device)
+            #past_state2 = torch.normal(mean=0,std=1, size=[1, input.shape[1], self.hidden_size]).to(self.device)
+            past_state1 = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)
+            past_state2 = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)
+        if self.rnn_type == 'GRU':
+            all_encodings, encoding = self.rnn1(input, past_state1)
+            all_encodings, encoding = self.rnn2(all_encodings, past_state2)
+        else:
+            all_encodings, (encoding, state) = self.rnn1(input, (past_state1, past_state1))
+            all_encodings, (encoding, state) = self.rnn2(all_encodings, (past_state2, past_state2))
+        if self.regres:
+            if not self.return_all:
+                return self.regressor(encoding.view(encoding.shape[1], -1))
+            else:
+                reshaped_encodings = all_encodings.view(all_encodings.shape[1]*all_encodings.shape[0],-1)
+                return torch.t(self.regressor(reshaped_encodings).view(all_encodings.shape[0],-1))
+        else:
+            return encoding.view(encoding.shape[1], -1)
+
+
+
+class StateClassifier(nn.Module):
+    def __init__(self, feature_size, n_state, hidden_size, rnn="GRU", regres=True, bidirectional=False, return_all=False,
+                 seed=random.seed('2019'),data='simulation'):
+        super(StateClassifier, self).__init__()
+        self.hidden_size = hidden_size
+        self.n_state = n_state
+        self.seed = seed
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.rnn_type = rnn
+        self.regres = regres
+        self.return_all = return_all
+        self.data = data
+        # Input to torch LSTM should be of size (seq_len, batch, input_size)
+        if self.rnn_type == 'GRU':
+            self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
+        else:
+            self.rnn = nn.LSTM(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
+
+        self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
+                                       nn.ReLU(),
+                                       nn.Dropout(0.5),
+                                       nn.Linear(self.hidden_size, self.n_state))
+                                       # nn.Softmax(-1))
+
+    def forward(self, input, past_state=None, **kwargs):
+        input = input.permute(2, 0, 1).to(self.device)
+        self.rnn.to(self.device)
+        self.regressor.to(self.device)
+        if not past_state:
+            #  Size of hidden states: (num_layers * num_directions, batch, hidden_size)
+            past_state = torch.zeros([1, input.shape[1], self.hidden_size]).to(self.device)
+        if self.rnn_type == 'GRU':
+            all_encodings, encoding = self.rnn(input, past_state)
+        else:
+            all_encodings, (encoding, state) = self.rnn(input, (past_state, past_state))
+        if self.regres:
+            if not self.return_all:
+                return self.regressor(encoding.view(encoding.shape[1], -1))
+            else:
+                reshaped_encodings = all_encodings.view(all_encodings.shape[1]*all_encodings.shape[0],-1)
+                return torch.t(self.regressor(reshaped_encodings).view(all_encodings.shape[0],-1))
+        else:
+            return encoding.view(encoding.shape[1], -1)
 
 
 class EncoderRNN(nn.Module):
     def __init__(self, feature_size, hidden_size, rnn="GRU", regres=True, bidirectional=False, return_all=False,
-                 seed=random.seed('2019'),data='mimic'):
+                 seed=random.seed('2019'),data='mimic',n_state=1,return_multi=False):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
         self.seed = seed
@@ -212,6 +459,7 @@ class EncoderRNN(nn.Module):
         self.rnn_type = rnn
         self.regres = regres
         self.return_all = return_all
+        self.return_multi = False
         # Input to torch LSTM should be of size (seq_len, batch, input_size)
         if self.rnn_type == 'GRU':
             self.rnn = nn.GRU(feature_size, self.hidden_size, bidirectional=bidirectional).to(self.device)
@@ -221,8 +469,8 @@ class EncoderRNN(nn.Module):
         if data=='mimic':
             self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
                                        nn.Dropout(0.5),
-                                       nn.Linear(self.hidden_size, 1),
-                                       nn.Sigmoid())
+                                       nn.Linear(self.hidden_size, n_state))#,
+                                       #nn.Sigmoid())
         elif data=='ghg':
             self.regressor = nn.Sequential(#nn.BatchNorm1d(self.hidden_size),
                                        nn.Linear(self.hidden_size,200),
@@ -232,13 +480,13 @@ class EncoderRNN(nn.Module):
                                        nn.Linear(200,200),
                                        nn.LeakyReLU(),
                                        #nn.Dropout(0.5),
-                                       nn.Linear(200, 1))
+                                       nn.Linear(200, n_state))
         elif 'simulation' in data:
             self.regressor = nn.Sequential(nn.BatchNorm1d(num_features=self.hidden_size),
                                        nn.ReLU(),
                                        nn.Dropout(0.5),
-                                       nn.Linear(self.hidden_size, 1),
-                                       nn.Sigmoid())
+                                       nn.Linear(self.hidden_size, n_state))#,
+                                       #nn.Sigmoid())
 
     def forward(self, input, past_state=None):
         input = input.permute(2, 0, 1).to(self.device)
@@ -251,7 +499,13 @@ class EncoderRNN(nn.Module):
             all_encodings, (encoding, state) = self.rnn(input, (past_state, past_state))
         if self.regres:
             if not self.return_all:
-                return self.regressor(encoding.view(encoding.shape[1], -1))
+                if not self.return_multi:
+                    return self.regressor(encoding.view(encoding.shape[1], -1))
+                else:
+                    multiclass = torch.cuda.FloatTensor(encoding.shape[1], 2).fill_(0)
+                    multiclass[:,1] = torch.sigmoid(self.regressor(encoding.view(encoding.shape[1], -1))[:,0])
+                    multiclass[:,0] = 1 - multiclass[:,1]
+                    return multiclass
             else:
                 #print('before: ', all_encodings[-1,-1,:])
                 reshaped_encodings = all_encodings.view(all_encodings.shape[1]*all_encodings.shape[0],-1)
@@ -434,4 +688,87 @@ class AttentionModel(torch.nn.Module):
 
         _, attn_weights = self.attention_net(output)
         return attn_weights
+
+
+
+class RETAIN(nn.Module):
+    def __init__(self, dim_input, dim_emb=128, dropout_input=0.8, dropout_emb=0.5, dim_alpha=128, dim_beta=128,
+                 dropout_context=0.5, dim_output=2, l2=0.0001, batch_first=True):
+        super(RETAIN, self).__init__()
+        self.batch_first = batch_first
+        self.embedding = nn.Sequential(nn.Dropout(p=dropout_input),
+                                       nn.Linear(dim_input, dim_emb, bias=False),
+                                       nn.Dropout(p=dropout_emb))
+        nn.init.xavier_normal(self.embedding[1].weight)
+
+        self.rnn_alpha = nn.GRU(input_size=dim_emb, hidden_size=dim_alpha, num_layers=1, batch_first=self.batch_first)
+
+        self.alpha_fc = nn.Linear(in_features=dim_alpha, out_features=1)
+        nn.init.xavier_normal(self.alpha_fc.weight)
+        self.alpha_fc.bias.data.zero_()
+
+        self.rnn_beta = nn.GRU(input_size=dim_emb, hidden_size=dim_beta, num_layers=1, batch_first=self.batch_first)
+
+        self.beta_fc = nn.Linear(in_features=dim_beta, out_features=dim_emb)
+        nn.init.xavier_normal(self.beta_fc.weight, gain=nn.init.calculate_gain('tanh'))
+        self.beta_fc.bias.data.zero_()
+
+        self.output = nn.Sequential(nn.Dropout(p=dropout_context),
+                                    nn.Linear(in_features=dim_emb, out_features=dim_output))
+        nn.init.xavier_normal(self.output[1].weight)
+        self.output[1].bias.data.zero_()
+
+    def forward(self, x, lengths):
+        if self.batch_first:
+            batch_size, max_len = x.size()[:2]
+        else:
+            max_len, batch_size = x.size()[:2]
+        # emb -> batch_size X max_len X dim_emb
+        emb = self.embedding(x)
+        # print('Embedding: ', emb.shape)
+
+        packed_input = pack_padded_sequence(emb, lengths, batch_first=self.batch_first)
+        g, _ = self.rnn_alpha(packed_input)
+
+        # alpha_unpacked -> batch_size X max_len X dim_alpha
+        alpha_unpacked, _ = pad_packed_sequence(g, batch_first=self.batch_first)
+        # print(alpha_unpacked.shape)
+
+        # mask -> batch_size X max_len X 1
+        mask = Variable(torch.FloatTensor([[1.0 if i < lengths[idx] else 0.0 for i in range(max_len)] for idx in range(batch_size)]).unsqueeze(2), requires_grad=False)
+        # print('Mask: ', mask.shape)
+        if next(self.parameters()).is_cuda:  # returns a boolean
+            mask = mask.cuda()
+
+        # e => batch_size X max_len X 1
+        e = self.alpha_fc(alpha_unpacked)
+
+        def masked_softmax(batch_tensor, mask):
+            exp = torch.exp(batch_tensor)
+            masked_exp = exp * mask
+            sum_masked_exp = torch.sum(masked_exp, dim=1, keepdim=True)
+            return masked_exp / sum_masked_exp
+
+        # Alpha = batch_size X max_len X 1
+        # alpha value for padded visits (zero) will be zero
+        alpha = masked_softmax(e, mask)
+
+        h, _ = self.rnn_beta(packed_input)
+
+        # beta_unpacked -> batch_size X max_len X dim_beta
+        beta_unpacked, _ = pad_packed_sequence(h, batch_first=self.batch_first)
+
+        # Beta -> batch_size X max_len X dim_emb
+        # beta for padded visits will be zero-vectors
+        beta = torch.nn.functional.tanh(self.beta_fc(beta_unpacked) * mask)
+
+        # context -> batch_size X (1) X dim_emb (squeezed)
+        # Context up to i-th visit context_i = sum(alpha_j * beta_j * emb_j)
+        # Vectorized sum
+        context = torch.bmm(torch.transpose(alpha, 1, 2), beta * emb).squeeze(1)
+
+        # without applying non-linearity
+        logit = self.output(context)
+
+        return logit, alpha, beta
 

@@ -4,78 +4,77 @@ import argparse
 import os
 from scipy.signal import butter, lfilter, freqz
 import timesynth as ts
+from TSX.utils import shade_state_state_data
 
 np.random.seed(42)
 
-SIG_NUM = 10
-STATE_NUM = 1
-P_S0 = [0.5]
+SIG_NUM = 3 
+STATE_NUM = 3
+P_S0 = [1/3]
 
-imp_feature = [[1, 2, 3, 4], [5, 6, 7, 8]]  # Features that are always set as important
-trans_mat = np.array([[0.1, 0.9], [0.1, 0.9]])
-correlated_feature = {0: {1: [6, 7], 3: [4]}, 1: {5: [2, 3, 4], 8: [5, 7]}}
+imp_feature = [[0], [1], [2]]
+correlated_feature = {0: {0: [1]} ,1: {1: [2]}, 2: {0:[1,2]}}
+scale = {0: [0.8, -0.5, -0.2], \
+         1: [0, -1.0, 0],\
+         2: [-0.2, -0.2, 0.8]}
 
-def butter_lowpass(cutoff, fs, order=5):
-    nyq = 0.5 * fs
-    normal_cutoff = cutoff / nyq
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
-    return b, a
-
-def butter_lowpass_filter(data, cutoff, fs, order=5):
-    b, a = butter_lowpass(cutoff, fs, order=order)
-    y = lfilter(b, a, data)
-    return y
-
-order = 6
-fs = 30.0       # sample rate, Hz
-cutoff = 6.8 # desired cutoff frequency of the filter, Hz
-
-
-def next_state(previous_state, t):
-    # params = [(abs(p-0.1)+timing_factor)/2. for p in previous_state]
-    # print(params,previous_state)
-    # params = [abs(p - 0.1) for p in previous_state]
-    # print(previous_state)
-    # params = [abs(p) for p in trans_mat[int(previous_state),1-int(previous_state)]]
-    # params = trans_mat[int(previous_state),1-int(previous_state)]
-    if previous_state == 1:
-        params = 0.95
-    else:
-        params = 0.05
-    # params = 0.2
-    # print('previous', previous_state)
-    params = params - float(t / 500) if params > 0.8 else params
-    # print('transition probability',params)
-    next_st = np.random.binomial(1, params)
-    return next_st
+transition_matrix = [[0.95, 0.02, 0.03],
+                     [0.02, 0.95, 0.03],
+                     [0.03, 0.02, 0.95]]
 
 
 def init_distribution_params():
     # Covariance matrix is constant across states but distribution means change based on the state value
-    state_count = np.power(2, STATE_NUM)
-    cov = np.eye(SIG_NUM) * 0.8
+    state_count = STATE_NUM
+    cov = np.eye(SIG_NUM)*0.1
     covariance = []
     for i in range(state_count):
-        cc = cov.copy()
-        for k, v in correlated_feature[i].items():
-            cc[k, v] = 0.01
-            for vv in v:
-                cc[vv, k] = 0.01
-        # print(cc)
-        cc = cc + np.eye(SIG_NUM) * 1e-3
-        covariance.append(cc)
+        c = cov.copy()
+        # for j in correlated_feature[i].keys():
+        #     c[j,correlated_feature[i][j]] = 0.01
+        #     c[correlated_feature[i][j], j] = 0.01
+        # c = c + np.eye(SIG_NUM)*1e-3
+        #print(c)
+        covariance.append(c)
     covariance = np.array(covariance)
     mean = []
     for i in range(state_count):
-        m = np.zeros(SIG_NUM)
+        m = scale[i]
         mean.append(m)
-        # print(m)
     mean = np.array(mean)
     return mean, covariance
 
 
+def next_state(previous_state, t):
+    p_vec = transition_matrix[previous_state]
+    # if previous_state == 0:
+    #     params = 0.9
+    # elif previous_state==1:
+    #     params = 0.9
+    # else:
+    #     params = 0.9
+    #
+    # params = params - float(t / 500) if params > 0.7 else params
+    # p_vec = np.zeros(STATE_NUM)
+    # p_vec[previous_state] = params
+    # p_vec[np.setdiff1d([0,1,2], previous_state)] = (1-params)/2.
+    next_st = np.random.choice([0,1,2], p=p_vec)
+    return next_st
+
+
 def state_decoder(previous, next_st):
     return int(next_st * (1 - previous) + (1 - next_st) * previous)
+
+
+def generate_linear_labels(X):
+    logit = np.exp(-3*np.sum(X, axis=1))
+
+    prob_1 = np.expand_dims(1 / (1 + logit), 1)
+    prob_0 = np.expand_dims(logit / (1 + logit), 1)
+
+    y = np.concatenate((prob_0, prob_1), axis=1)
+
+    return y
 
 
 def generate_XOR_labels(X):
@@ -90,7 +89,7 @@ def generate_XOR_labels(X):
 
 
 def generate_orange_labels(X):
-    logit = np.exp(np.sum(X[:, :4] ** 2, axis=1) - 4.0)
+    logit = np.exp(np.sum(X[:, :4] ** 2, axis=1) - 1.5)
 
     prob_1 = np.expand_dims(1 / (1 + logit), 1)
     prob_0 = np.expand_dims(logit / (1 + logit), 1)
@@ -101,7 +100,7 @@ def generate_orange_labels(X):
 
 
 def generate_additive_labels(X):
-    logit = np.exp(-10 * np.sin(-0.2 * X[:, 0]) + abs(X[:, 1]) + X[:, 2] + np.exp(-X[:, 3]) - 2.4)
+    logit = np.exp(-10 * np.sin(-0.2 * X[:, 0]) + 0.5*X[:, 1] + X[:, 2] + np.exp(X[:, 3]) - 0.8)
 
     prob_1 = np.expand_dims(1 / (1 + logit), 1)
     prob_0 = np.expand_dims(logit / (1 + logit), 1)
@@ -111,8 +110,19 @@ def generate_additive_labels(X):
     return y
 
 
-def create_signal(sig_len, gp_params):
-    signal = []
+def generate_linear_labels_v2(X):
+    logit = np.exp(-0.2 * X[:, 0] + 0.5*X[:, 1] + X[:, 2] + X[:, 3] - 0.8)
+
+    prob_1 = np.expand_dims(1 / (1 + logit), 1)
+    prob_0 = np.expand_dims(logit / (1 + logit), 1)
+
+    y = np.concatenate((prob_0, prob_1), axis=1)
+
+    return y
+
+
+def create_signal(sig_len, gp_params, mean, cov):
+    signal = None
     state_local = []
     y = []
     importance = []
@@ -120,54 +130,78 @@ def create_signal(sig_len, gp_params):
 
     previous = np.random.binomial(1, P_S0)[0]
     previous_label = None
-    delta_state = 0
-    sample = np.array([gp.sample_vectorized(time_vector=np.array(range(sig_len))) for gp in gp_params])
-    #sample = np.array([butter_lowpass_filter(sample[f,:], cutoff, fs, order) for f in range(SIG_NUM)])
-    #print(sample)
-    for ii in range(sig_len):
+    delta_state = 1
+
+    #Sample for "previous" state (this is current state now)
+    imp_sig = np.zeros(SIG_NUM)
+    imp_sig[imp_feature[previous]] = 1
+    importance.append(imp_sig)
+    state_local.append(previous)
+
+    for ii in range(1,sig_len):
         next_st = next_state(previous, delta_state)
         state_n = next_st
 
-        if state_n == previous:
-            delta_state += 1
-        else:
-            delta_state = 0
-
-        sample[-1, ii] = 0.5 * (1 - state_n) + -0.5 * state_n
-        #importance.append(imp_sig)
-        # sample_ii = np.random.multivariate_normal(np.zeros(SIG_NUM), np.eye(SIG_NUM))
-        #sample_ii = np.random.multivariate_normal(mean[state_n], cov[state_n])
-        #sample_ii[-1] += 3 * (1 - state_n) + -3 * state_n
-        previous = state_n
-        #signal.append(sample_ii)
-
-        sample_ii = (sample[:,ii]).reshape((1, -1))
-        y_probs = state_n * generate_additive_labels(sample_ii[:, imp_feature[state_n]]) + \
-                  (1 - state_n) * generate_orange_labels(sample_ii[:, imp_feature[state_n]])
-        y_logit = y_probs[0][1]
-        y_label = np.random.binomial(1, y_logit)
-
         imp_sig = np.zeros(SIG_NUM)
-        #if y_label != previous_label or ii == 0:
-        imp_sig[imp_feature[state_n]] = 1
-        imp_sig[-1] = 1
+        if previous!=state_n:
+            #this samples labels+samples until  current point - before state change at next time point
+            gp_vec = [ts.signals.GaussianProcess(lengthscale=g, mean=m, variance=0.1) for g,m in zip(gp_params,mean[previous])]
+            sample_ii = np.array([gp.sample_vectorized(time_vector=np.array(range(delta_state))) for gp in gp_vec])
+            #print(sample_ii.shape)
+            #sample_ii = np.random.multivariate_normal(mean[state_n], cov[state_n])
+            if signal is not None:
+                signal = np.hstack((signal, sample_ii))
+            else:
+                signal = sample_ii
+
+            #signal.extend(sample_ii)
+            #sample_ii = (sample_ii).reshape((1, -1))
+        
+            #y_probs = state_n * generate_linear_labels(sample_ii[:, imp_feature[state_n]]) + \
+            #          (1 - state_n) * generate_linear_labels(sample_ii[:, imp_feature[state_n]])
+
+            y_probs = generate_linear_labels(sample_ii.T[:, imp_feature[previous]])
+        
+            y_logit = [yy[1] for yy in y_probs]
+            y_label = [np.random.binomial(1, yy) for yy in y_logit]
+
+            #y_logit_past = y_logit
+            y.extend(y_label)
+            y_logits.extend(y_logit)
+            delta_state = 1
+            imp_sig[imp_feature[state_n]] = 1
+            imp_sig[-1] = 1
+        else:
+            delta_state += 1
         importance.append(imp_sig)
 
-        previous_label = y_label
-        #print(y_label)
-
-        # print('previous state:', previous, 'next state probability:', next_st, 'delta_state:', delta_state,
-        #      'current state:', state_n, 'ylogit', y_logit)
-        # print('sample', sample_ii)
-
-        y.append(y_label)
-        y_logits.append(y_logit)
+        #previous_label = y_label
         state_local.append(state_n)
-    signal = sample
-    #print(signal.shape)
+        previous = state_n
+
+    #sample points in the last state-change
+    gp_vec = [ts.signals.GaussianProcess(lengthscale=g, mean=m, variance=0.1) for g,m in zip(gp_params,mean[previous])]
+    sample_ii = np.array([gp.sample_vectorized(time_vector=np.array(range(delta_state))) for gp in gp_vec])
+
+    #sometimes only one state is ever sampled
+    if signal is not None:
+        signal = np.hstack((signal, sample_ii))
+    else:
+        signal = sample_ii
+
+    y_probs = generate_linear_labels(sample_ii.T[:, imp_feature[previous]])
+        
+    y_logit = [yy[1] for yy in y_probs]
+    y_label = [np.random.binomial(1, yy) for yy in y_logit]
+            
+    y.extend(y_label)
+    y_logits.extend(y_logit)
+
+    #signal = signal
     y = np.array(y)
     importance = np.array(importance)
-    #print(importance.shape)
+
+    #print(signal.shape, y.shape, len(state_local), importance.shape, len(y_logits))
     return signal, y, state_local, importance, y_logits
 
 
@@ -210,12 +244,10 @@ def create_dataset(count, signal_len):
     importance_score = []
     states = []
     label_logits = []
-    # mean, cov = init_distribution_params()
-    gp_lengthscale = np.random.uniform(0.5,2.5, SIG_NUM)
-    means = [1.2, 0.8,1.5, 0.4, 0.5, -1.2, -1.5, -0.8, -0.4, -0.5]
-    gp_vec = [ts.signals.GaussianProcess(lengthscale=g, mean=m, variance=0.5) for g,m in zip(gp_lengthscale,means)]
+    mean, cov = init_distribution_params()
+    gp_lengthscale = np.random.uniform(0.2,0.2, SIG_NUM)
     for num in range(count):
-        sig, y, state, importance, y_logits = create_signal(signal_len, gp_params=gp_vec)  # , mean, cov)
+        sig, y, state, importance, y_logits = create_signal(signal_len, gp_params=gp_lengthscale , mean=mean, cov=cov)
         dataset.append(sig)
         labels.append(y)
         importance_score.append(importance.T)
@@ -276,14 +308,17 @@ if __name__ == '__main__':
     if args.plot:
         import matplotlib.pyplot as plt
 
-        f, (x1, x2) = plt.subplots(2, 1)
+        f, (x1, x2, x3) = plt.subplots(3, 1)
         state_1_1 = []
         state_1_0 = []
         state_0_1 = []
         state_0_0 = []
+        state_2_0 = []
+        state_2_1 = []
 
         idx0 = np.where(states == 0)
         idx1 = np.where(states == 1)
+        idx2 = np.where(states == 2)
 
         for c in range(len(idx0[0])):
             if labels[idx0[0][c], idx0[1][c]] == 0:
@@ -296,15 +331,28 @@ if __name__ == '__main__':
                 state_1_0.append(labels[idx1[0][c], idx1[1][c]])
             else:
                 state_1_1.append(labels[idx1[0][c], idx1[1][c]])
+
+        for c in range(len(idx2[0])):
+            if labels[idx2[0][c], idx2[1][c]] == 0:
+                state_2_0.append(labels[idx2[0][c], idx2[1][c]])
+            else:
+                state_2_1.append(labels[idx2[0][c], idx2[1][c]])
+
         x1.hist(state_0_0,label='label 0')
         x1.hist(state_0_1, label = 'label 1')
-        x1.set_title('state 0: orange')
+        x1.set_title('state 0')
         x1.legend()
         
         x2.hist(state_1_0,label='label 0')
         x2.hist(state_1_1,label = 'label 1')
-        x2.set_title('state 1: additive')
+        x2.set_title('state 1')
         x2.legend()
+
+        x3.hist(state_2_0,label='label 0')
+        x3.hist(state_2_1,label = 'label 1')
+        x3.set_title('state 2')
+        x3.legend()
+        
         plt.savefig('plot.pdf')
 
 
@@ -323,11 +371,13 @@ if __name__ == '__main__':
             x2.set_title('Distribution based on state')
         plt.savefig('plot2.pdf')
 
-        plot_id=2
+        plot_id=5
+
         f= plt.figure(figsize=(18,9))
         x1 = f.subplots()
+        shade_state_state_data(states[plot_id], range(dataset.shape[2]), x1)
         for i in range(SIG_NUM):
-            x1.plot(range(dataset.shape[2]), dataset[plot_id, i, :], linewidth=1, label='feature %d' % (0))
+            x1.plot(range(dataset.shape[2]), dataset[plot_id, i, :], linewidth=1, label='feature %d' % (i))
         #x1.plot(range(dataset.shape[2]), dataset[plot_id, 1, :], linewidth=3, label='feature %d' % (1))
         #x1.plot(range(dataset.shape[2]), dataset[plot_id, 2, :], linewidth=3, label='feature %d' % (2))
         x1.plot(range(dataset.shape[2]), label_logits[plot_id, :], linewidth=3, label='label')
