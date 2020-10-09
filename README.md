@@ -35,4 +35,4 @@ For running the experiments, you need to train: 1) The black-box predictor model
 ```
 python3 -m evaluation.baselines --data DATASET_NAME --explainer EXPLAINER_MODEL --train
 ```
-
+In addition to FIT, you can also run experiments on different baseline explainers such as retain, deep lift, feature occlusion, etc.
