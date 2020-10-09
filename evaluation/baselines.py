@@ -53,6 +53,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 100
+    if not os.path.exists('./plots'):
+        os.mkdir('./plots')
+    if not os.path.exists('./ckpt'):
+        os.mkdir('./ckpt')
+    if not os.path.exists('./outputs'):
+        os.mkdir('./outputs')
     activation = torch.nn.Softmax(-1)
     output_path = args.out_path
     if not os.path.exists(output_path):
@@ -310,4 +316,4 @@ if __name__ == '__main__':
         aupr_score = metrics.average_precision_score(gt_score, explainer_score)
 
         _, median_rank, _= compute_median_rank(ranked_feats, gt_soft_score, soft=True,K=4)
-        print('auc:', auc_score, ' aupr:', aupr_score, 'median rank:', median_rank)
+        print('auc:', auc_score, ' aupr:', aupr_score)

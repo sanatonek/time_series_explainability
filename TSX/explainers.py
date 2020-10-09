@@ -454,7 +454,6 @@ class RETAINexplainer:
                     test_aupr = average_precision_score(test_y_true.cpu().numpy(), test_y_pred.cpu().numpy()[:, 1],
                                                     average="weighted")
 
-
                 with open('./outputs/retain_train_result.txt', 'w') as f:
                     f.write('Best Validation Epoch: {}\n'.format(ei))
                     f.write('Best Validation Loss: {}\n'.format(best_valid_loss))
