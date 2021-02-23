@@ -1,6 +1,6 @@
 # Instance-wise Feature Importance in Time (FIT)
 
-FIT is a framework for explaining time series perdiction models, by assigning feature importance to every observation over time. 
+FIT is a framework for explaining time series perdiction models, by assigning feature importance to every observation over time. [paper](https://papers.nips.cc/paper/2020/hash/08fa43588c2571ade19bc0fa5936e028-Abstract.html)
 
 To run the experiments, you need a trained prediction model that takes in time series data as input, and generates a prediction over time. You also need the training data to train the FIT generator. Below are the instruction for replicating experiments in the paper.
 
